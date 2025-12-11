@@ -396,8 +396,8 @@ enum C6PHandshake99 {
         var ikm = Data()
         ikm.append(dh1)
 
-        // 5) Opcjonalnie: one-time prekey wg ID z offer.
         var consumedOTPId: C6PKeyId? = nil
+        var otpPubRaw: Data? = nil
 
         if let otpId = offer.usedOneTimePrekeyId {
             guard let otpPriv = oneTimePrekeys[otpId] else {
@@ -407,17 +407,18 @@ enum C6PHandshake99 {
             let dh2 = sharedSecretToData(dh2Shared)
             ikm.append(dh2)
             consumedOTPId = otpId
+            otpPubRaw = otpPriv.publicKey.rawRepresentation
         }
 
-        // 6) Odtwórz salt z identycznego transcriptu.
         let salt = handshakeSalt(
             sessionId: offer.sessionId,
             initiatorDeviceId: offer.initiatorDeviceId,
             responderDeviceId: offer.responderDeviceId,
             ephemeralPublicKeyX25519: offer.ephemeralPublicKeyX25519,
             signedPrekeyPublicKeyX25519: offer.usedSignedPrekeyPublicKeyX25519,
-            oneTimePrekeyPublicKeyX25519: nil // nie potrzebujemy go po stronie respondenta do salt
+            oneTimePrekeyPublicKeyX25519: otpPubRaw
         )
+
 
         // 7) Wyprowadź root key (uwaga na role: inicjator = offer.initiatorDeviceId).
         let rootKey = C6PKeySchedule.deriveInitialRootKey(
