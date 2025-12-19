@@ -4,25 +4,91 @@ import Security
 
 // MARK: - Global constants
 
-/// Global C6P protocol version (used in AAD, etc.)
+/// Global C6P protocol version (used in AAD, KDF info, envelopes, etc.)
 let C6P_VERSION: UInt8 = 1
 
-/// Canonical algorithm identifiers for C6P v1.
+// MARK: - Canonical algorithm identifiers (string constants)
+
+/// Canonical algorithm identifiers for C6P v1 (spec-facing, human/audit readable).
 enum C6PAlgorithmId {
-    static let dhX25519      = "C6P_DH_X25519_V1"
-    static let sigEd25519    = "C6P_SIG_ED25519_V1"
-    static let hashSHA256    = "C6P_HASH_SHA256_V1"
-    static let kdfHKDFSHA256 = "C6P_KDF_HKDFSHA256_V1"
-    static let aeadChaCha20  = "C6P_AEAD_CHACHA20POLY1305_V1"
+    static let dhX25519        = "C6P_DH_X25519_V1"
+    static let sigEd25519      = "C6P_SIG_ED25519_V1"
+
+    static let hashSHA256      = "C6P_HASH_SHA256_V1"
+    static let kdfHKDFSHA256   = "C6P_KDF_HKDFSHA256_V1"
+
+    // AEAD identifiers (protocol-level)
+    static let aeadChaCha20Poly1305  = "C6P_AEAD_CHACHA20POLY1305_V1"
+    static let aeadXChaCha20Poly1305 = "C6P_AEAD_XCHACHA20POLY1305_V1"
+    static let aeadAegis128L         = "C6P_AEAD_AEGIS_128L_V1"
+}
+
+// MARK: - AEAD suite ids (wire-level, compact)
+
+/// Compact suite identifiers (wire-level).
+/// Keep these stable forever once shipped.
+enum C6PEncryptionSuite: UInt8, Codable, CustomStringConvertible {
+    /// Swift reference via CryptoKit
+    case v1_chachaPoly   = 0x01
+
+    /// Preferred protocol suite (when available)
+    case v1_aegis128l    = 0x02
+
+    /// Fallback suite (when available)
+    case v1_xchachaPoly  = 0x03
+
+    var description: String {
+        switch self {
+        case .v1_chachaPoly:  return "C6P_SUITE_CHACHA20_POLY1305_V1"
+        case .v1_aegis128l:   return "C6P_SUITE_AEGIS_128L_V1"
+        case .v1_xchachaPoly: return "C6P_SUITE_XCHACHA20_POLY1305_V1"
+        }
+    }
+}
+
+// MARK: - Wire-stable stream id
+
+/// Wire-stable stream identifier:
+/// - i2r: Initiator -> Responder
+/// - r2i: Responder -> Initiator
+///
+/// This is the canonical “direction” used in:
+/// - chain key separation
+/// - message key derivation context
+/// - nonce construction
+/// - AEAD AAD binding
+enum C6PStreamId: UInt8, Codable, CustomStringConvertible {
+    case i2r = 0x01
+    case r2i = 0x02
+
+    var description: String {
+        switch self {
+        case .i2r: return "I2R"
+        case .r2i: return "R2I"
+        }
+    }
 }
 
 // MARK: - Errors
 
-enum C6PCryptoError: Error {
+enum C6PCryptoError: Error, CustomStringConvertible {
     case invalidBase64UrlString
     case invalidHexString
     case invalidLength(expected: Int, actual: Int)
     case randomFailed(status: OSStatus)
+
+    var description: String {
+        switch self {
+        case .invalidBase64UrlString:
+            return "C6PCryptoError.invalidBase64UrlString"
+        case .invalidHexString:
+            return "C6PCryptoError.invalidHexString"
+        case .invalidLength(let expected, let actual):
+            return "C6PCryptoError.invalidLength(expected=\(expected), actual=\(actual))"
+        case .randomFailed(let status):
+            return "C6PCryptoError.randomFailed(status=\(status))"
+        }
+    }
 }
 
 // MARK: - Random bytes (CSPRNG)
@@ -35,9 +101,7 @@ enum C6PRandom {
 
         var data = Data(count: count)
         let status = data.withUnsafeMutableBytes { (ptr: UnsafeMutableRawBufferPointer) -> OSStatus in
-            guard let baseAddress = ptr.baseAddress else {
-                return errSecParam
-            }
+            guard let baseAddress = ptr.baseAddress else { return errSecParam }
             return SecRandomCopyBytes(kSecRandomDefault, count, baseAddress)
         }
 
@@ -80,9 +144,10 @@ enum C6PEncoding {
             .replacingOccurrences(of: "-", with: "+")
             .replacingOccurrences(of: "_", with: "/")
 
-        let paddingNeeded = 4 - (base64.count % 4)
-        if paddingNeeded < 4 {
-            base64.append(String(repeating: "=", count: paddingNeeded))
+        // pad to multiple of 4
+        let mod = base64.count % 4
+        if mod != 0 {
+            base64.append(String(repeating: "=", count: 4 - mod))
         }
 
         guard let data = Data(base64Encoded: base64) else {
@@ -129,46 +194,54 @@ enum C6PEncoding {
         return data
     }
 
-    // MARK: Big-endian integers
+    // MARK: Big-endian integers (safe, no alignment assumptions)
 
     static func uint64ToBigEndianData(_ value: UInt64) -> Data {
-        var be = value.bigEndian
-        return Data(bytes: &be, count: MemoryLayout<UInt64>.size)
+        var out = [UInt8](repeating: 0, count: 8)
+        for i in 0..<8 {
+            let shift = (7 - i) * 8
+            out[i] = UInt8((value >> UInt64(shift)) & 0xFF)
+        }
+        return Data(out)
     }
 
     static func uint32ToBigEndianData(_ value: UInt32) -> Data {
-        var be = value.bigEndian
-        return Data(bytes: &be, count: MemoryLayout<UInt32>.size)
+        var out = [UInt8](repeating: 0, count: 4)
+        for i in 0..<4 {
+            let shift = (3 - i) * 8
+            out[i] = UInt8((value >> UInt32(shift)) & 0xFF)
+        }
+        return Data(out)
     }
 
     static func bigEndianDataToUInt64(_ data: Data) -> UInt64 {
         precondition(data.count == 8, "Expected 8 bytes for UInt64")
-        return data.withUnsafeBytes { ptr in
-            ptr.load(as: UInt64.self).bigEndian
+        var value: UInt64 = 0
+        for b in data {
+            value = (value << 8) | UInt64(b)
         }
+        return value
     }
 
     static func bigEndianDataToUInt32(_ data: Data) -> UInt32 {
         precondition(data.count == 4, "Expected 4 bytes for UInt32")
-        return data.withUnsafeBytes { ptr in
-            ptr.load(as: UInt32.self).bigEndian
+        var value: UInt32 = 0
+        for b in data {
+            value = (value << 8) | UInt32(b)
         }
+        return value
     }
 }
 
-// MARK: - HKDF (Extract + Expand, RFC 5869)
+// MARK: - HKDF (Extract + Expand, RFC 5869) — HKDF-SHA256
 
 enum C6PHKDF {
 
     /// HKDF-Extract(salt, IKM) -> PRK
     static func extract(salt: Data, inputKeyMaterial: Data) -> Data {
-        let effectiveSalt: Data
-        if salt.isEmpty {
-            // RFC 5869: if salt not provided, use zeros of HashLen
-            effectiveSalt = Data(repeating: 0, count: 32) // 32 = SHA256 output size
-        } else {
-            effectiveSalt = salt
-        }
+        let effectiveSalt: Data = salt.isEmpty
+            ? Data(repeating: 0, count: 32) // SHA-256 output size
+            : salt
 
         let key = SymmetricKey(data: effectiveSalt)
         let mac = HMAC<SHA256>.authenticationCode(for: inputKeyMaterial, using: key)
@@ -178,7 +251,6 @@ enum C6PHKDF {
     /// HKDF-Expand(PRK, info, L) -> OKM
     static func expand(pseudoRandomKey: Data, info: Data, outputByteCount: Int) -> Data {
         precondition(outputByteCount > 0, "outputByteCount must be > 0")
-        // RFC 5869: L <= 255 * HashLen
         precondition(outputByteCount <= 255 * 32, "outputByteCount too large for HKDF-SHA256")
 
         let prk = SymmetricKey(data: pseudoRandomKey)
@@ -219,15 +291,10 @@ struct C6PKeyId: Hashable, Codable, CustomStringConvertible {
 
     let value: UInt64
 
-    // MARK: Initializers
-
-    init(value: UInt64) {
-        self.value = value
-    }
+    init(value: UInt64) { self.value = value }
 
     static func random() throws -> C6PKeyId {
-        let v = try C6PRandom.randomUInt64()
-        return C6PKeyId(value: v)
+        C6PKeyId(value: try C6PRandom.randomUInt64())
     }
 
     init(data: Data) throws {
@@ -238,27 +305,13 @@ struct C6PKeyId: Hashable, Codable, CustomStringConvertible {
     }
 
     init(hexString: String) throws {
-        let data = try C6PEncoding.hexDecode(hexString)
-        try self.init(data: data)
+        try self.init(data: C6PEncoding.hexDecode(hexString))
     }
 
-    // MARK: Encodings
+    var data: Data { C6PEncoding.uint64ToBigEndianData(value) }
+    var hexString: String { C6PEncoding.hexEncode(data, uppercase: false) }
 
-    var data: Data {
-        C6PEncoding.uint64ToBigEndianData(value)
-    }
-
-    var hexString: String {
-        C6PEncoding.hexEncode(data, uppercase: false)
-    }
-
-    // MARK: CustomStringConvertible
-
-    var description: String {
-        hexString
-    }
-
-    // MARK: Codable
+    var description: String { hexString }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -272,20 +325,15 @@ struct C6PKeyId: Hashable, Codable, CustomStringConvertible {
     }
 }
 
-/// 8-byte identifier for devices, encoded jako lowercase hex w JSON.
+/// 8-byte identifier for devices, encoded as lowercase hex in JSON.
 struct C6PDeviceId: Hashable, Codable, CustomStringConvertible {
 
     let value: UInt64
 
-    // MARK: Initializers
-
-    init(value: UInt64) {
-        self.value = value
-    }
+    init(value: UInt64) { self.value = value }
 
     static func random() throws -> C6PDeviceId {
-        let v = try C6PRandom.randomUInt64()
-        return C6PDeviceId(value: v)
+        C6PDeviceId(value: try C6PRandom.randomUInt64())
     }
 
     init(data: Data) throws {
@@ -296,25 +344,13 @@ struct C6PDeviceId: Hashable, Codable, CustomStringConvertible {
     }
 
     init(hexString: String) throws {
-        let data = try C6PEncoding.hexDecode(hexString)
-        try self.init(data: data)
+        try self.init(data: C6PEncoding.hexDecode(hexString))
     }
 
-    // MARK: Encodings
+    var data: Data { C6PEncoding.uint64ToBigEndianData(value) }
+    var hexString: String { C6PEncoding.hexEncode(data, uppercase: false) }
 
-    var data: Data {
-        C6PEncoding.uint64ToBigEndianData(value)
-    }
-
-    var hexString: String {
-        C6PEncoding.hexEncode(data, uppercase: false)
-    }
-
-    var description: String {
-        hexString
-    }
-
-    // MARK: Codable
+    var description: String { hexString }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -328,20 +364,16 @@ struct C6PDeviceId: Hashable, Codable, CustomStringConvertible {
     }
 }
 
-/// 4-byte session identifier used in nonces (big-endian UInt32).
+/// 4-byte session identifier used in v1 layouts (big-endian UInt32).
+/// NOTE: In the “ideal future” we may widen this to 8 bytes, but v1 keeps 4.
 struct C6PSessionId: Hashable, Codable, CustomStringConvertible {
 
     let value: UInt32
 
-    // MARK: Initializers
-
-    init(value: UInt32) {
-        self.value = value
-    }
+    init(value: UInt32) { self.value = value }
 
     static func random() throws -> C6PSessionId {
-        let v = try C6PRandom.randomUInt32()
-        return C6PSessionId(value: v)
+        C6PSessionId(value: try C6PRandom.randomUInt32())
     }
 
     init(data: Data) throws {
@@ -352,26 +384,13 @@ struct C6PSessionId: Hashable, Codable, CustomStringConvertible {
     }
 
     init(hexString: String) throws {
-        let data = try C6PEncoding.hexDecode(hexString)
-        try self.init(data: data)
+        try self.init(data: C6PEncoding.hexDecode(hexString))
     }
 
-    // MARK: Encodings
+    var data: Data { C6PEncoding.uint32ToBigEndianData(value) }
+    var hexString: String { C6PEncoding.hexEncode(data, uppercase: false) }
 
-    var data: Data {
-        C6PEncoding.uint32ToBigEndianData(value)
-    }
-
-    /// Hex encoding of session ID (8 hex chars).
-    var hexString: String {
-        C6PEncoding.hexEncode(data, uppercase: false)
-    }
-
-    var description: String {
-        hexString
-    }
-
-    // MARK: Codable
+    var description: String { hexString }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -390,49 +409,46 @@ struct C6PMessageCounter: Hashable, Codable, CustomStringConvertible {
 
     private(set) var value: UInt64
 
-    init(value: UInt64 = 0) {
-        self.value = value
-    }
+    init(value: UInt64 = 0) { self.value = value }
 
-    mutating func increment() {
-        value &+= 1
-    }
+    mutating func increment() { value &+= 1 }
 
-    var data: Data {
-        C6PEncoding.uint64ToBigEndianData(value)
-    }
-
-    var description: String {
-        String(value)
-    }
+    var data: Data { C6PEncoding.uint64ToBigEndianData(value) }
+    var description: String { String(value) }
 }
 
 // MARK: - Message types
 
-enum C6PMessageType: UInt8 {
+enum C6PMessageType: UInt8, Codable, CustomStringConvertible {
     case dm      = 0x01
     case group   = 0x02
     case channel = 0x03
     case control = 0x10
+
+    var description: String {
+        switch self {
+        case .dm: return "DM"
+        case .group: return "GROUP"
+        case .channel: return "CHANNEL"
+        case .control: return "CONTROL"
+        }
+    }
 }
 
-// MARK: - Fingerprint (IDK)
+// MARK: - Fingerprint (UI / verification aid)
 
 enum C6PFingerprint {
 
-    /// Computes fingerprint string (8 bytes of SHA256(pubkey), hex uppercase grouped 4x4).
+    /// Computes a short fingerprint string:
+    /// first 8 bytes of SHA256(pubkey), uppercase hex grouped 4-4-4-4.
     static func fingerprint(forPublicKey publicKey: Data) -> String {
         let hash = SHA256.hash(data: publicKey)
         let full = Data(hash)
         let first8 = full.prefix(8)
 
         let hex = C6PEncoding.hexEncode(first8, uppercase: true) // 16 hex chars
-        // Format: XXXX-XXXX-XXXX-XXXX
         let chars = Array(hex)
-        guard chars.count == 16 else {
-            // Should never happen, but fallback: raw hex
-            return hex
-        }
+        guard chars.count == 16 else { return hex }
 
         let p1 = String(chars[0..<4])
         let p2 = String(chars[4..<8])
