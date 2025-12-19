@@ -1,177 +1,246 @@
 //
 //  C6PSessionState.swift
-//  C6P-Protocol
+//  Convro-6-Protocol (C6P)
 //
-//  Reprezentuje pełny stan sesji C6P pomiędzy dwoma urządzeniami
-//  (localDeviceId, remoteDeviceId).
+//  Full device-to-device session state.
+//  Stored locally (Keychain/file/db), restored on app startup.
 //
-//  Zawiera:
-//  - sessionId
-//  - role (INITIATOR / RESPONDER)
-//  - rootKey
-//  - chain keys SEND / RECV
-//  - liczniki wiadomości SEND / RECV
-//  - podstawowe metadane (status, createdAt, updatedAt)
+//  C6P sessions are device-scoped (multi-device by design).
+//  Crypto properties are enforced client-side; server is routing-only.
 //
 
 import Foundation
 
 // MARK: - Session Status
 
-/// Status sesji z punktu widzenia lokalnego urządzenia.
-/// Pozwala zaznaczyć, czy sesja jest aktywna, zamknięta, albo
-/// wymaga ponownego handshaku (np. po wykryciu problemów).
+/// Session status from the local device point of view.
 enum C6PSessionStatus: String, Codable {
     case active           = "ACTIVE"
     case closed           = "CLOSED"
     case needsReHandshake = "NEEDS_REHANDSHAKE"
 }
 
+// MARK: - Replay / ordering policy
+
+/// Receiver policy for handling counters.
+enum C6PReplayPolicy: String, Codable {
+    /// Accept only strictly in-order counter progression (ctr == expected).
+    case strictInOrder = "STRICT_IN_ORDER"
+
+    /// Allow a small window and buffer out-of-order (implementation-dependent).
+    case windowed = "WINDOWED"
+}
+
 // MARK: - Session State
 
-/// Pełny stan sesji C6P między `localDeviceId` a `remoteDeviceId`.
+/// Full session state between (localDeviceId, remoteDeviceId).
 ///
-/// Ta struktura jest tym, co zapisujesz w storage (Keychain / plik / DB),
-/// a następnie odtwarzasz przy starcie aplikacji.
-///
-/// Wszystkie pola są jawne i możliwe do audytu – żadnej magii.
+/// NOTE:
+/// - Nonces are deterministic and reconstructed (never transmitted).
+/// - Envelopes must carry: suite, sessionId, streamId, counter, messageType to compute nonce/AAD.
 struct C6PSessionState: Hashable, Codable, CustomStringConvertible {
 
-    // MARK: - Identyfikatory
+    // MARK: - Identifiers
 
-    /// Identyfikator sesji (4 bajty, wspólny dla obu stron).
+    /// Shared session identifier.
     let sessionId: C6PSessionId
 
-    /// Lokalne urządzenie (to, na którym działa ten kod).
+    /// Local device identifier.
     let localDeviceId: C6PDeviceId
 
-    /// Zdalne urządzenie (druga strona sesji).
+    /// Remote device identifier.
     let remoteDeviceId: C6PDeviceId
 
-    /// Rola lokalnego urządzenia w tej sesji.
-    /// - `.initiator` – jeśli to my zaczęliśmy handshake99;
-    /// - `.responder` – jeśli odpowiadaliśmy na ofertę.
+    /// Local role in this session.
     let role: C6PRole
 
-    // MARK: - Klucze
+    // MARK: - Crypto suite (agility)
 
-    /// Root key dla tej sesji – wyprowadzony z handshake99.
+    /// Negotiated encryption suite for this session.
+    /// Must be stable for the lifetime of the session.
+    var suite: C6PEncryptionSuite
+
+    // MARK: - Keys
+
+    /// Session root key derived during handshake.
     var rootKey: C6PRootKey
 
-    /// Łańcuch kluczy używany do wysyłania wiadomości (SEND).
+    /// Sending chain key (local -> remote).
     var sendChainKey: C6PChainKey
 
-    /// Łańcuch kluczy używany do odbierania wiadomości (RECV).
+    /// Receiving chain key (remote -> local).
     var recvChainKey: C6PChainKey
 
-    /// Licznik wiadomości wychodzących (per kierunek z punktu widzenia lokalnego urządzenia).
-    var sendCounter: C6PMessageCounter
+    // MARK: - Counters (wire-stable streams)
 
-    /// Licznik wiadomości przychodzących.
-    var recvCounter: C6PMessageCounter
+    /// Next expected counter for I2R stream.
+    /// (Initiator -> Responder direction on the wire)
+    var nextI2RCounter: UInt64
 
-    // MARK: - Metadane
+    /// Next expected counter for R2I stream.
+    /// (Responder -> Initiator direction on the wire)
+    var nextR2ICounter: UInt64
 
-    /// Kiedy sesja została utworzona (lokalny czas urządzenia).
+    // MARK: - Policy
+
+    /// Counter/replay policy.
+    var replayPolicy: C6PReplayPolicy
+
+    /// Optional receive window size for `.windowed` policy.
+    /// In v1 you can keep it nil and implement strict only.
+    var receiveWindow: UInt32?
+
+    // MARK: - Metadata
+
     var createdAt: Date
-
-    /// Kiedy sesja była ostatnio zmodyfikowana (np. wysłanie / odebranie wiadomości).
     var updatedAt: Date
-
-    /// Status sesji.
     var status: C6PSessionStatus
 
-    // MARK: - Computed
+    // MARK: - Derived helpers
 
-    /// Czy lokalne urządzenie jest inicjatorem tej sesji.
-    var isInitiator: Bool {
-        role == .initiator
-    }
+    var isInitiator: Bool { role == .initiator }
+    var isResponder: Bool { role == .responder }
 
-    /// Czy lokalne urządzenie jest respondentem tej sesji.
-    var isResponder: Bool {
-        role == .responder
-    }
+    /// Wire-stable stream mapping for *local sending*.
+    /// If local is initiator => sending uses I2R, else sending uses R2I.
+    var localSendStream: C6PStreamId { isInitiator ? .i2r : .r2i }
 
-    // MARK: - Initializer
+    /// Wire-stable stream mapping for *local receiving*.
+    var localRecvStream: C6PStreamId { isInitiator ? .r2i : .i2r }
 
-    /// Główny initializer. Zakłada, że przekazane rootKey / chainKeys są
-    /// już poprawnie wyprowadzone (np. z C6PHandshake99 / C6PKeySchedule).
-    ///
-    /// Wykonuje kilka spójnościowych `precondition`, żeby złapać
-    /// potencjalne błędy już na etapie developmentu.
+    // MARK: - Init
+
     init(
         sessionId: C6PSessionId,
         localDeviceId: C6PDeviceId,
         remoteDeviceId: C6PDeviceId,
         role: C6PRole,
+        suite: C6PEncryptionSuite,
         rootKey: C6PRootKey,
         sendChainKey: C6PChainKey,
         recvChainKey: C6PChainKey,
-        sendCounter: C6PMessageCounter = C6PMessageCounter(),
-        recvCounter: C6PMessageCounter = C6PMessageCounter(),
+        nextI2RCounter: UInt64 = 0,
+        nextR2ICounter: UInt64 = 0,
+        replayPolicy: C6PReplayPolicy = .strictInOrder,
+        receiveWindow: UInt32? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
         status: C6PSessionStatus = .active
     ) {
-        // Spójność sessionId:
-        precondition(rootKey.sessionId == sessionId, "RootKey.sessionId must match C6PSessionState.sessionId")
+        // Session id consistency
+        precondition(rootKey.sessionId == sessionId, "RootKey.sessionId must match sessionId")
         precondition(sendChainKey.sessionId == sessionId, "sendChainKey.sessionId must match sessionId")
         precondition(recvChainKey.sessionId == sessionId, "recvChainKey.sessionId must match sessionId")
 
-        // Spójność device IDs w rootKey:
-        // rootKey.initiatorDeviceId / responderDeviceId muszą odpowiadać roli.
+        // RootKey device binding must match role
         switch role {
         case .initiator:
-            precondition(rootKey.initiatorDeviceId == localDeviceId, "For role=initiator, rootKey.initiatorDeviceId must be localDeviceId")
-            precondition(rootKey.responderDeviceId == remoteDeviceId, "For role=initiator, rootKey.responderDeviceId must be remoteDeviceId")
+            precondition(rootKey.initiatorDeviceId == localDeviceId, "role=initiator => rootKey.initiatorDeviceId must be localDeviceId")
+            precondition(rootKey.responderDeviceId == remoteDeviceId, "role=initiator => rootKey.responderDeviceId must be remoteDeviceId")
         case .responder:
-            precondition(rootKey.initiatorDeviceId == remoteDeviceId, "For role=responder, rootKey.initiatorDeviceId must be remoteDeviceId")
-            precondition(rootKey.responderDeviceId == localDeviceId, "For role=responder, rootKey.responderDeviceId must be localDeviceId")
+            precondition(rootKey.initiatorDeviceId == remoteDeviceId, "role=responder => rootKey.initiatorDeviceId must be remoteDeviceId")
+            precondition(rootKey.responderDeviceId == localDeviceId, "role=responder => rootKey.responderDeviceId must be localDeviceId")
         }
 
-        // Spójność device IDs w chain keys:
+        // Chain key binding
         precondition(sendChainKey.selfDeviceId == localDeviceId, "sendChainKey.selfDeviceId must be localDeviceId")
         precondition(sendChainKey.remoteDeviceId == remoteDeviceId, "sendChainKey.remoteDeviceId must be remoteDeviceId")
         precondition(recvChainKey.selfDeviceId == localDeviceId, "recvChainKey.selfDeviceId must be localDeviceId")
         precondition(recvChainKey.remoteDeviceId == remoteDeviceId, "recvChainKey.remoteDeviceId must be remoteDeviceId")
 
-        // Spójność ról i kierunków w chain keys:
+        // Role & direction in chain keys
         precondition(sendChainKey.role == role, "sendChainKey.role must match session role")
         precondition(recvChainKey.role == role, "recvChainKey.role must match session role")
         precondition(sendChainKey.direction == .sending, "sendChainKey.direction must be .sending")
         precondition(recvChainKey.direction == .receiving, "recvChainKey.direction must be .receiving")
 
+        // Replay policy sanity
+        if replayPolicy == .strictInOrder {
+            precondition(receiveWindow == nil, "receiveWindow must be nil for strictInOrder")
+        }
+
         self.sessionId = sessionId
         self.localDeviceId = localDeviceId
         self.remoteDeviceId = remoteDeviceId
         self.role = role
+        self.suite = suite
         self.rootKey = rootKey
         self.sendChainKey = sendChainKey
         self.recvChainKey = recvChainKey
-        self.sendCounter = sendCounter
-        self.recvCounter = recvCounter
+        self.nextI2RCounter = nextI2RCounter
+        self.nextR2ICounter = nextR2ICounter
+        self.replayPolicy = replayPolicy
+        self.receiveWindow = receiveWindow
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.status = status
     }
 
-    // MARK: - Mutating helpers
+    // MARK: - Counter helpers
 
-    /// Aktualizuje znacznik czasu `updatedAt` na teraz.
-    mutating func markUpdated() {
-        updatedAt = Date()
+    /// Returns the next counter to use for local sending, and increments session state.
+    /// This is the only approved way to allocate a new outgoing counter.
+    mutating func allocateOutgoingCounter() -> UInt64 {
+        let stream = localSendStream
+        switch stream {
+        case .i2r:
+            let c = nextI2RCounter
+            nextI2RCounter &+= 1
+            updatedAt = Date()
+            return c
+        case .r2i:
+            let c = nextR2ICounter
+            nextR2ICounter &+= 1
+            updatedAt = Date()
+            return c
+        }
     }
 
-    /// Oznacza sesję jako zamkniętą. Możesz np. wywołać to po
-    /// twardym resecie tożsamości / logout na urządzeniu.
+    /// Returns the next expected incoming counter for a given stream (wire-stable).
+    func expectedIncomingCounter(for stream: C6PStreamId) -> UInt64 {
+        switch stream {
+        case .i2r: return nextI2RCounter
+        case .r2i: return nextR2ICounter
+        }
+    }
+
+    /// Marks that an incoming counter has been accepted for a given stream.
+    /// For strictInOrder this must be exactly `expected`.
+    mutating func acceptIncomingCounter(_ counter: UInt64, for stream: C6PStreamId) -> Bool {
+        switch replayPolicy {
+        case .strictInOrder:
+            let expected = expectedIncomingCounter(for: stream)
+            guard counter == expected else { return false }
+            switch stream {
+            case .i2r: nextI2RCounter &+= 1
+            case .r2i: nextR2ICounter &+= 1
+            }
+            updatedAt = Date()
+            return true
+
+        case .windowed:
+            // v1 may keep strict only; windowed buffering is implemented in SessionService.
+            // Here we do conservative behavior: still require in-order unless caller implements buffering.
+            let expected = expectedIncomingCounter(for: stream)
+            guard counter == expected else { return false }
+            switch stream {
+            case .i2r: nextI2RCounter &+= 1
+            case .r2i: nextR2ICounter &+= 1
+            }
+            updatedAt = Date()
+            return true
+        }
+    }
+
+    // MARK: - Status helpers
+
+    mutating func markUpdated() { updatedAt = Date() }
+
     mutating func markClosed() {
         status = .closed
         updatedAt = Date()
     }
 
-    /// Oznacza, że sesja powinna zostać odtworzona przez nowy handshake
-    /// (np. po wykryciu niespójnego stanu / podejrzeniu kompromitacji).
     mutating func markNeedsReHandshake() {
         status = .needsReHandshake
         updatedAt = Date()
@@ -180,6 +249,7 @@ struct C6PSessionState: Hashable, Codable, CustomStringConvertible {
     // MARK: - CustomStringConvertible
 
     var description: String {
-        "C6PSessionState(sessionId=\(sessionId.hexString), local=\(localDeviceId.hexString), remote=\(remoteDeviceId.hexString), role=\(role.rawValue), status=\(status.rawValue))"
+        "C6PSessionState(sessionId=\(sessionId.hexString), local=\(localDeviceId.hexString), remote=\(remoteDeviceId.hexString), role=\(role.rawValue), suite=\(suite), status=\(status.rawValue))"
     }
 }
+
