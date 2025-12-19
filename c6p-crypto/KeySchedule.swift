@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 
-// MARK: - Role & Direction
+// MARK: - Role & Direction (local only)
 
 /// Perspective of this device in the session.
 enum C6PRole: String, Codable {
@@ -9,37 +9,62 @@ enum C6PRole: String, Codable {
     case responder = "RESPONDER"
 }
 
-/// Direction of traffic from POV tego urządzenia.
+/// Direction from POV of THIS device (local).
+/// IMPORTANT: local direction must never be used directly as wire context.
+/// For wire-stable context use C6PStreamId.
 enum C6PDirection: String, Codable {
     case sending   = "SENDING"
     case receiving = "RECEIVING"
 }
 
+// MARK: - Wire-stable stream id (canonical)
+
+/// Wire-stable stream identifier:
+/// - i2r: Initiator -> Responder
+/// - r2i: Responder -> Initiator
+///
+/// This is the canonical notion of direction used for:
+/// - chain key separation
+/// - message key derivation context
+/// - nonce/AAD binding (see AEAD.swift)
+enum C6PStreamId: UInt8, Codable {
+    case i2r = 0x01
+    case r2i = 0x02
+
+    /// Derives wire-stable stream id from local (role, direction) in a symmetric way:
+    /// - Initiator sending  => i2r ; Responder receiving => i2r
+    /// - Responder sending  => r2i ; Initiator receiving => r2i
+    static func derive(role: C6PRole, direction: C6PDirection) -> C6PStreamId {
+        switch (role, direction) {
+        case (.initiator, .sending):   return .i2r
+        case (.initiator, .receiving): return .r2i
+        case (.responder, .sending):   return .r2i
+        case (.responder, .receiving): return .i2r
+        }
+    }
+}
+
 // MARK: - Root Key
 
-/// 32-bajtowy klucz źródłowy dla danej sesji.
-/// Powstaje z początkowego X25519 shared secret + kontekstu handshake.
+/// 32-byte root key for a session.
+/// Derived from initial ECDH shared secret + handshake transcript salt + context.
 struct C6PRootKey: Hashable, Codable, CustomStringConvertible {
 
-    /// 32-bajtowy materiał klucza.
+    /// 32-byte key material
     let keyMaterial: Data
 
-    /// Identyfikator sesji (4 bajty).
+    /// Session identifier (currently 4 bytes)
     let sessionId: C6PSessionId
 
-    /// Device ID inicjatora (nadawcy handshaku).
+    /// Initiator device id
     let initiatorDeviceId: C6PDeviceId
 
-    /// Device ID respondenta (odbiorcy handshaku).
+    /// Responder device id
     let responderDeviceId: C6PDeviceId
 
-    /// Algorytm DH użyty w tej sesji (np. X25519).
+    /// Algorithm identifiers (canonical)
     let dhAlgorithmId: String
-
-    /// Algorytm KDF użyty w tej sesji (HKDF-SHA256).
     let kdfAlgorithmId: String
-
-    // MARK: - Init
 
     init(
         keyMaterial: Data,
@@ -58,8 +83,6 @@ struct C6PRootKey: Hashable, Codable, CustomStringConvertible {
         self.kdfAlgorithmId = kdfAlgorithmId
     }
 
-    // MARK: - Description
-
     var description: String {
         "C6PRootKey(sessionId=\(sessionId.hexString), dh=\(dhAlgorithmId), kdf=\(kdfAlgorithmId))"
     }
@@ -67,129 +90,101 @@ struct C6PRootKey: Hashable, Codable, CustomStringConvertible {
 
 // MARK: - Chain Key
 
-/// 32-bajtowy klucz łańcuchowy (per kierunek, per urządzenie).
-/// Z niego derivujemy message keys oraz kolejny chain key (ratchet wewnątrz sesji).
+/// 32-byte chain key per session stream (I→R or R→I).
+/// This is wire-stable: both peers can derive identical CK for a given stream.
 struct C6PChainKey: Hashable, Codable, CustomStringConvertible {
 
-    /// 32-bajtowy materiał klucza.
     let keyMaterial: Data
-
-    /// Powiązana sesja.
     let sessionId: C6PSessionId
 
-    /// To urządzenie.
-    let selfDeviceId: C6PDeviceId
+    /// Canonical stream id (wire-stable)
+    let streamId: C6PStreamId
 
-    /// Zdalne urządzenie.
-    let remoteDeviceId: C6PDeviceId
-
-    /// Rola tego urządzenia w sesji (initiator / responder).
-    let role: C6PRole
-
-    /// Kierunek z punktu widzenia selfDeviceId (sending / receiving).
-    let direction: C6PDirection
-
-    /// Algorytm KDF użyty do ratcheta.
+    /// KDF algorithm id used
     let kdfAlgorithmId: String
 
     init(
         keyMaterial: Data,
         sessionId: C6PSessionId,
-        selfDeviceId: C6PDeviceId,
-        remoteDeviceId: C6PDeviceId,
-        role: C6PRole,
-        direction: C6PDirection,
+        streamId: C6PStreamId,
         kdfAlgorithmId: String = C6PAlgorithmId.kdfHKDFSHA256
     ) {
         precondition(keyMaterial.count == 32, "Chain key must be 32 bytes")
         self.keyMaterial = keyMaterial
         self.sessionId = sessionId
-        self.selfDeviceId = selfDeviceId
-        self.remoteDeviceId = remoteDeviceId
-        self.role = role
-        self.direction = direction
+        self.streamId = streamId
         self.kdfAlgorithmId = kdfAlgorithmId
     }
 
     var description: String {
-        "C6PChainKey(sessionId=\(sessionId.hexString), role=\(role.rawValue), dir=\(direction.rawValue))"
-    }
-
-    /// Tworzy SymmetricKey for CryptoKit (ChaCha20-Poly1305).
-    var symmetricKey: SymmetricKey {
-        SymmetricKey(data: keyMaterial)
+        "C6PChainKey(sessionId=\(sessionId.hexString), stream=\(streamId))"
     }
 }
 
 // MARK: - Message Key
 
-/// Klucz wiadomości (per-message AEAD key, 32-bajtowy).
-/// Nonce i AAD będą budowane w innych modułach na bazie sesji, direction i countera.
+/// Per-message AEAD key.
+/// NOTE: This matches AEAD.swift expectations: suite + key.
 struct C6PMessageKey: Hashable, Codable, CustomStringConvertible {
 
     let keyMaterial: Data
-
-    /// Sesja, do której należy wiadomość.
     let sessionId: C6PSessionId
-
-    /// Kierunek z perspektywy tego urządzenia.
-    let direction: C6PDirection
-
-    /// Counter wiadomości (monotoniczny).
+    let streamId: C6PStreamId
     let counter: C6PMessageCounter
-
-    /// Typ wiadomości (DM / group / channel / control).
     let messageType: C6PMessageType
 
-    /// AEAD algorithm dla tego klucza.
-    let aeadAlgorithmId: String
+    /// Negotiated/selected encryption suite for this session/message.
+    let suite: C6PEncryptionSuite
 
     init(
         keyMaterial: Data,
         sessionId: C6PSessionId,
-        direction: C6PDirection,
+        streamId: C6PStreamId,
         counter: C6PMessageCounter,
         messageType: C6PMessageType,
-        aeadAlgorithmId: String = C6PAlgorithmId.aeadChaCha20
+        suite: C6PEncryptionSuite
     ) {
         precondition(keyMaterial.count == 32, "Message key must be 32 bytes")
         self.keyMaterial = keyMaterial
         self.sessionId = sessionId
-        self.direction = direction
+        self.streamId = streamId
         self.counter = counter
         self.messageType = messageType
-        self.aeadAlgorithmId = aeadAlgorithmId
+        self.suite = suite
     }
 
-    /// SymmetricKey dla ChaCha20-Poly1305.
-    var symmetricKey: SymmetricKey {
+    /// CryptoKit key (for suites implemented via CryptoKit)
+    var key: SymmetricKey {
         SymmetricKey(data: keyMaterial)
     }
 
     var description: String {
-        "C6PMessageKey(sessionId=\(sessionId.hexString), dir=\(direction.rawValue), counter=\(counter.value))"
+        "C6PMessageKey(sessionId=\(sessionId.hexString), stream=\(streamId), counter=\(counter.value), suite=\(suite))"
     }
 }
 
 // MARK: - Key Schedule
 
-/// Centralny punkt: tworzenie root / chain / message keys przy użyciu HKDF-SHA256.
+/// Central KDF pipeline for deriving:
+/// - Root Key from handshake secret + transcript salt
+/// - Two chain keys: I→R and R→I
+/// - Per-message keys via ratcheting (chain advancement)
 enum C6PKeySchedule {
 
-    // Stałe labelki, które idą w `info` HKDF (domain separation).
-    private static let rootLabel  = "C6P_ROOT_KEY_V1"
-    private static let chainLabel = "C6P_CHAIN_KEY_V1"
-    private static let nextChainLabel = "C6P_CHAIN_RATCHET_V1"
-    private static let messageLabel = "C6P_MESSAGE_KEY_V1"
+    // HKDF info labels (domain separation)
+    private static let rootLabel       = "C6P_ROOT_KEY_V1"
+    private static let chainLabel      = "C6P_CHAIN_KEY_V1"
+    private static let stepLabel       = "C6P_CHAIN_STEP_V1"     // produces MK + CK_next
+    private static let messageLabel    = "C6P_MESSAGE_KEY_V1"    // (optional) single-output MK only
 
-    // MARK: Initial Root Key
+    // MARK: Root Key
 
-    /// Wyprowadza początkowy root key z:
-    /// - X25519 shared secret,
-    /// - soli (z hashu transcriptu handshaku),
-    /// - sessionId + urządzeń.
+    /// Derives initial root key.
     ///
-    /// To jest PUNKT STARTOWY całej sesji.
+    /// Inputs:
+    /// - sharedSecret: ECDH shared secret (X25519)
+    /// - salt: transcript hash / handshake context salt (recommended: 32B)
+    /// - sessionId + device ids
     static func deriveInitialRootKey(
         sharedSecret: Data,
         salt: Data,
@@ -200,7 +195,7 @@ enum C6PKeySchedule {
 
         var info = Data()
         info.append(rootLabel.data(using: .utf8)!)
-        info.append(C6P_VERSION) // 1 byte
+        info.append(C6P_VERSION)
         info.append(C6PAlgorithmId.dhX25519.data(using: .utf8)!)
         info.append(C6PAlgorithmId.kdfHKDFSHA256.data(using: .utf8)!)
         info.append(sessionId.data)
@@ -222,40 +217,36 @@ enum C6PKeySchedule {
         )
     }
 
-    // MARK: Chain Keys (per side, per direction)
+    // MARK: Initial Chain Keys
 
-    /// Wyprowadza chain key dla KONKRETNEJ kombinacji:
-    /// - rootKey,
-    /// - selfDeviceId,
-    /// - remoteDeviceId,
-    /// - rola (initiator / responder),
-    /// - kierunek (sending / receiving).
+    /// Derives the two initial chain keys for a session:
+    /// - CK_i2r: initiator->responder stream
+    /// - CK_r2i: responder->initiator stream
     ///
-    /// Handshake/Session layer wywoła to DWUKROTNIE z odpowiednimi parametrami,
-    /// aby mieć osobny chain key: SEND i RECV.
-    static func deriveChainKey(
-        rootKey: C6PRootKey,
-        selfDeviceId: C6PDeviceId,
-        remoteDeviceId: C6PDeviceId,
-        role: C6PRole,
-        direction: C6PDirection
-    ) -> C6PChainKey {
+    /// Both peers can derive both keys identically, because they are wire-stable.
+    static func deriveInitialChainKeys(rootKey: C6PRootKey) -> (i2r: C6PChainKey, r2i: C6PChainKey) {
+        let ckI2R = deriveChainKey(rootKey: rootKey, streamId: .i2r)
+        let ckR2I = deriveChainKey(rootKey: rootKey, streamId: .r2i)
+        return (i2r: ckI2R, r2i: ckR2I)
+    }
+
+    /// Derives a chain key for a given stream id.
+    private static func deriveChainKey(rootKey: C6PRootKey, streamId: C6PStreamId) -> C6PChainKey {
 
         var info = Data()
         info.append(chainLabel.data(using: .utf8)!)
         info.append(C6P_VERSION)
         info.append(rootKey.kdfAlgorithmId.data(using: .utf8)!)
         info.append(rootKey.sessionId.data)
-        info.append(selfDeviceId.data)
-        info.append(remoteDeviceId.data)
 
-        // Role & direction jako ASCII, żeby zakodować kontekst.
-        info.append(role.rawValue.data(using: .utf8)!)
-        info.append(direction.rawValue.data(using: .utf8)!)
+        // bind to both devices and stream for domain separation
+        info.append(rootKey.initiatorDeviceId.data)
+        info.append(rootKey.responderDeviceId.data)
+        info.append(streamId.rawValue)
 
         let chainBytes = C6PHKDF.deriveKey(
             inputKeyMaterial: rootKey.keyMaterial,
-            salt: Data(), // dodatkowe "salt" niepotrzebne – rootKey już jest wynikową entropią.
+            salt: Data(),
             info: info,
             outputByteCount: 32
         )
@@ -263,76 +254,84 @@ enum C6PKeySchedule {
         return C6PChainKey(
             keyMaterial: chainBytes,
             sessionId: rootKey.sessionId,
-            selfDeviceId: selfDeviceId,
-            remoteDeviceId: remoteDeviceId,
-            role: role,
-            direction: direction
+            streamId: streamId,
+            kdfAlgorithmId: rootKey.kdfAlgorithmId
         )
     }
 
-    /// Ratchet chain key do przodu:
-    /// CK_{i+1} = HKDF( CK_i, info = label || sessionId || role || direction )
+    // MARK: Chain Step (recommended)
+
+    /// Advances the chain and derives a fresh message key in one KDF step:
+    /// output = HKDF(CK, info, 64) => MK(32) || CK_next(32)
     ///
-    /// Dzięki temu każdy „skok” łańcucha ma własny KDF step.
-    static func ratchetChainKeyForward(_ chainKey: C6PChainKey) -> C6PChainKey {
+    /// This is the preferred design:
+    /// - ensures per-message uniqueness
+    /// - provides forward secrecy across steps
+    ///
+    /// The `counter` is included to bind message identity (optional but recommended).
+    static func deriveMessageKeyAndRatchet(
+        from chainKey: C6PChainKey,
+        counter: C6PMessageCounter,
+        messageType: C6PMessageType,
+        suite: C6PEncryptionSuite
+    ) -> (messageKey: C6PMessageKey, nextChainKey: C6PChainKey) {
 
         var info = Data()
-        info.append(nextChainLabel.data(using: .utf8)!)
+        info.append(stepLabel.data(using: .utf8)!)
         info.append(C6P_VERSION)
         info.append(chainKey.kdfAlgorithmId.data(using: .utf8)!)
         info.append(chainKey.sessionId.data)
-        info.append(chainKey.selfDeviceId.data)
-        info.append(chainKey.remoteDeviceId.data)
-        info.append(chainKey.role.rawValue.data(using: .utf8)!)
-        info.append(chainKey.direction.rawValue.data(using: .utf8)!)
+        info.append(chainKey.streamId.rawValue)
+        info.append(messageType.rawValue)
+        info.append(counter.data)
 
-        let nextBytes = C6PHKDF.deriveKey(
+        let out64 = C6PHKDF.deriveKey(
             inputKeyMaterial: chainKey.keyMaterial,
             salt: Data(),
             info: info,
-            outputByteCount: 32
+            outputByteCount: 64
         )
 
-        return C6PChainKey(
-            keyMaterial: nextBytes,
+        let mkBytes = out64.prefix(32)
+        let ckNextBytes = out64.suffix(32)
+
+        let mk = C6PMessageKey(
+            keyMaterial: Data(mkBytes),
             sessionId: chainKey.sessionId,
-            selfDeviceId: chainKey.selfDeviceId,
-            remoteDeviceId: chainKey.remoteDeviceId,
-            role: chainKey.role,
-            direction: chainKey.direction,
+            streamId: chainKey.streamId,
+            counter: counter,
+            messageType: messageType,
+            suite: suite
+        )
+
+        let ckNext = C6PChainKey(
+            keyMaterial: Data(ckNextBytes),
+            sessionId: chainKey.sessionId,
+            streamId: chainKey.streamId,
             kdfAlgorithmId: chainKey.kdfAlgorithmId
         )
+
+        return (messageKey: mk, nextChainKey: ckNext)
     }
 
-    // MARK: Message Keys
+    // MARK: Legacy single-output MK (optional)
 
-    /// Wyprowadza klucz wiadomości:
-    ///
-    /// MK = HKDF( CK, info = label || version || algId || sessionId || dir || msgType || counter )
-    ///
-    /// Nonce i AAD do ChaCha20-Poly1305 będą budowane w innych modułach
-    /// (NonceSequencer + AEAD wrapper), ale muszą skorzystać z tych samych
-    /// parametrów sesji / countera.
-    static func deriveMessageKey(
+    /// Derives only a message key from the current chain key without advancing it.
+    /// Prefer `deriveMessageKeyAndRatchet` unless you have a strict reason.
+    static func deriveMessageKeyOnly(
         from chainKey: C6PChainKey,
         counter: C6PMessageCounter,
-        messageType: C6PMessageType
+        messageType: C6PMessageType,
+        suite: C6PEncryptionSuite
     ) -> C6PMessageKey {
 
         var info = Data()
         info.append(messageLabel.data(using: .utf8)!)
         info.append(C6P_VERSION)
-        info.append(C6PAlgorithmId.aeadChaCha20.data(using: .utf8)!)
+        info.append(chainKey.kdfAlgorithmId.data(using: .utf8)!)
         info.append(chainKey.sessionId.data)
-
-        // role + direction jako kontekst:
-        info.append(chainKey.role.rawValue.data(using: .utf8)!)
-        info.append(chainKey.direction.rawValue.data(using: .utf8)!)
-
-        // message type (1 bajt)
+        info.append(chainKey.streamId.rawValue)
         info.append(messageType.rawValue)
-
-        // counter (8 bajtów big-endian)
         info.append(counter.data)
 
         let mkBytes = C6PHKDF.deriveKey(
@@ -345,9 +344,10 @@ enum C6PKeySchedule {
         return C6PMessageKey(
             keyMaterial: mkBytes,
             sessionId: chainKey.sessionId,
-            direction: chainKey.direction,
+            streamId: chainKey.streamId,
             counter: counter,
-            messageType: messageType
+            messageType: messageType,
+            suite: suite
         )
     }
 }
