@@ -2,22 +2,22 @@
 //  C6PEnvelope.swift
 //  C6P-Protocol
 //
-//  Jeden, wspólny wire-level envelope dla v1.
-//  - Minimalny routing
-//  - sealed ciphertext
-//
-//  UWAGA: messageType NIE jest w envelope (ukrywamy “shape” rozmowy).
-//  Kontekst DM/group/channel siedzi w E2EE payload (C6PInnerPayload).
+//  Generic wire-level envelope for all message contexts (DM / group / channel / control).
+//  IMPORTANT:
+//  - Envelope is ROUTING METADATA ONLY (server-visible).
+//  - Message "shape" (dm/group/channel + kind + contextId) is inside E2EE payload (C6PInnerPayload).
+//  - Everything outside `sealed` is UNTRUSTED from a crypto POV.
+//  - Integrity binding is done via AEAD extraAAD = C6PWireAAD.envelopeAAD(...).
 //
 
 import Foundation
 
-// MARK: - Delivery state (UI-level)
+// MARK: - Delivery State (client-side UI)
 
 enum C6PDeliveryState: String, Codable {
     case pending   = "PENDING"
     case delivered = "DELIVERED"
-    case read      = "READ"
+    case read      = "READ"      // optional feature
     case failed    = "FAILED"
 }
 
@@ -25,42 +25,41 @@ enum C6PDeliveryState: String, Codable {
 
 struct C6PEnvelope: Codable, Hashable, CustomStringConvertible {
 
-    // MARK: Protocol
+    // MARK: Core routing
 
-    /// Globalna wersja protokołu (C6P_VERSION).
+    /// Global C6P version (C6P_VERSION).
     let c6pVersion: UInt8
 
-    // MARK: Routing (plaintext, ale wiązane do AEAD przez C6PWireAAD)
-
-    /// Urządzenie nadawcy (router potrzebuje do autoryzacji / diagnostyki).
+    /// Sender device (the device that sealed the payload).
     let fromDeviceId: C6PDeviceId
 
-    /// Urządzenie odbiorcy (fan-out na konkretne device).
+    /// Recipient device (a concrete device, not an account).
     let toDeviceId: C6PDeviceId
 
-    /// Sesja użyta do szyfrowania (lookup local session state).
+    /// Session used to seal payload (lookup key for local session state).
     let sessionId: C6PSessionId
 
-    // MARK: Payload (ciphertext)
-
-    /// Zaszyfrowany payload (ciphertext + tag).
+    /// Sealed payload (ciphertext + tag). Nonce is derived deterministically.
     let sealed: C6PSealedMessage
 
-    // MARK: Client IDs / timestamps (app-level)
+    // MARK: Client identifiers
 
-    /// Id klienta do deduplikacji i retry (UUID string recommended).
+    /// Client-side message id used for dedupe/retry.
+    /// Also bound into AEAD extraAAD via C6PWireAAD (hashed to fixed length).
     let clientMessageId: String
 
-    /// Lokalny czas utworzenia (nadawca).
+    /// Client-side timestamp (local clock). Server must treat as advisory.
     let clientTimestamp: Date
 
-    /// Czas przyjęcia przez serwer (UTC) – ustawiane przez backend.
+    // MARK: Server fields (optional)
+
+    /// Server-side timestamp (UTC) assigned on ingest.
     var serverTimestamp: Date?
 
-    /// Opcjonalny id po stronie serwera (np. UUID w DB).
+    /// Optional server-side message id (DB UUID etc.).
     var serverMessageId: String?
 
-    /// Status dla UI.
+    /// Optional client-side delivery state for UI.
     var deliveryState: C6PDeliveryState
 
     // MARK: Init
@@ -88,10 +87,10 @@ struct C6PEnvelope: Codable, Hashable, CustomStringConvertible {
         self.deliveryState = deliveryState
     }
 
-    // MARK: CustomStringConvertible
+    // MARK: Description
 
     var description: String {
-        "C6PEnvelope(v=\(c6pVersion), sessionId=\(sessionId.hexString), from=\(fromDeviceId.hexString), to=\(toDeviceId.hexString), clientMessageId=\(clientMessageId))"
+        "C6PEnvelope(v=\(c6pVersion), session=\(sessionId.hexString), from=\(fromDeviceId.hexString), to=\(toDeviceId.hexString), clientMessageId=\(clientMessageId))"
     }
 }
 
