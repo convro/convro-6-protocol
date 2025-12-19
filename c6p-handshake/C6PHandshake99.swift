@@ -3,10 +3,21 @@
 //  C6P-Protocol
 //
 //  Production implementation of C6P prekey-based handshake ("handshake99").
-//  Uses:
-//  - Ed25519 (Curve25519.Signing) for identity + prekey signatures
-//  - X25519 (Curve25519.KeyAgreement) for shared secret
-//  - HKDF / RootKey / ChainKeys from c6p-crypto
+//
+//  v1 goals:
+//  - Minimal and auditable X3DH-style session bootstrap
+//  - Server cannot compute session secrets
+//  - Client can pin/override remote identity key to detect server substitution
+//  - Deterministic transcript -> salt for HKDF
+//
+//  Crypto:
+//  - Ed25519 (Curve25519.Signing) identity + signed-prekey signature
+//  - X25519 (Curve25519.KeyAgreement) ECDH
+//  - HKDF-SHA256 root/chain keys (via C6PKeySchedule)
+//
+//  NOTE:
+//  - This module only bootstraps RootKey + ChainKeys.
+//  - Message-level secrecy and integrity are enforced later by AEAD + ratcheting.
 //
 
 import Foundation
@@ -15,78 +26,90 @@ import CryptoKit
 // MARK: - Errors
 
 enum C6PHandshakeError: Error, CustomStringConvertible {
+
+    // Bundle / offer validation
+    case invalidProtocolVersion(expected: UInt8, actual: UInt8)
+
     case invalidIdentityPublicKeyLength(actual: Int)
-    case invalidPrekeyPublicKeyLength(actual: Int)
+    case invalidSignedPrekeyPublicKeyLength(actual: Int)
     case invalidOneTimePrekeyPublicKeyLength(actual: Int)
     case invalidEphemeralPublicKeyLength(actual: Int)
-    case signatureVerificationFailed
-    case missingOneTimePrekey
+    case invalidSignedPrekeySignatureLength(actual: Int)
+
+    case invalidBundleOneTimePrekeyInconsistency // id without pub or pub without id
+    case identityOverrideMismatch                // pinned identity mismatch
+    case signatureVerificationFailed             // signed prekey signature invalid
+    case signedPrekeyMismatchToOffer             // offer claims a signed prekey not equal to responder actual
+    case missingOneTimePrekey                    // responder lacks referenced OTP
+
+    case inconsistentDeviceIds                   // offer not intended for this device
+
+    // Crypto failures
     case keyAgreementFailed
-    case inconsistentDeviceIds
-    case invalidProtocolVersion(expected: UInt8, actual: UInt8)
+    case internalInvariantFailed(String)
 
     var description: String {
         switch self {
+        case .invalidProtocolVersion(let expected, let actual):
+            return "C6PHandshakeError.invalidProtocolVersion(expected=\(expected), actual=\(actual)) – unsupported handshake99 version"
+
         case .invalidIdentityPublicKeyLength(let actual):
             return "C6PHandshakeError.invalidIdentityPublicKeyLength(actual=\(actual)) – Ed25519 public key must be 32 bytes"
-        case .invalidPrekeyPublicKeyLength(let actual):
-            return "C6PHandshakeError.invalidPrekeyPublicKeyLength(actual=\(actual)) – X25519 signed prekey must be 32 bytes"
+        case .invalidSignedPrekeyPublicKeyLength(let actual):
+            return "C6PHandshakeError.invalidSignedPrekeyPublicKeyLength(actual=\(actual)) – X25519 signed prekey must be 32 bytes"
         case .invalidOneTimePrekeyPublicKeyLength(let actual):
             return "C6PHandshakeError.invalidOneTimePrekeyPublicKeyLength(actual=\(actual)) – X25519 one-time prekey must be 32 bytes"
         case .invalidEphemeralPublicKeyLength(let actual):
             return "C6PHandshakeError.invalidEphemeralPublicKeyLength(actual=\(actual)) – X25519 ephemeral public key must be 32 bytes"
+        case .invalidSignedPrekeySignatureLength(let actual):
+            return "C6PHandshakeError.invalidSignedPrekeySignatureLength(actual=\(actual)) – Ed25519 signature must be 64 bytes"
+
+        case .invalidBundleOneTimePrekeyInconsistency:
+            return "C6PHandshakeError.invalidBundleOneTimePrekeyInconsistency – OTP id/pub must be both present or both nil"
+        case .identityOverrideMismatch:
+            return "C6PHandshakeError.identityOverrideMismatch – provided pinned identity key does not match bundle"
         case .signatureVerificationFailed:
-            return "C6PHandshakeError.signatureVerificationFailed – signed prekey not valid for given identity key"
+            return "C6PHandshakeError.signatureVerificationFailed – signed prekey signature invalid for given identity key"
+        case .signedPrekeyMismatchToOffer:
+            return "C6PHandshakeError.signedPrekeyMismatchToOffer – offer references a signed prekey not matching responder signed prekey"
         case .missingOneTimePrekey:
             return "C6PHandshakeError.missingOneTimePrekey – offer references a one-time prekey that is not available locally"
-        case .keyAgreementFailed:
-            return "C6PHandshakeError.keyAgreementFailed – X25519 shared secret could not be derived"
+
         case .inconsistentDeviceIds:
             return "C6PHandshakeError.inconsistentDeviceIds – handshake offer has device IDs inconsistent with local expectations"
-        case .invalidProtocolVersion(let expected, let actual):
-            return "C6PHandshakeError.invalidProtocolVersion(expected=\(expected), actual=\(actual)) – unsupported handshake99 version"
+
+        case .keyAgreementFailed:
+            return "C6PHandshakeError.keyAgreementFailed – X25519 shared secret could not be derived"
+        case .internalInvariantFailed(let msg):
+            return "C6PHandshakeError.internalInvariantFailed(\(msg))"
         }
     }
 }
 
 // MARK: - Constants
 
-/// Bieżąca wersja handshake99 (nie mylić z globalnym C6P_VERSION).
+/// handshake99 version (NOT the same as global C6P_VERSION).
 private let C6P_HANDSHAKE99_VERSION: UInt8 = 1
 
-/// Kontekst podpisu dla signed prekey (domain separation).
+/// Domain separation label for signed-prekey signature.
 private let C6P_PREKEY_SIGNATURE_LABEL = "C6P_PREKEY_V1"
 
-/// Kontekst HKDF dla handshake shared secret / salt.
+/// Domain separation label for handshake transcript salt.
 private let C6P_HANDSHAKE99_LABEL = "C6P_HANDSHAKE99_V1"
 
-// MARK: - Prekey bundle (z perspektywy serwera / sieci)
+// MARK: - Prekey bundle (wire / server response)
 
-/// To, co serwer zwraca, gdy inicjator chce rozpocząć sesję z danym urządzeniem peer'a.
-/// Wszystko jest PUBLIC – nie ma tu żadnych kluczy prywatnych.
-///
-/// identityPublicKeyEd25519:
-///   - Ed25519 public key urządzenia respondenta (tożsamość).
-///
-/// signedPrekeyPublicKeyX25519:
-///   - publiczny X25519 używany jako signed prekey (długotrwały / rotowany okresowo).
-///
-/// signedPrekeySignature:
-///   - podpis Ed25519 nad (label || signedPrekeyPublicKeyX25519), gdzie label = "C6P_PREKEY_V1".
-///
-/// oneTimePrekeyId / oneTimePrekeyPublicKeyX25519:
-///   - opcjonalny one-time prekey (X25519) + jego identyfikator.
-///   - jeśli brak, handshake dalej działa, ale ma nieco słabszą PFS/PCS (jak w standardowym X3DH).
+/// Public prekey bundle returned by backend to initiator.
 struct C6PPrekeyBundle: Codable, Hashable {
 
     let responderDeviceId: C6PDeviceId
 
-    let identityPublicKeyEd25519: Data
-    let signedPrekeyPublicKeyX25519: Data
-    let signedPrekeySignature: Data
+    let identityPublicKeyEd25519: Data                // 32 bytes
+    let signedPrekeyPublicKeyX25519: Data             // 32 bytes
+    let signedPrekeySignature: Data                   // 64 bytes (Ed25519)
 
-    let oneTimePrekeyId: C6PKeyId?
-    let oneTimePrekeyPublicKeyX25519: Data?
+    let oneTimePrekeyId: C6PKeyId?                    // optional
+    let oneTimePrekeyPublicKeyX25519: Data?           // optional (32 bytes)
 
     init(
         responderDeviceId: C6PDeviceId,
@@ -107,25 +130,22 @@ struct C6PPrekeyBundle: Codable, Hashable {
 
 // MARK: - Handshake offer (wire-level)
 
-/// To jest payload, który inicjator wysyła jako pierwszą wiadomość handshake99.
-/// Serwer widzi ten obiekt, ale nie jest w stanie odtworzyć żadnych kluczy.
+/// First handshake message sent by initiator to responder via backend.
 struct C6PHandshake99Offer: Codable, Hashable {
 
-    /// Wersja handshake99 (aktualnie = 1).
     let version: UInt8
 
-    /// Identyfikatory urządzeń: kto do kogo.
     let initiatorDeviceId: C6PDeviceId
     let responderDeviceId: C6PDeviceId
 
-    /// Sesja C6P – inicjator losuje ją na starcie i komunikuje responderowi.
     let sessionId: C6PSessionId
 
-    /// Publiczny ephemeral X25519 inicjatora.
-    let ephemeralPublicKeyX25519: Data
+    let ephemeralPublicKeyX25519: Data                // 32 bytes
 
-    /// Informacje o użytym prekey bundle respondenta.
-    let usedSignedPrekeyPublicKeyX25519: Data
+    /// Signed-prekey public key that initiator used (to bind transcript + allow responder checks).
+    let usedSignedPrekeyPublicKeyX25519: Data         // 32 bytes
+
+    /// Optional consumed OTP id.
     let usedOneTimePrekeyId: C6PKeyId?
 
     init(
@@ -147,120 +167,85 @@ struct C6PHandshake99Offer: Codable, Hashable {
     }
 }
 
-// MARK: - Wynik handshake po stronie inicjatora / respondenta
+// MARK: - Results
 
-/// Wynik handshake po stronie inicjatora.
 struct C6PHandshake99InitiatorResult {
-
-    /// Identyfikator sesji (wspólny dla obu stron).
     let sessionId: C6PSessionId
-
-    /// Root key dla tej sesji.
     let rootKey: C6PRootKey
-
-    /// Łańcuchy kluczy po stronie inicjatora.
     let sendChainKey: C6PChainKey
     let recvChainKey: C6PChainKey
-
-    /// Stan liczników wiadomości (start od 0).
     var sendCounter: C6PMessageCounter
     var recvCounter: C6PMessageCounter
 
-    /// Oferta handshake, którą trzeba wysłać do respondenta przez serwer.
     let offer: C6PHandshake99Offer
 
-    /// Ephemeral private key inicjatora (jeśli chcesz go wyzerować po handshake).
+    /// Returned only for callers that want to explicitly drop references after sending offer.
     let ephemeralPrivateKey: Curve25519.KeyAgreement.PrivateKey
 }
 
-/// Wynik handshake po stronie respondenta.
 struct C6PHandshake99ResponderResult {
-
     let sessionId: C6PSessionId
-
     let rootKey: C6PRootKey
-
     let sendChainKey: C6PChainKey
     let recvChainKey: C6PChainKey
-
     var sendCounter: C6PMessageCounter
     var recvCounter: C6PMessageCounter
-
-    /// Identyfikator użytego one-time prekey (jeśli był wykorzystany).
     let consumedOneTimePrekeyId: C6PKeyId?
 }
 
-// MARK: - C6P Handshake99
+// MARK: - Handshake99
 
-/// Główny punkt wejścia do handshake99.
-///
-/// Wersja v1:
-/// - Inicjator pobiera prekey bundle z serwera.
-/// - Weryfikuje podpis signed prekey.
-/// - Generuje ephemeral X25519.
-/// - Wykonuje X25519 z signed prekey (+ opcjonalnie z one-time prekey).
-/// - Wyprowadza root key via C6PKeySchedule.
-/// - Tworzy chain keys SEND/RECV (role = INITIATOR).
-/// - Wysyła C6PHandshake99Offer do respondenta.
-///
-/// Responder:
-/// - Dostaje C6PHandshake99Offer.
-/// - Na podstawie swojego signed prekey + optional one-time prekey
-///   odtwarza shared secret (X25519).
-/// - Wyprowadza identyczny root key.
-/// - Wyprowadza chain keys SEND/RECV (role = RESPONDER).
 enum C6PHandshake99 {
 
-    // MARK: - Public API (Initiator)
+    // MARK: Initiator
 
-    /// Rozpoczyna handshake po stronie inicjatora.
-    ///
-    /// - Parameters:
-    ///   - localDeviceId: urządzenie inicjatora.
-    ///   - prekeyBundle: publiczne dane urządzenia respondenta (z serwera).
-    ///   - identityPublicKeyOverride: opcjonalny znany już publiczny klucz tożsamości
-    ///     respondenta; jeśli podasz, prekeyBundle.identityPublicKeyEd25519
-    ///     musi z nim się zgadzać (ochrona przed atakiem serwera).
-    ///
-    /// - Returns: `C6PHandshake99InitiatorResult` zawierający rootKey, chainKeys i ofertę handshake.
     static func startAsInitiator(
         localDeviceId: C6PDeviceId,
         prekeyBundle: C6PPrekeyBundle,
         identityPublicKeyOverride: Data? = nil
     ) throws -> C6PHandshake99InitiatorResult {
 
-        // 1) Sprawdź spójność identity key.
-        if let override = identityPublicKeyOverride, override != prekeyBundle.identityPublicKeyEd25519 {
-            throw C6PHandshakeError.signatureVerificationFailed
+        // 0) OTP consistency in bundle
+        let hasOtpId = (prekeyBundle.oneTimePrekeyId != nil)
+        let hasOtpPub = (prekeyBundle.oneTimePrekeyPublicKeyX25519 != nil)
+        guard hasOtpId == hasOtpPub else {
+            throw C6PHandshakeError.invalidBundleOneTimePrekeyInconsistency
         }
 
-        // 2) Zweryfikuj długości kluczy publicznych.
+        // 1) Validate lengths
         guard prekeyBundle.identityPublicKeyEd25519.count == 32 else {
             throw C6PHandshakeError.invalidIdentityPublicKeyLength(actual: prekeyBundle.identityPublicKeyEd25519.count)
         }
         guard prekeyBundle.signedPrekeyPublicKeyX25519.count == 32 else {
-            throw C6PHandshakeError.invalidPrekeyPublicKeyLength(actual: prekeyBundle.signedPrekeyPublicKeyX25519.count)
+            throw C6PHandshakeError.invalidSignedPrekeyPublicKeyLength(actual: prekeyBundle.signedPrekeyPublicKeyX25519.count)
         }
-        if let oneTimeData = prekeyBundle.oneTimePrekeyPublicKeyX25519 {
-            guard oneTimeData.count == 32 else {
-                throw C6PHandshakeError.invalidOneTimePrekeyPublicKeyLength(actual: oneTimeData.count)
+        guard prekeyBundle.signedPrekeySignature.count == 64 else {
+            throw C6PHandshakeError.invalidSignedPrekeySignatureLength(actual: prekeyBundle.signedPrekeySignature.count)
+        }
+        if let otpPub = prekeyBundle.oneTimePrekeyPublicKeyX25519 {
+            guard otpPub.count == 32 else {
+                throw C6PHandshakeError.invalidOneTimePrekeyPublicKeyLength(actual: otpPub.count)
             }
         }
 
-        // 3) Zbuduj CryptoKit public keys.
+        // 2) Pin/override check (server substitution defense)
+        if let pinned = identityPublicKeyOverride, pinned != prekeyBundle.identityPublicKeyEd25519 {
+            throw C6PHandshakeError.identityOverrideMismatch
+        }
+
+        // 3) Build public keys
         let identityPubKey = try Curve25519.Signing.PublicKey(rawRepresentation: prekeyBundle.identityPublicKeyEd25519)
         let signedPrekeyPub = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: prekeyBundle.signedPrekeyPublicKeyX25519)
 
         let oneTimePrekeyPub: Curve25519.KeyAgreement.PublicKey? = try {
             if let raw = prekeyBundle.oneTimePrekeyPublicKeyX25519 {
                 return try Curve25519.KeyAgreement.PublicKey(rawRepresentation: raw)
-            } else {
-                return nil
             }
+            return nil
         }()
 
-        // 4) Zweryfikuj podpis signed prekey (Ed25519).
-        //    Signature over: "C6P_PREKEY_V1" || signedPrekeyPublicKeyX25519
+        // 4) Verify signed-prekey signature:
+        //    Sig over: label || signedPrekeyPublicKeyX25519
         var signedMessage = Data()
         signedMessage.append(C6P_PREKEY_SIGNATURE_LABEL.data(using: .utf8)!)
         signedMessage.append(prekeyBundle.signedPrekeyPublicKeyX25519)
@@ -269,37 +254,42 @@ enum C6PHandshake99 {
             throw C6PHandshakeError.signatureVerificationFailed
         }
 
-        // 5) Wygeneruj ephemeral X25519 inicjatora.
-        let ephemeralPrivateKey = Curve25519.KeyAgreement.PrivateKey()
-        let ephemeralPublicKeyData = ephemeralPrivateKey.publicKey.rawRepresentation
+        // 5) Generate initiator ephemeral keypair
+        let ephemeralPriv = Curve25519.KeyAgreement.PrivateKey()
+        let ephemeralPubRaw = ephemeralPriv.publicKey.rawRepresentation
 
-        // 6) Wykonaj ECDH z signed prekey + opcjonalnym one-time prekey.
-        let dh1Shared = try ephemeralPrivateKey.sharedSecretFromKeyAgreement(with: signedPrekeyPub)
-        let dh1 = sharedSecretToData(dh1Shared)
-
+        // 6) Compute IKM = DH1 || DH2(optional)
         var ikm = Data()
-        ikm.append(dh1)
-
-        if let otpPub = oneTimePrekeyPub {
-            let dh2Shared = try ephemeralPrivateKey.sharedSecretFromKeyAgreement(with: otpPub)
-            let dh2 = sharedSecretToData(dh2Shared)
-            ikm.append(dh2)
+        do {
+            let dh1 = try ephemeralPriv.sharedSecretFromKeyAgreement(with: signedPrekeyPub)
+            ikm.append(sharedSecretToData(dh1))
+        } catch {
+            throw C6PHandshakeError.keyAgreementFailed
         }
 
-        // 7) Wylosuj sessionId.
+        if let otpPub = oneTimePrekeyPub {
+            do {
+                let dh2 = try ephemeralPriv.sharedSecretFromKeyAgreement(with: otpPub)
+                ikm.append(sharedSecretToData(dh2))
+            } catch {
+                throw C6PHandshakeError.keyAgreementFailed
+            }
+        }
+
+        // 7) sessionId chosen by initiator
         let sessionId = try C6PSessionId.random()
 
-        // 8) Zbuduj transcript i policz salt = SHA256(transcript).
+        // 8) Deterministic transcript -> salt
         let salt = handshakeSalt(
             sessionId: sessionId,
             initiatorDeviceId: localDeviceId,
             responderDeviceId: prekeyBundle.responderDeviceId,
-            ephemeralPublicKeyX25519: ephemeralPublicKeyData,
+            ephemeralPublicKeyX25519: ephemeralPubRaw,
             signedPrekeyPublicKeyX25519: prekeyBundle.signedPrekeyPublicKeyX25519,
             oneTimePrekeyPublicKeyX25519: prekeyBundle.oneTimePrekeyPublicKeyX25519
         )
 
-        // 9) Wyprowadź root key via C6PKeySchedule.
+        // 9) Derive RootKey
         let rootKey = C6PKeySchedule.deriveInitialRootKey(
             sharedSecret: ikm,
             salt: salt,
@@ -308,7 +298,7 @@ enum C6PHandshake99 {
             responderDeviceId: prekeyBundle.responderDeviceId
         )
 
-        // 10) Wyprowadź chain keys (SEND/RECV) z perspektywy inicjatora.
+        // 10) Derive chain keys (initiator POV)
         let sendCK = C6PKeySchedule.deriveChainKey(
             rootKey: rootKey,
             selfDeviceId: localDeviceId,
@@ -325,16 +315,13 @@ enum C6PHandshake99 {
             direction: .receiving
         )
 
-        let sendCounter = C6PMessageCounter(value: 0)
-        let recvCounter = C6PMessageCounter(value: 0)
-
-        // 11) Zbuduj ofertę handshake do wysłania przez serwer.
+        // 11) Offer to send via backend
         let offer = C6PHandshake99Offer(
             version: C6P_HANDSHAKE99_VERSION,
             initiatorDeviceId: localDeviceId,
             responderDeviceId: prekeyBundle.responderDeviceId,
             sessionId: sessionId,
-            ephemeralPublicKeyX25519: ephemeralPublicKeyData,
+            ephemeralPublicKeyX25519: ephemeralPubRaw,
             usedSignedPrekeyPublicKeyX25519: prekeyBundle.signedPrekeyPublicKeyX25519,
             usedOneTimePrekeyId: prekeyBundle.oneTimePrekeyId
         )
@@ -344,25 +331,15 @@ enum C6PHandshake99 {
             rootKey: rootKey,
             sendChainKey: sendCK,
             recvChainKey: recvCK,
-            sendCounter: sendCounter,
-            recvCounter: recvCounter,
+            sendCounter: C6PMessageCounter(value: 0),
+            recvCounter: C6PMessageCounter(value: 0),
             offer: offer,
-            ephemeralPrivateKey: ephemeralPrivateKey
+            ephemeralPrivateKey: ephemeralPriv
         )
     }
 
-    // MARK: - Public API (Responder)
+    // MARK: Responder
 
-    /// Akceptuje ofertę handshake po stronie respondenta.
-    ///
-    /// - Parameters:
-    ///   - offer: `C6PHandshake99Offer` otrzymany z serwera.
-    ///   - localDeviceId: device ID bieżącego urządzenia (respondenta).
-    ///   - signedPrekeyPrivateKey: prywatny X25519 odpowiadający signed prekey'owi,
-    ///     który był wysłany w prekey bundle.
-    ///   - oneTimePrekeys: mapa: keyId -> prywatny X25519 one-time prekey.
-    ///
-    /// - Returns: `C6PHandshake99ResponderResult` z rootKey i chain keys.
     static func acceptAsResponder(
         offer: C6PHandshake99Offer,
         localDeviceId: C6PDeviceId,
@@ -370,7 +347,7 @@ enum C6PHandshake99 {
         oneTimePrekeys: [C6PKeyId: Curve25519.KeyAgreement.PrivateKey]
     ) throws -> C6PHandshake99ResponderResult {
 
-        // 1) Sprawdź wersję handshake.
+        // 1) Version check
         guard offer.version == C6P_HANDSHAKE99_VERSION else {
             throw C6PHandshakeError.invalidProtocolVersion(
                 expected: C6P_HANDSHAKE99_VERSION,
@@ -378,38 +355,57 @@ enum C6PHandshake99 {
             )
         }
 
-        // 2) Sprawdź spójność device IDs.
+        // 2) Device id check (offer must target this responder device)
         guard offer.responderDeviceId == localDeviceId else {
             throw C6PHandshakeError.inconsistentDeviceIds
         }
 
-        // 3) Zbuduj ephemeral public key inicjatora.
+        // 3) Validate lengths
         guard offer.ephemeralPublicKeyX25519.count == 32 else {
             throw C6PHandshakeError.invalidEphemeralPublicKeyLength(actual: offer.ephemeralPublicKeyX25519.count)
         }
-        let ephemeralPub = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: offer.ephemeralPublicKeyX25519)
+        guard offer.usedSignedPrekeyPublicKeyX25519.count == 32 else {
+            throw C6PHandshakeError.invalidSignedPrekeyPublicKeyLength(actual: offer.usedSignedPrekeyPublicKeyX25519.count)
+        }
 
-        // 4) Wykonaj ECDH z signed prekey.
-        let dh1Shared = try signedPrekeyPrivateKey.sharedSecretFromKeyAgreement(with: ephemeralPub)
-        let dh1 = sharedSecretToData(dh1Shared)
+        // 4) Ensure offer's signed-prekey matches responder's actual signed-prekey.
+        //    This prevents a malicious server from splicing an offer that references a different signed-prekey.
+        let actualSignedPrekeyPubRaw = signedPrekeyPrivateKey.publicKey.rawRepresentation
+        guard actualSignedPrekeyPubRaw == offer.usedSignedPrekeyPublicKeyX25519 else {
+            throw C6PHandshakeError.signedPrekeyMismatchToOffer
+        }
 
+        // 5) Build initiator ephemeral public key
+        let ephPub = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: offer.ephemeralPublicKeyX25519)
+
+        // 6) IKM = DH1 || DH2(optional)
         var ikm = Data()
-        ikm.append(dh1)
+        do {
+            let dh1 = try signedPrekeyPrivateKey.sharedSecretFromKeyAgreement(with: ephPub)
+            ikm.append(sharedSecretToData(dh1))
+        } catch {
+            throw C6PHandshakeError.keyAgreementFailed
+        }
 
-        var consumedOTPId: C6PKeyId? = nil
+        var consumedOTP: C6PKeyId? = nil
         var otpPubRaw: Data? = nil
 
         if let otpId = offer.usedOneTimePrekeyId {
             guard let otpPriv = oneTimePrekeys[otpId] else {
                 throw C6PHandshakeError.missingOneTimePrekey
             }
-            let dh2Shared = try otpPriv.sharedSecretFromKeyAgreement(with: ephemeralPub)
-            let dh2 = sharedSecretToData(dh2Shared)
-            ikm.append(dh2)
-            consumedOTPId = otpId
+            do {
+                let dh2 = try otpPriv.sharedSecretFromKeyAgreement(with: ephPub)
+                ikm.append(sharedSecretToData(dh2))
+            } catch {
+                throw C6PHandshakeError.keyAgreementFailed
+            }
+
+            consumedOTP = otpId
             otpPubRaw = otpPriv.publicKey.rawRepresentation
         }
 
+        // 7) Transcript salt must match initiator's computation (deterministic)
         let salt = handshakeSalt(
             sessionId: offer.sessionId,
             initiatorDeviceId: offer.initiatorDeviceId,
@@ -419,8 +415,7 @@ enum C6PHandshake99 {
             oneTimePrekeyPublicKeyX25519: otpPubRaw
         )
 
-
-        // 7) Wyprowadź root key (uwaga na role: inicjator = offer.initiatorDeviceId).
+        // 8) RootKey (initiator/responder device IDs must match offer)
         let rootKey = C6PKeySchedule.deriveInitialRootKey(
             sharedSecret: ikm,
             salt: salt,
@@ -429,7 +424,7 @@ enum C6PHandshake99 {
             responderDeviceId: offer.responderDeviceId
         )
 
-        // 8) Wyprowadź chain keys z perspektywy respondenta.
+        // 9) Chain keys from responder POV
         let sendCK = C6PKeySchedule.deriveChainKey(
             rootKey: rootKey,
             selfDeviceId: localDeviceId,
@@ -446,32 +441,28 @@ enum C6PHandshake99 {
             direction: .receiving
         )
 
-        let sendCounter = C6PMessageCounter(value: 0)
-        let recvCounter = C6PMessageCounter(value: 0)
-
         return C6PHandshake99ResponderResult(
             sessionId: offer.sessionId,
             rootKey: rootKey,
             sendChainKey: sendCK,
             recvChainKey: recvCK,
-            sendCounter: sendCounter,
-            recvCounter: recvCounter,
-            consumedOneTimePrekeyId: consumedOTPId
+            sendCounter: C6PMessageCounter(value: 0),
+            recvCounter: C6PMessageCounter(value: 0),
+            consumedOneTimePrekeyId: consumedOTP
         )
     }
 
     // MARK: - Helpers
 
-    /// Konwersja CryptoKit.SharedSecret -> Data.
     private static func sharedSecretToData(_ secret: SharedSecret) -> Data {
-        secret.withUnsafeBytes { buffer in
-            return Data(buffer)
-        }
+        secret.withUnsafeBytes { Data($0) }
     }
 
-    /// Deterministyczny salt dla HKDF w handshake99, bazujący na "transcripcie" handshaku.
+    /// Deterministic transcript salt for HKDF (SHA256 over transcript).
     ///
-    /// W obu rolach (inicjator / responder) musi zostać policzony identycznie.
+    /// IMPORTANT:
+    /// - Must be identical for initiator and responder.
+    /// - Includes an explicit "otp_present" byte to avoid any ambiguity.
     private static func handshakeSalt(
         sessionId: C6PSessionId,
         initiatorDeviceId: C6PDeviceId,
@@ -480,24 +471,30 @@ enum C6PHandshake99 {
         signedPrekeyPublicKeyX25519: Data,
         oneTimePrekeyPublicKeyX25519: Data?
     ) -> Data {
+
+        // fixed-size fields -> stable transcript layout
         var transcript = Data()
-
         transcript.append(C6P_HANDSHAKE99_LABEL.data(using: .utf8)!)
-        transcript.append(C6P_VERSION) // globalny C6P_VERSION
-        transcript.append(C6P_HANDSHAKE99_VERSION) // handshake99 version
+        transcript.append(C6P_VERSION)                 // global protocol version
+        transcript.append(C6P_HANDSHAKE99_VERSION)     // handshake99 version
 
-        transcript.append(sessionId.data)
-        transcript.append(initiatorDeviceId.data)
-        transcript.append(responderDeviceId.data)
+        transcript.append(sessionId.data)              // 4 bytes
+        transcript.append(initiatorDeviceId.data)      // 8 bytes
+        transcript.append(responderDeviceId.data)      // 8 bytes
 
-        transcript.append(ephemeralPublicKeyX25519)
-        transcript.append(signedPrekeyPublicKeyX25519)
+        transcript.append(ephemeralPublicKeyX25519)    // 32 bytes
+        transcript.append(signedPrekeyPublicKeyX25519) // 32 bytes
 
+        // explicit presence byte
         if let otp = oneTimePrekeyPublicKeyX25519 {
-            transcript.append(otp)
+            transcript.append(0x01)
+            transcript.append(otp)                     // 32 bytes
+        } else {
+            transcript.append(0x00)
         }
 
         let hash = SHA256.hash(data: transcript)
         return Data(hash)
     }
 }
+
