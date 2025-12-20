@@ -2,469 +2,385 @@
 //  C6PIdentityContracts.swift
 //  C6P-Protocol
 //
-//  c6p-identity/
-//  Wire contracts (request/response) for identity & registration flows.
+//  Production wire contracts for Convro Tunnel backend (canonical).
 //
-//  This file intentionally contains NO networking code.
-//  It defines stable payload schemas used by:
-//  - client registration UI flow
-//  - backend identity service
+//  Backend endpoints (current):
+//  - POST /v1/auth/register
+//  - POST /v1/auth/login
+//  - POST /v1/auth/refresh
+//  - POST /v1/auth/logout
+//  - GET  /v1/auth/me
+//  - POST /v1/auth/devices/register
+//  - GET  /v1/auth/devices
 //
-//  v1 principles:
-//  - account addressed by Virtual Number in +99 namespace (6 digits)
-//  - username is an optional alias (server-enforced uniqueness)
-//  - device identities are first-class (multi-device by design)
-//  - public keys are uploaded; private keys never leave the device
-//  - keep metadata explicit, minimal, auditable
+//  Hard rules:
+//  - Convro number: "+99" + exactly 6 digits (canonical)
+//  - deviceId: 16 hex lowercase
 //
 
 import Foundation
 
-// MARK: - API Versioning
+// MARK: - Errors / Validation
 
-/// Identity API contract version (not the crypto protocol version).
-/// Useful if backend evolves independently from crypto primitive version.
-let C6P_IDENTITY_API_VERSION: UInt8 = 1
+public enum C6PIdentityContractError: Error, CustomStringConvertible {
+    case invalidUsername
+    case invalidFullName
+    case invalidPassword
+    case invalidDeviceId
+    case invalidDeviceLabel
+    case invalidPlatform
 
-// MARK: - Errors
-
-enum C6PIdentityContractError: Error, CustomStringConvertible {
-    case invalidUsernameFormat
-    case invalidDisplayName
-    case invalidVirtualNumberFormat
-    case invalidPublicKeyLength(expected: Int, actual: Int)
-    case invalidSignatureLength
-    case invalidDeviceName
-    case invalidAvatarReference
-
-    var description: String {
+    public var description: String {
         switch self {
-        case .invalidUsernameFormat:
-            return "C6PIdentityContractError.invalidUsernameFormat"
-        case .invalidDisplayName:
-            return "C6PIdentityContractError.invalidDisplayName"
-        case .invalidVirtualNumberFormat:
-            return "C6PIdentityContractError.invalidVirtualNumberFormat"
-        case .invalidPublicKeyLength(let e, let a):
-            return "C6PIdentityContractError.invalidPublicKeyLength(expected=\(e), actual=\(a))"
-        case .invalidSignatureLength:
-            return "C6PIdentityContractError.invalidSignatureLength"
-        case .invalidDeviceName:
-            return "C6PIdentityContractError.invalidDeviceName"
-        case .invalidAvatarReference:
-            return "C6PIdentityContractError.invalidAvatarReference"
+        case .invalidUsername: return "C6PIdentityContractError.invalidUsername"
+        case .invalidFullName: return "C6PIdentityContractError.invalidFullName"
+        case .invalidPassword: return "C6PIdentityContractError.invalidPassword"
+        case .invalidDeviceId: return "C6PIdentityContractError.invalidDeviceId"
+        case .invalidDeviceLabel: return "C6PIdentityContractError.invalidDeviceLabel"
+        case .invalidPlatform: return "C6PIdentityContractError.invalidPlatform"
         }
     }
 }
 
-// MARK: - Common types
-
-/// Canonical server-side representation of VN in v1:
-/// "+99" + 6 digits, no spaces.
-/// Example: "+99123456"
-///
-/// UI display can format as: "+99 123 456"
-struct C6PVirtualNumberString: Hashable, Codable, CustomStringConvertible {
-    let value: String
-
-    init(_ value: String) throws {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard C6PVirtualNumberString.isValidCanonical(trimmed) else {
-            throw C6PIdentityContractError.invalidVirtualNumberFormat
-        }
-        self.value = trimmed
-    }
-
-    static func isValidCanonical(_ s: String) -> Bool {
-        // "+99" + exactly 6 digits
-        guard s.count == 9 else { return false }
-        guard s.hasPrefix("+99") else { return false }
-        let digits = s.dropFirst(3)
-        return digits.allSatisfy { $0 >= "0" && $0 <= "9" }
-    }
-
-    var description: String { value }
+public enum C6PDevicePlatform: String, Codable {
+    case ios
+    case android
+    case desktop
+    case web
+    case unknown
 }
 
-/// Username alias, canonical form without leading "@"
-/// UI may display with "@", but payload uses raw handle.
-struct C6PUsernameHandle: Hashable, Codable, CustomStringConvertible {
-    let value: String
-
-    init(_ value: String) throws {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard C6PUsernameHandle.isValid(trimmed) else {
-            throw C6PIdentityContractError.invalidUsernameFormat
+public enum C6PIdentityValidation {
+    /// Matches backend: /^[0-9a-f]{16}$/
+    public static func isValidDeviceIdHex16(_ s: String) -> Bool {
+        let v = s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard v.count == 16 else { return false }
+        return v.allSatisfy { ch in
+            (ch >= "0" && ch <= "9") || (ch >= "a" && ch <= "f")
         }
-        self.value = trimmed.lowercased()
     }
 
-    static func isValid(_ s: String) -> Bool {
-        // 3–24, start letter, allowed [a-z0-9_.]
-        let lower = s.lowercased()
-        guard lower.count >= 3 && lower.count <= 24 else { return false }
-        guard let first = lower.first, (first >= "a" && first <= "z") else { return false }
-        for ch in lower {
-            if (ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9") || ch == "_" || ch == "." {
-                continue
-            }
-            return false
+    /// Matches backend:
+    /// - length 3...64
+    /// - allowed: [a-zA-Z0-9_.]
+    public static func isValidUsername(_ s: String) -> Bool {
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (3...64).contains(t.count) else { return false }
+        return t.allSatisfy { ch in
+            (ch >= "a" && ch <= "z") ||
+            (ch >= "A" && ch <= "Z") ||
+            (ch >= "0" && ch <= "9") ||
+            ch == "_" || ch == "."
         }
-        return true
     }
 
-    var description: String { value }
-}
-
-/// Optional profile display name fields.
-struct C6PProfileName: Hashable, Codable {
-    let firstName: String?
-    let lastName: String?
-
-    init(firstName: String?, lastName: String?) throws {
-        func validate(_ s: String?) throws -> String? {
-            guard let v = s else { return nil }
-            let t = v.trimmingCharacters(in: .whitespacesAndNewlines)
-            if t.isEmpty { return nil }
-            guard t.count <= 64 else { throw C6PIdentityContractError.invalidDisplayName }
-            // reject control characters
-            for u in t.unicodeScalars {
-                if CharacterSet.controlCharacters.contains(u) {
-                    throw C6PIdentityContractError.invalidDisplayName
-                }
-            }
-            return t
+    /// Backend stores full_name up to 128 (you slice to 128); we mirror that.
+    public static func sanitizeFullName(_ s: String?) throws -> String? {
+        guard let raw = s else { return nil }
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.isEmpty { return nil }
+        if t.count > 128 { return String(t.prefix(128)) }
+        // reject control chars
+        for u in t.unicodeScalars where CharacterSet.controlCharacters.contains(u) {
+            throw C6PIdentityContractError.invalidFullName
         }
+        return t
+    }
 
-        self.firstName = try validate(firstName)
-        self.lastName = try validate(lastName)
+    public static func sanitizeDeviceLabel(_ s: String?) throws -> String? {
+        guard let raw = s else { return nil }
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.isEmpty { return nil }
+        if t.count > 128 { return String(t.prefix(128)) }
+        for u in t.unicodeScalars where CharacterSet.controlCharacters.contains(u) {
+            throw C6PIdentityContractError.invalidDeviceLabel
+        }
+        return t
     }
 }
 
-// MARK: - Avatar reference (server-side)
+// MARK: - Generic API error payload (backend style)
 
-/// Avatar is stored/served by backend.
-/// In v1 contracts we do not accept arbitrary URLs.
-enum C6PAvatarContractRef: Hashable, Codable {
-    case none
-    case mediaId(String)
+/// Backend errors look like:
+/// { "error": "SOME_CODE", "message": "...", "field": "..." }
+public struct C6PAPIErrorResponse: Codable, Hashable {
+    public let error: String
+    public let message: String?
+    public let field: String?
 
-    private enum CodingKeys: String, CodingKey { case kind, value }
-
-    private enum Kind: String, Codable { case none, mediaId }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        let kind = try c.decode(Kind.self, forKey: .kind)
-        switch kind {
-        case .none:
-            self = .none
-        case .mediaId:
-            let v = try c.decode(String.self, forKey: .value)
-            let trimmed = v.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard trimmed.isEmpty == false, trimmed.count <= 256 else {
-                throw C6PIdentityContractError.invalidAvatarReference
-            }
-            self = .mediaId(trimmed)
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .none:
-            try c.encode(Kind.none, forKey: .kind)
-        case .mediaId(let id):
-            try c.encode(Kind.mediaId, forKey: .kind)
-            try c.encode(id, forKey: .value)
-        }
+    public init(error: String, message: String? = nil, field: String? = nil) {
+        self.error = error
+        self.message = message
+        self.field = field
     }
 }
 
-// MARK: - Device public identity contract
+// MARK: - Auth: /v1/auth/register
 
-/// Public keys uploaded to backend for a device.
-/// In C6P v1 we use:
-/// - Ed25519 public key (32 bytes) for signatures/attestation
-/// - X25519 public key (32 bytes) for DH / prekeys
-struct C6PDevicePublicIdentityContract: Hashable, Codable {
-    let deviceIdHex: String
+public struct C6PAuthRegisterRequest: Codable, Hashable {
+    public let password: String
+    public let username: String?
+    public let fullName: String?
 
-    /// 32 bytes, base64url in transport.
-    let ed25519PublicKeyB64u: String
+    public let deviceId: String?
+    public let platform: C6PDevicePlatform?
+    public let deviceLabel: String?
 
-    /// 32 bytes, base64url in transport.
-    let x25519PublicKeyB64u: String
-
-    /// Optional device label for UI/debug ("iPhone 15 Pro", "MacBook", etc.)
-    let deviceName: String?
-
-    /// Client-declared platform (not security-critical).
-    let platform: String?
-
-    /// Client-declared app version/build (not security-critical).
-    let appVersion: String?
-
-    init(
-        deviceIdHex: String,
-        ed25519PublicKey: Data,
-        x25519PublicKey: Data,
-        deviceName: String?,
-        platform: String?,
-        appVersion: String?
+    public init(
+        password: String,
+        username: String?,
+        fullName: String?,
+        deviceId: String?,
+        platform: C6PDevicePlatform?,
+        deviceLabel: String?
     ) throws {
-        let did = deviceIdHex.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard did.count == 16 else {
-            // device id is 8 bytes -> 16 hex chars
-            throw C6PIdentityContractError.invalidDataFallback()
-        }
+        let pw = password
+        guard pw.count >= 8 else { throw C6PIdentityContractError.invalidPassword }
 
-        guard ed25519PublicKey.count == 32 else {
-            throw C6PIdentityContractError.invalidPublicKeyLength(expected: 32, actual: ed25519PublicKey.count)
-        }
-        guard x25519PublicKey.count == 32 else {
-            throw C6PIdentityContractError.invalidPublicKeyLength(expected: 32, actual: x25519PublicKey.count)
-        }
-
-        func validateDeviceName(_ s: String?) throws -> String? {
-            guard let v = s else { return nil }
-            let t = v.trimmingCharacters(in: .whitespacesAndNewlines)
-            if t.isEmpty { return nil }
-            guard t.count <= 64 else { throw C6PIdentityContractError.invalidDeviceName }
-            for u in t.unicodeScalars {
-                if CharacterSet.controlCharacters.contains(u) {
-                    throw C6PIdentityContractError.invalidDeviceName
-                }
+        if let u = username {
+            let t = u.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !t.isEmpty && !C6PIdentityValidation.isValidUsername(t) {
+                throw C6PIdentityContractError.invalidUsername
             }
-            return t
+            self.username = t.isEmpty ? nil : t
+        } else {
+            self.username = nil
         }
 
-        func validateShort(_ s: String?, max: Int) -> String? {
-            guard let v = s else { return nil }
-            let t = v.trimmingCharacters(in: .whitespacesAndNewlines)
-            if t.isEmpty { return nil }
-            return String(t.prefix(max))
+        self.fullName = try C6PIdentityValidation.sanitizeFullName(fullName)
+
+        if let did = deviceId {
+            let v = did.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if !v.isEmpty && !C6PIdentityValidation.isValidDeviceIdHex16(v) {
+                throw C6PIdentityContractError.invalidDeviceId
+            }
+            self.deviceId = v.isEmpty ? nil : v
+        } else {
+            self.deviceId = nil
         }
 
-        self.deviceIdHex = did.lowercased()
-        self.ed25519PublicKeyB64u = C6PEncoding.base64URLEncode(ed25519PublicKey)
-        self.x25519PublicKeyB64u = C6PEncoding.base64URLEncode(x25519PublicKey)
-        self.deviceName = try validateDeviceName(deviceName)
-        self.platform = validateShort(platform, max: 32)
-        self.appVersion = validateShort(appVersion, max: 32)
+        self.platform = platform
+        self.deviceLabel = try C6PIdentityValidation.sanitizeDeviceLabel(deviceLabel)
+        self.password = pw
     }
 }
 
-// Helper for one internal exceptional validation
-private extension C6PIdentityContractError {
-    static func invalidDataFallback() -> C6PIdentityContractError { .invalidAvatarReference }
+public struct C6PAuthRegisterResponse: Codable, Hashable {
+    public let userId: Int64
+    public let convroNumber: C6PVirtualNumber
+    public let username: String?
+    public let fullName: String?
+    public let deviceId: String
+    public let platform: String
+    public let accessToken: String
+    public let refreshToken: String
 }
 
-// MARK: - Username availability / reservation
+// MARK: - Auth: /v1/auth/login
 
-struct C6PUsernameCheckRequest: Codable, Hashable {
-    let apiVersion: UInt8
-    let username: C6PUsernameHandle
+public struct C6PAuthLoginRequest: Codable, Hashable {
+    public let password: String
+    public let username: String?
+    public let convroNumber: String?
 
-    init(username: C6PUsernameHandle) {
-        self.apiVersion = C6P_IDENTITY_API_VERSION
-        self.username = username
+    public let deviceId: String?
+    public let platform: C6PDevicePlatform?
+    public let deviceLabel: String?
+
+    public init(
+        password: String,
+        username: String?,
+        convroNumber: String?,
+        deviceId: String?,
+        platform: C6PDevicePlatform?,
+        deviceLabel: String?
+    ) throws {
+        let pw = password
+        guard pw.count >= 1 else { throw C6PIdentityContractError.invalidPassword }
+
+        let u = username?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let vn = convroNumber?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if (u == nil || u!.isEmpty) && (vn == nil || vn!.isEmpty) {
+            // backend requires one of them
+            throw C6PIdentityContractError.invalidUsername
+        }
+
+        if let u = u, !u.isEmpty, !C6PIdentityValidation.isValidUsername(u) {
+            throw C6PIdentityContractError.invalidUsername
+        }
+
+        if let vn = vn, !vn.isEmpty {
+            // validate VN canonical or display (your VN type decodes both)
+            _ = try C6PVirtualNumber(string: vn)
+        }
+
+        if let did = deviceId {
+            let v = did.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if !v.isEmpty && !C6PIdentityValidation.isValidDeviceIdHex16(v) {
+                throw C6PIdentityContractError.invalidDeviceId
+            }
+            self.deviceId = v.isEmpty ? nil : v
+        } else {
+            self.deviceId = nil
+        }
+
+        self.password = pw
+        self.username = (u?.isEmpty == false) ? u : nil
+        self.convroNumber = (vn?.isEmpty == false) ? try C6PVirtualNumber(string: vn!).canonicalString : nil
+        self.platform = platform
+        self.deviceLabel = try C6PIdentityValidation.sanitizeDeviceLabel(deviceLabel)
     }
 }
 
-struct C6PUsernameCheckResponse: Codable, Hashable {
-    let apiVersion: UInt8
-    let username: C6PUsernameHandle
-    let available: Bool
-    let reason: String? // backend may return policy reason ("reserved", "banned", etc.)
+public struct C6PAuthLoginResponse: Codable, Hashable {
+    public let userId: Int64
+    public let convroNumber: C6PVirtualNumber
+    public let username: String?
+    public let fullName: String?
+    public let deviceId: String
+    public let platform: String
+    public let accessToken: String
+    public let refreshToken: String
 }
 
-/// Optional reservation flow: reserve handle for a short time while user continues onboarding.
-struct C6PUsernameReserveRequest: Codable, Hashable {
-    let apiVersion: UInt8
-    let username: C6PUsernameHandle
+// MARK: - Auth: /v1/auth/refresh
 
-    /// Optional client nonce/id for idempotency.
-    let requestId: String
+public struct C6PAuthRefreshRequest: Codable, Hashable {
+    public let refreshToken: String
 
-    init(username: C6PUsernameHandle, requestId: String = UUID().uuidString) {
-        self.apiVersion = C6P_IDENTITY_API_VERSION
-        self.username = username
-        self.requestId = requestId
+    public init(refreshToken: String) {
+        self.refreshToken = refreshToken
     }
 }
 
-struct C6PUsernameReserveResponse: Codable, Hashable {
-    let apiVersion: UInt8
-    let username: C6PUsernameHandle
-    let reserved: Bool
-
-    /// Reservation token to include in final create (prevents racing).
-    let reservationToken: String?
-
-    /// Expiration UTC timestamp (server authoritative).
-    let expiresAt: Date?
+public struct C6PAuthRefreshResponse: Codable, Hashable {
+    public let userId: Int64
+    public let deviceId: String
+    public let convroNumber: C6PVirtualNumber
+    public let username: String?
+    public let accessToken: String
+    public let refreshToken: String
 }
 
-// MARK: - VN assignment (+99 namespace)
+// MARK: - Auth: /v1/auth/logout
 
-/// VN is generated by backend to ensure global uniqueness.
-/// Client may request generation, but server is authoritative.
-struct C6PAssignVirtualNumberRequest: Codable, Hashable {
-    let apiVersion: UInt8
-    let requestId: String
+public struct C6PAuthLogoutRequest: Codable, Hashable {
+    public let refreshToken: String?
+    public let allForDevice: Bool?
+    public let allForUser: Bool?
 
-    init(requestId: String = UUID().uuidString) {
-        self.apiVersion = C6P_IDENTITY_API_VERSION
-        self.requestId = requestId
+    public init(refreshToken: String? = nil, allForDevice: Bool? = nil, allForUser: Bool? = nil) {
+        self.refreshToken = refreshToken
+        self.allForDevice = allForDevice
+        self.allForUser = allForUser
     }
 }
 
-struct C6PAssignVirtualNumberResponse: Codable, Hashable {
-    let apiVersion: UInt8
-
-    /// canonical VN: "+99" + 6 digits
-    let virtualNumber: C6PVirtualNumberString
-
-    /// Server timestamp for audit/debug
-    let assignedAt: Date
+public struct C6PAuthLogoutResponse: Codable, Hashable {
+    public let ok: Bool
+    public let scope: String?
 }
 
-// MARK: - Account creation (finalization)
+// MARK: - Auth: /v1/auth/me
 
-/// This is the final step of onboarding:
-/// - bind VN
-/// - (optionally) bind username
-/// - store profile data
-/// - register primary device public identity
-///
-/// The crypto private keys never leave device.
-/// Backend receives only public keys + metadata.
-struct C6PCreateAccountRequest: Codable, Hashable {
-    let apiVersion: UInt8
+public struct C6PAuthMeResponse: Codable, Hashable {
+    public let userId: Int64
+    public let deviceId: String
+    public let convroNumber: C6PVirtualNumber?
+    public let username: String?
+}
 
-    /// Canonical virtual number.
-    let virtualNumber: C6PVirtualNumberString
+// MARK: - Devices: /v1/auth/devices/register
 
-    /// Optional @handle (without "@").
-    let username: C6PUsernameHandle?
+public struct C6PAuthDevicesRegisterRequest: Codable, Hashable {
+    public let deviceId: String?
+    public let platform: C6PDevicePlatform?
+    public let deviceLabel: String?
 
-    /// Optional reservation token if using reserve flow.
-    let usernameReservationToken: String?
-
-    /// Optional profile name.
-    let profileName: C6PProfileName
-
-    /// Avatar reference in v1: none or backend mediaId.
-    let avatar: C6PAvatarContractRef
-
-    /// Primary device public identity.
-    let primaryDevice: C6PDevicePublicIdentityContract
-
-    /// Idempotency / dedupe.
-    let requestId: String
-
-    init(
-        virtualNumber: C6PVirtualNumberString,
-        username: C6PUsernameHandle?,
-        usernameReservationToken: String?,
-        profileName: C6PProfileName,
-        avatar: C6PAvatarContractRef,
-        primaryDevice: C6PDevicePublicIdentityContract,
-        requestId: String = UUID().uuidString
-    ) {
-        self.apiVersion = C6P_IDENTITY_API_VERSION
-        self.virtualNumber = virtualNumber
-        self.username = username
-        self.usernameReservationToken = usernameReservationToken
-        self.profileName = profileName
-        self.avatar = avatar
-        self.primaryDevice = primaryDevice
-        self.requestId = requestId
+    public init(deviceId: String?, platform: C6PDevicePlatform?, deviceLabel: String?) throws {
+        if let did = deviceId {
+            let v = did.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if !v.isEmpty && !C6PIdentityValidation.isValidDeviceIdHex16(v) {
+                throw C6PIdentityContractError.invalidDeviceId
+            }
+            self.deviceId = v.isEmpty ? nil : v
+        } else {
+            self.deviceId = nil
+        }
+        self.platform = platform
+        self.deviceLabel = try C6PIdentityValidation.sanitizeDeviceLabel(deviceLabel)
     }
 }
 
-struct C6PCreateAccountResponse: Codable, Hashable {
-    let apiVersion: UInt8
-
-    /// Server-acknowledged VN.
-    let virtualNumber: C6PVirtualNumberString
-
-    /// Final username (might be nil if not set).
-    let username: C6PUsernameHandle?
-
-    /// Account internal id (server side), optional if you want it.
-    let accountId: String?
-
-    /// Server time of creation.
-    let createdAt: Date
-
-    /// Whether the device is set as primary.
-    let primaryDeviceIdHex: String
+public struct C6PAuthDevicesRegisterResponse: Codable, Hashable {
+    public let ok: Bool
+    public let deviceId: String
+    public let platform: String
 }
 
-// MARK: - Add/Remove devices (multi-device)
+// MARK: - Devices: /v1/auth/devices
 
-struct C6PRegisterDeviceRequest: Codable, Hashable {
-    let apiVersion: UInt8
+public struct C6PDeviceListItem: Codable, Hashable {
+    public let deviceId: String
+    public let platform: String
+    public let deviceLabel: String?
+    public let isActive: Bool
+    public let createdAt: Date?
+    public let lastSeenAt: Date?
+}
 
-    let virtualNumber: C6PVirtualNumberString
-    let device: C6PDevicePublicIdentityContract
+public struct C6PAuthDevicesListResponse: Codable, Hashable {
+    public let devices: [C6PDeviceListItem]
+}
 
-    /// Optional client-side signed statement could be added later.
-    /// For v1: keep minimal.
-    let requestId: String
+// MARK: - JSON helpers (recommended)
 
-    init(
-        virtualNumber: C6PVirtualNumberString,
-        device: C6PDevicePublicIdentityContract,
-        requestId: String = UUID().uuidString
-    ) {
-        self.apiVersion = C6P_IDENTITY_API_VERSION
-        self.virtualNumber = virtualNumber
-        self.device = device
-        self.requestId = requestId
+public enum C6PJSON {
+    /// Use this decoder in your HTTP client for Convro Tunnel.
+    public static func makeDecoder() -> JSONDecoder {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .custom { dec in
+            let c = try dec.singleValueContainer()
+            let s = try c.decode(String.self)
+            if let dt = C6PISO8601.parse(s) { return dt }
+            throw DecodingError.dataCorruptedError(in: c, debugDescription: "Invalid ISO8601 date: \(s)")
+        }
+        return d
+    }
+
+    public static func makeEncoder() -> JSONEncoder {
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .custom { date, enc in
+            var c = enc.singleValueContainer()
+            try c.encode(C6PISO8601.format(date))
+        }
+        return e
     }
 }
 
-struct C6PRegisterDeviceResponse: Codable, Hashable {
-    let apiVersion: UInt8
-    let virtualNumber: C6PVirtualNumberString
-    let deviceIdHex: String
-    let registeredAt: Date
-}
+public enum C6PISO8601 {
+    // JS toISOString -> "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+    private static let f1: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
 
-/// Optional: device removal (server-side authorization rules apply)
-struct C6PRemoveDeviceRequest: Codable, Hashable {
-    let apiVersion: UInt8
-    let virtualNumber: C6PVirtualNumberString
-    let deviceIdHex: String
-    let requestId: String
-}
+    private static let f2: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
 
-struct C6PRemoveDeviceResponse: Codable, Hashable {
-    let apiVersion: UInt8
-    let virtualNumber: C6PVirtualNumberString
-    let deviceIdHex: String
-    let removed: Bool
-    let removedAt: Date?
-}
+    public static func parse(_ s: String) -> Date? {
+        if let d = f1.date(from: s) { return d }
+        if let d = f2.date(from: s) { return d }
+        return nil
+    }
 
-// MARK: - Profile updates (optional in v1)
-
-struct C6PUpdateProfileRequest: Codable, Hashable {
-    let apiVersion: UInt8
-    let virtualNumber: C6PVirtualNumberString
-
-    let username: C6PUsernameHandle?
-    let profileName: C6PProfileName
-    let avatar: C6PAvatarContractRef
-
-    let requestId: String
-}
-
-struct C6PUpdateProfileResponse: Codable, Hashable {
-    let apiVersion: UInt8
-    let virtualNumber: C6PVirtualNumberString
-    let updatedAt: Date
+    public static func format(_ d: Date) -> String {
+        // keep fractional seconds for stability
+        return f1.string(from: d)
+    }
 }
