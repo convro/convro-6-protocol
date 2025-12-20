@@ -3,19 +3,29 @@ import CryptoKit
 
 // MARK: - Errors
 
-enum C6PAEADError: Error, CustomStringConvertible {
+enum C6PAEADError: Error, LocalizedError, CustomStringConvertible {
     case unsupportedSuite(C6PEncryptionSuite)
-    case decryptFailed
+
+    case contextMismatch(field: String)          // mismatched sessionId/streamId/counter/type vs messageKey
+    case invalidSessionIdLength(expected: Int, actual: Int)
     case invalidTagLength(expected: Int, actual: Int)
+
+    case decryptFailed
+
+    var errorDescription: String? { description }
 
     var description: String {
         switch self {
         case .unsupportedSuite(let suite):
-            return "C6PAEADError.unsupportedSuite(\(suite)) – Swift reference supports only ChaCha20-Poly1305 via CryptoKit; protocol may support more suites."
-        case .decryptFailed:
-            return "C6PAEADError.decryptFailed – authentication tag mismatch or corrupted data"
+            return "C6PAEADError.unsupportedSuite(\(suite)) – Swift reference supports only ChaCha20-Poly1305 via CryptoKit."
+        case .contextMismatch(let field):
+            return "C6PAEADError.contextMismatch(\(field)) – provided context does not match messageKey context"
+        case .invalidSessionIdLength(let expected, let actual):
+            return "C6PAEADError.invalidSessionIdLength(expected=\(expected), actual=\(actual))"
         case .invalidTagLength(let expected, let actual):
             return "C6PAEADError.invalidTagLength(expected=\(expected), actual=\(actual))"
+        case .decryptFailed:
+            return "C6PAEADError.decryptFailed – authentication tag mismatch or corrupted data"
         }
     }
 }
@@ -27,32 +37,13 @@ enum C6PAEADError: Error, CustomStringConvertible {
 struct C6PSealedMessage: Hashable, Codable {
     let ciphertext: Data
     let tag: Data
-
-    init(ciphertext: Data, tag: Data) {
-        self.ciphertext = ciphertext
-        self.tag = tag
-    }
-}
-
-// MARK: - Stream id (wire-stable direction)
-
-/// Wire-stable stream identifier:
-/// - i2r: Initiator -> Responder
-/// - r2i: Responder -> Initiator
-///
-/// IMPORTANT:
-/// This is NOT "local sending/receiving".
-/// Both peers MUST derive the same stream id for the same message.
-enum C6PStreamId: UInt8 {
-    case i2r = 0x01
-    case r2i = 0x02
 }
 
 // MARK: - AEAD
 
-/// Protocol-facing AEAD wrapper with C6P-specific, canonical AAD.
+/// Protocol-facing AEAD wrapper with C6P-specific canonical AAD.
 /// Swift reference currently uses CryptoKit ChaChaPoly.
-/// The protocol-level design remains AEAD-agile.
+/// Protocol-level design remains AEAD-agile.
 enum C6PAEAD {
 
     // MARK: Public API – Encrypt
@@ -74,9 +65,24 @@ enum C6PAEAD {
             throw C6PAEADError.unsupportedSuite(messageKey.suite)
         }
 
-        // Wire-stable stream id derived from (role + local direction) in a symmetric way.
-        // Sender and receiver will compute the same stream id for the same message.
-        let streamId = deriveStreamId(role: role, direction: direction)
+        // Canonical stream id (wire-stable)
+        let streamId = C6PStreamId.derive(role: role, direction: direction)
+
+        // Defensive: ensure caller does not pass mismatched context
+        try validateContext(
+            messageKey: messageKey,
+            sessionId: sessionId,
+            streamId: streamId,
+            messageType: messageType,
+            counter: counter
+        )
+
+        // Validate session id size (expected by protocol: currently 4 bytes)
+        // NOTE: keep this in sync with C6PSessionId implementation.
+        let sidLen = sessionId.data.count
+        guard sidLen == 4 else {
+            throw C6PAEADError.invalidSessionIdLength(expected: 4, actual: sidLen)
+        }
 
         let aad = buildAAD(
             suite: messageKey.suite,
@@ -124,9 +130,23 @@ enum C6PAEAD {
             throw C6PAEADError.invalidTagLength(expected: expectedTagLen, actual: sealed.tag.count)
         }
 
-        // IMPORTANT:
-        // Use the SAME stream id derivation rule as seal().
-        let streamId = deriveStreamId(role: role, direction: direction)
+        // Canonical stream id (wire-stable) – MUST match seal()
+        let streamId = C6PStreamId.derive(role: role, direction: direction)
+
+        // Defensive: ensure caller does not pass mismatched context
+        try validateContext(
+            messageKey: messageKey,
+            sessionId: sessionId,
+            streamId: streamId,
+            messageType: messageType,
+            counter: counter
+        )
+
+        // Validate session id size (expected by protocol: currently 4 bytes)
+        let sidLen = sessionId.data.count
+        guard sidLen == 4 else {
+            throw C6PAEADError.invalidSessionIdLength(expected: 4, actual: sidLen)
+        }
 
         let aad = buildAAD(
             suite: messageKey.suite,
@@ -148,38 +168,40 @@ enum C6PAEAD {
         do {
             return try ChaChaPoly.open(sealedBox, using: messageKey.key, authenticating: aad)
         } catch {
-            // No silent fallbacks.
+            // Never silently fallback.
             throw C6PAEADError.decryptFailed
         }
     }
 
-    // MARK: - Canonical stream derivation
+    // MARK: - Context validation
 
-    /// Derives a wire-stable stream id from local (role, direction) such that:
-    /// - Initiator sending  => i2r ; Responder receiving => i2r
-    /// - Responder sending  => r2i ; Initiator receiving => r2i
-    ///
-    /// This prevents the "local perspective" mismatch that would otherwise break AAD/nonce.
-    private static func deriveStreamId(role: C6PRole, direction: C6PDirection) -> C6PStreamId {
-        switch (role, direction) {
-        case (.initiator, .sending):   return .i2r
-        case (.initiator, .receiving): return .r2i
-        case (.responder, .sending):   return .r2i
-        case (.responder, .receiving): return .i2r
-        }
+    private static func validateContext(
+        messageKey: C6PMessageKey,
+        sessionId: C6PSessionId,
+        streamId: C6PStreamId,
+        messageType: C6PMessageType,
+        counter: C6PMessageCounter
+    ) throws {
+        if messageKey.sessionId != sessionId { throw C6PAEADError.contextMismatch(field: "sessionId") }
+        if messageKey.streamId != streamId { throw C6PAEADError.contextMismatch(field: "streamId") }
+        if messageKey.messageType != messageType { throw C6PAEADError.contextMismatch(field: "messageType") }
+        if messageKey.counter != counter { throw C6PAEADError.contextMismatch(field: "counter") }
     }
 
     // MARK: - AAD Builder
 
-    /// Canonical AAD layout (big-endian, fixed order):
+    /// Canonical AAD layout (fixed order):
     ///
     ///  [ 0 ]    C6P_VERSION (UInt8)
     ///  [ 1 ]    suite (C6PEncryptionSuite.rawValue)
-    ///  [2..5]   sessionId (4 bytes, big-endian)   // NOTE: may become 8 bytes in the ideal target
-    ///  [ 6 ]    streamId (C6PStreamId.rawValue)   // wire-stable I→R / R→I
-    ///  [ 7 ]    messageType.rawValue
-    ///  [8..15]  counter (UInt64, big-endian)
-    ///  [..]     extraAAD (optional)
+    ///  [..]     sessionId bytes (current: 4 bytes)
+    ///  [..]     streamId (C6PStreamId.rawValue)   // wire-stable I→R / R→I
+    ///  [..]     messageType.rawValue
+    ///  [..]     counter (UInt64, big-endian)
+    ///  [..]     extraAAD (optional, raw bytes)
+    ///
+    /// IMPORTANT:
+    /// This AAD is wire-stable. Do not change without bumping protocol version.
     private static func buildAAD(
         suite: C6PEncryptionSuite,
         sessionId: C6PSessionId,
@@ -188,8 +210,11 @@ enum C6PAEAD {
         counter: C6PMessageCounter,
         extraAAD: Data? = nil
     ) -> Data {
+
+        let extraLen = extraAAD?.count ?? 0
+
         var data = Data()
-        data.reserveCapacity(1 + 1 + 4 + 1 + 1 + 8 + (extraAAD?.count ?? 0))
+        data.reserveCapacity(1 + 1 + sessionId.data.count + 1 + 1 + 8 + extraLen)
 
         // version
         data.append(C6P_VERSION)
@@ -197,10 +222,10 @@ enum C6PAEAD {
         // suite
         data.append(suite.rawValue)
 
-        // sessionId (current: 4 bytes BE)
+        // session id bytes (currently 4 bytes)
         data.append(sessionId.data)
 
-        // stream
+        // stream id (wire-stable)
         data.append(streamId.rawValue)
 
         // message type
@@ -220,11 +245,7 @@ enum C6PAEAD {
     // MARK: - Encoding helper
 
     private static func encodeCounter64(_ value: UInt64) -> Data {
-        var out = [UInt8](repeating: 0, count: 8)
-        for i in 0..<8 {
-            let shift = (7 - i) * 8
-            out[i] = UInt8((value >> UInt64(shift)) & 0xFF)
-        }
-        return Data(out)
+        var be = value.bigEndian
+        return Data(bytes: &be, count: MemoryLayout<UInt64>.size)
     }
 }
