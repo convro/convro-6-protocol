@@ -2,26 +2,26 @@
 //  C6PVirtualNumber.swift
 //  C6P-Protocol
 //
-//  c6p-identity/
-//  Virtual Number (VN) in +99 namespace.
+//  Convro Virtual Number (VN) in +99 namespace.
 //
 //  v1 REQUIREMENT:
 //  - Exactly 6 digits after +99
-//  - Display format only: "+99 xxx xxx"
-//  - Canonical format (storage/JSON): "+99" + 6 digits (no spaces), e.g. "+99123456"
+//  - Display format: "+99 xxx xxx"
+//  - Canonical (storage/JSON): "+99" + 6 digits (no spaces), e.g. "+99123456"
 //
 
 import Foundation
+import Security
 
 // MARK: - Errors
 
-enum C6PVirtualNumberError: Error, CustomStringConvertible {
+public enum C6PVirtualNumberError: Error, CustomStringConvertible {
     case invalidPrefix
     case invalidDigitsCount(expected: Int, actual: Int)
     case invalidCharacter
     case randomGenerationFailed
 
-    var description: String {
+    public var description: String {
         switch self {
         case .invalidPrefix:
             return "C6PVirtualNumberError.invalidPrefix – VN must start with \"+99\""
@@ -37,24 +37,17 @@ enum C6PVirtualNumberError: Error, CustomStringConvertible {
 
 // MARK: - VN
 
-/// Convro Virtual Number (VN) – +99 namespace.
-///
-/// Contract (v1):
-/// - digits: exactly 6 numeric characters (leading zeros allowed)
-/// - canonical: "+99" + digits (no spaces)
-/// - display: "+99 xxx xxx"
-struct C6PVirtualNumber: Hashable, Codable, CustomStringConvertible {
-
-    static let prefix = "+99"
-    static let digitsCount = 6
+public struct C6PVirtualNumber: Hashable, Codable, CustomStringConvertible {
+    public static let prefix = "+99"
+    public static let digitsCount = 6
 
     /// Exactly 6 digits, numeric only, leading zeros allowed.
-    private(set) var digits: String
+    public private(set) var digits: String
 
-    // MARK: - Init
+    // MARK: Init
 
     /// Create from raw digits (must be exactly 6).
-    init(digits: String) throws {
+    public init(digits: String) throws {
         let clean = digits.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard clean.count == Self.digitsCount else {
@@ -68,17 +61,17 @@ struct C6PVirtualNumber: Hashable, Codable, CustomStringConvertible {
     }
 
     /// Parse from a string that must start with "+99" and contain exactly 6 digits total.
-    /// Accepts both:
-    /// - "+99123456"
-    /// - "+99 123 456"
-    init(string: String) throws {
+    /// Accepts:
+    /// - "+99123456" (canonical)
+    /// - "+99 123 456" (display)
+    public init(string: String) throws {
         let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard trimmed.hasPrefix(Self.prefix) else {
             throw C6PVirtualNumberError.invalidPrefix
         }
 
-        // Remove prefix, then strip all whitespaces
+        // Remove prefix, then strip whitespaces
         let afterPrefix = trimmed.dropFirst(Self.prefix.count)
         let noSpaces = afterPrefix.filter { !$0.isWhitespace }
 
@@ -92,54 +85,65 @@ struct C6PVirtualNumber: Hashable, Codable, CustomStringConvertible {
         self.digits = String(noSpaces)
     }
 
-    // MARK: - Representations
+    // MARK: Representations
 
     /// Canonical string for storage/JSON: "+99" + 6 digits, no spaces.
-    var canonicalString: String {
+    public var canonicalString: String {
         Self.prefix + digits
     }
 
     /// Display string for UI: "+99 xxx xxx"
-    var displayString: String {
+    public var displayString: String {
         let a = digits.prefix(3)
         let b = digits.suffix(3)
         return "\(Self.prefix) \(a) \(b)"
     }
 
-    var description: String {
-        displayString
-    }
+    public var description: String { displayString }
 
-    // MARK: - Generation
+    // MARK: Generation
 
     /// Generates a VN with exactly 6 digits after "+99" (uniform via rejection sampling).
-    static func generate() throws -> C6PVirtualNumber {
-        // We want uniform 0...999999
+    public static func generate() throws -> C6PVirtualNumber {
         let bound: UInt32 = 1_000_000
         let limit = UInt32.max - (UInt32.max % bound)
 
-        var r: UInt32 = 0
         while true {
-            r = try C6PRandom.randomUInt32()
-            if r < limit { break }
+            let r = try C6PSecureRandom.randomUInt32()
+            if r < limit {
+                let value = r % bound
+                let digits = String(format: "%06u", value)
+                return try C6PVirtualNumber(digits: digits)
+            }
         }
-
-        let value = r % bound
-        let digits = String(format: "%06u", value)
-        return try C6PVirtualNumber(digits: digits)
     }
 
-    // MARK: - Codable (encode canonical, decode tolerant)
+    // MARK: Codable
 
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        let raw = try container.decode(String.self)
-        // decode accepts both canonical and display, but must start with +99
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        let raw = try c.decode(String.self)
         try self.init(string: raw)
     }
 
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        try container.encode(canonicalString)
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(canonicalString)
     }
 }
+
+// MARK: - Secure random
+
+public enum C6PSecureRandom {
+    public static func randomUInt32() throws -> UInt32 {
+        var value: UInt32 = 0
+        let status = withUnsafeMutableBytes(of: &value) { ptr in
+            SecRandomCopyBytes(kSecRandomDefault, ptr.count, ptr.baseAddress!)
+        }
+        guard status == errSecSuccess else {
+            throw C6PVirtualNumberError.randomGenerationFailed
+        }
+        return value
+    }
+}
+
