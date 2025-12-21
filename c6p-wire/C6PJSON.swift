@@ -1,35 +1,9 @@
 import Foundation
 
 enum C6PJSON {
-    // ISO8601 z ms
-    static let iso8601Frac: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        f.timeZone = TimeZone(secondsFromGMT: 0)
-        return f
-    }()
-
-    // ISO8601 bez ms (fallback)
-    static let iso8601NoFrac: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        f.timeZone = TimeZone(secondsFromGMT: 0)
-        return f
-    }()
-
-    static func encodeDate(_ date: Date) -> String {
-        // zawsze wysyłaj z ms (kanonicznie)
-        iso8601Frac.string(from: date)
-    }
-
-    static func decodeDate(_ s: String) -> Date? {
-        if let d = iso8601Frac.date(from: s) { return d }
-        if let d = iso8601NoFrac.date(from: s) { return d }
-        return nil
-    }
-
     static func makeEncoder() -> JSONEncoder {
         let e = JSONEncoder()
+        e.outputFormatting = [.withoutEscapingSlashes]
         e.dateEncodingStrategy = .custom { date, encoder in
             var c = encoder.singleValueContainer()
             try c.encode(encodeDate(date))
@@ -47,4 +21,21 @@ enum C6PJSON {
         }
         return d
     }
+
+    static func encodeDate(_ date: Date) -> String {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f.string(from: date)
+    }
+
+    static func decodeDate(_ s: String) -> Date? {
+        let f1 = ISO8601DateFormatter()
+        f1.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = f1.date(from: s) { return d }
+
+        let f2 = ISO8601DateFormatter()
+        f2.formatOptions = [.withInternetDateTime]
+        return f2.date(from: s)
+    }
 }
+
