@@ -5,11 +5,15 @@
 //  Production-ready DM session service (device-to-device sessions).
 //
 //  v1 goals:
-//  - DM encryption/decryption using existing C6PHandshake99 + C6PKeySchedule + C6PAEAD
-//  - Wire envelope is metadata-minimal (C6PEnvelope) and treated as untrusted
+//  - DM encryption/decryption using C6PHandshake99 + C6PKeySchedule + C6PAEAD
+//  - Wire envelope treated as untrusted
 //  - Routing binding to AEAD via Variant A: wireAAD = C6PWireAAD.envelopeAAD(...)
 //  - “Shape” (dm/group/channel + event kind) lives ONLY inside E2EE payload (C6PInnerPayload)
 //  - Fail closed: any inconsistency => mark session .needsReHandshake and throw
+//
+//  IMPORTANT CANON v1.1:
+//  - Initiator MUST POST handshakeOffer to backend: /v1/dm/sessions/open
+//  - Responder polls /v1/dm/sessions/incoming, computes secrets locally, then POST /accept
 //
 
 import Foundation
@@ -22,7 +26,10 @@ enum C6PSessionServiceError: Error, CustomStringConvertible {
     case invalidSender(expected: C6PDeviceId, actual: C6PDeviceId)
     case missingSessionForDecryption(remoteDeviceId: C6PDeviceId, sessionId: C6PSessionId)
     case sessionIdMismatch(expected: C6PSessionId, actual: C6PSessionId)
+
     case prekeyBundleUnavailable(remoteDeviceId: C6PDeviceId)
+    case dmSessionOpenRejected(reason: String)
+
     case decryptedPayloadNotDM(actual: C6PConversationContext)
     case innerClientMessageIdMismatch(envelope: String, inner: String)
     case decodeInnerPayloadFailed
@@ -40,8 +47,12 @@ enum C6PSessionServiceError: Error, CustomStringConvertible {
             return "C6PSessionServiceError.missingSessionForDecryption(remote=\(remote.hexString), sessionId=\(sessionId.hexString))"
         case .sessionIdMismatch(let expected, let actual):
             return "C6PSessionServiceError.sessionIdMismatch(expected=\(expected.hexString), actual=\(actual.hexString))"
+
         case .prekeyBundleUnavailable(let remote):
             return "C6PSessionServiceError.prekeyBundleUnavailable(remote=\(remote.hexString))"
+        case .dmSessionOpenRejected(let reason):
+            return "C6PSessionServiceError.dmSessionOpenRejected(\(reason))"
+
         case .decryptedPayloadNotDM(let actual):
             return "C6PSessionServiceError.decryptedPayloadNotDM(actual=\(actual))"
         case .innerClientMessageIdMismatch(let envelope, let inner):
@@ -54,9 +65,48 @@ enum C6PSessionServiceError: Error, CustomStringConvertible {
     }
 }
 
-// MARK: - Prekey Bundle Provider
+// MARK: - Providers / API contracts
 
-typealias C6PPrekeyBundleProvider = (_ remoteDeviceId: C6PDeviceId) throws -> C6PPrekeyBundle
+typealias C6PPrekeyBundleProvider = (_ remoteDeviceId: C6PDeviceId) async throws -> C6PPrekeyBundleContract
+
+protocol C6PDmSessionsAPI {
+    /// POST /v1/dm/sessions/open
+    func open(peerUserId: Int, handshakeOffer: C6PHandshake99Offer) async throws -> C6PDmSessionOpenResponse
+
+    /// GET /v1/dm/sessions/incoming
+    func incoming() async throws -> C6PDmIncomingSessionsResponse
+
+    /// POST /v1/dm/sessions/accept
+    func accept(sessionDbId: Int) async throws -> C6PDmSessionAcceptResponse
+}
+
+struct C6PDmSessionOpenResponse: Codable, Hashable {
+    let ok: Bool
+    let sessionDbId: Int
+    let sessionId: String
+    let responderUserId: Int
+    let responderDeviceId: String
+    let state: String
+}
+
+struct C6PDmIncomingSessionsResponse: Codable, Hashable {
+    struct Item: Codable, Hashable {
+        let sessionDbId: Int
+        let sessionId: String
+        let initiatorUserId: Int
+        let initiatorDeviceId: String
+        let handshakeOffer: C6PHandshake99Offer
+        let createdAt: String
+    }
+    let sessions: [Item]
+}
+
+struct C6PDmSessionAcceptResponse: Codable, Hashable {
+    let ok: Bool
+    let sessionDbId: Int
+    let sessionId: String
+    let state: String
+}
 
 // MARK: - Session Service (DM only)
 
@@ -66,10 +116,14 @@ final class C6PSessionService {
 
     private let localDeviceId: C6PDeviceId
     private let store: C6PSessionStore
+
     private let prekeyBundleProvider: C6PPrekeyBundleProvider
+    private let dmApi: C6PDmSessionsAPI
+
+    /// Optional identity pinning / TOFU override
     private let remoteIdentityOverrideProvider: ((_ remoteDeviceId: C6PDeviceId) -> Data?)?
 
-    /// In-process cache to avoid relying on store write timing (some stores may be async internally).
+    /// Cache
     private var sessionCache: [C6PDeviceId: C6PSessionState] = [:]
     private let cacheQueue = DispatchQueue(label: "c6p.session.service.cache.serial")
 
@@ -93,78 +147,113 @@ final class C6PSessionService {
         localDeviceId: C6PDeviceId,
         store: C6PSessionStore,
         prekeyBundleProvider: @escaping C6PPrekeyBundleProvider,
+        dmApi: C6PDmSessionsAPI,
         remoteIdentityOverrideProvider: ((_ remoteDeviceId: C6PDeviceId) -> Data?)? = nil
     ) {
         self.localDeviceId = localDeviceId
         self.store = store
         self.prekeyBundleProvider = prekeyBundleProvider
+        self.dmApi = dmApi
         self.remoteIdentityOverrideProvider = remoteIdentityOverrideProvider
     }
 
-    // MARK: - Public API
+    // MARK: - Public: Outgoing session (initiator)
 
-    /// Returns active session or creates a new one (initiator) if missing / not active.
-    func getOrCreateSession(with remoteDeviceId: C6PDeviceId) throws -> C6PSessionState {
-        // 0) Cache first
-        if let cached = cacheGet(remoteDeviceId), cached.status == .active {
+    /// Creates (if needed) an initiator session and POSTS handshakeOffer to backend (/open).
+    /// Returns local session state; backend session state is PENDING until responder accepts.
+    @discardableResult
+    func ensureOutgoingSession(
+        peerUserId: Int,
+        responderDeviceId: C6PDeviceId
+    ) async throws -> C6PSessionState {
+
+        // 0) Cache/store: if already active we are done (local)
+        if let cached = cacheGet(responderDeviceId), cached.status == .active {
             return cached
         }
-
-        // 1) Store
-        if var session = store.loadSession(localDeviceId: localDeviceId, remoteDeviceId: remoteDeviceId) {
-            switch session.status {
-            case .active:
-                cacheSet(remoteDeviceId, session)
-                return session
-            case .closed, .needsReHandshake:
-                store.deleteSession(localDeviceId: localDeviceId, remoteDeviceId: remoteDeviceId)
-                cacheRemove(remoteDeviceId)
-            }
+        if let existing = store.loadSession(localDeviceId: localDeviceId, remoteDeviceId: responderDeviceId),
+           existing.status == .active {
+            cacheSet(responderDeviceId, existing)
+            return existing
         }
 
-        // 2) Need new handshake as initiator
-        let bundle: C6PPrekeyBundle
+        // 1) Fetch bundle (network)
+        let bundle: C6PPrekeyBundleContract
         do {
-            bundle = try prekeyBundleProvider(remoteDeviceId)
+            bundle = try await prekeyBundleProvider(responderDeviceId)
         } catch {
-            throw C6PSessionServiceError.prekeyBundleUnavailable(remoteDeviceId: remoteDeviceId)
+            throw C6PSessionServiceError.prekeyBundleUnavailable(remoteDeviceId: responderDeviceId)
         }
 
-        let identityOverride = remoteIdentityOverrideProvider?(remoteDeviceId)
+        let identityOverride = remoteIdentityOverrideProvider?(responderDeviceId)
 
-        let result = try C6PHandshake99.startAsInitiator(
+        // 2) Handshake as initiator
+        let hs = try C6PHandshake99.startAsInitiator(
             localDeviceId: localDeviceId,
             prekeyBundle: bundle,
             identityPublicKeyOverride: identityOverride
         )
 
+        // 3) Persist local session immediately (so we can encrypt right away)
         var session = C6PSessionState(
-            sessionId: result.sessionId,
+            sessionId: hs.sessionId,
             localDeviceId: localDeviceId,
-            remoteDeviceId: remoteDeviceId,
+            remoteDeviceId: responderDeviceId,
             role: .initiator,
-            rootKey: result.rootKey,
-            sendChainKey: result.sendChainKey,
-            recvChainKey: result.recvChainKey,
-            sendCounter: result.sendCounter,
-            recvCounter: result.recvCounter
+            rootKey: hs.rootKey,
+            sendChainKey: hs.sendChainKey,
+            recvChainKey: hs.recvChainKey,
+            sendCounter: hs.sendCounter,
+            recvCounter: hs.recvCounter
         )
-
         session.markUpdated()
-        persistAndCache(session, remoteDeviceId: remoteDeviceId)
+        persistAndCache(session, remoteDeviceId: responderDeviceId)
+
+        // 4) POST offer to backend (/open) — MUST succeed, otherwise mark needsReHandshake
+        do {
+            let resp = try await dmApi.open(peerUserId: peerUserId, handshakeOffer: hs.offer)
+            guard resp.ok else {
+                session.markNeedsReHandshake()
+                persistAndCache(session, remoteDeviceId: responderDeviceId)
+                throw C6PSessionServiceError.dmSessionOpenRejected(reason: "open returned ok=false")
+            }
+        } catch {
+            session.markNeedsReHandshake()
+            persistAndCache(session, remoteDeviceId: responderDeviceId)
+            throw error
+        }
+
         return session
+    }
+
+    // MARK: - Public: Incoming sessions (responder polling)
+
+    /// Poll incoming offers from backend. You still need to:
+    /// - compute acceptAsResponder(...) locally (in your accept handler),
+    /// - persist session state,
+    /// - then call dmApi.accept(sessionDbId).
+    func fetchIncomingSessions() async throws -> [C6PDmIncomingSessionsResponse.Item] {
+        let resp = try await dmApi.incoming()
+        return resp.sessions
+    }
+
+    /// Marks DM session as ACTIVE on backend (after local accept).
+    func markIncomingAccepted(sessionDbId: Int) async throws {
+        let resp = try await dmApi.accept(sessionDbId: sessionDbId)
+        guard resp.ok else {
+            throw C6PSessionServiceError.dmSessionOpenRejected(reason: "accept returned ok=false")
+        }
     }
 
     // MARK: Encrypt DM (high-level)
 
-    /// Convenience: encrypt a DM event (inner payload built here).
     func encryptDM(
         to remoteDeviceId: C6PDeviceId,
         kind: C6PEventKind,
         body: Data,
         clientMessageId: String = UUID().uuidString,
         clientTimestamp: Date = Date()
-    ) throws -> C6PEnvelope {
+    ) async throws -> C6PEnvelope {
 
         let inner = C6PInnerPayload(
             context: .dm,
@@ -174,19 +263,26 @@ final class C6PSessionService {
             clientTimestamp: clientTimestamp,
             body: body
         )
-        return try encryptDM(to: remoteDeviceId, innerPayload: inner)
+        return try await encryptDM(to: remoteDeviceId, innerPayload: inner)
     }
 
-    /// Encrypt DM using a fully prepared inner payload (must be .dm).
     func encryptDM(
         to remoteDeviceId: C6PDeviceId,
         innerPayload: C6PInnerPayload
-    ) throws -> C6PEnvelope {
+    ) async throws -> C6PEnvelope {
 
         precondition(innerPayload.context == .dm, "C6PSessionService encryptDM requires innerPayload.context == .dm")
 
-        // 1) Session
-        var session = try getOrCreateSession(with: remoteDeviceId)
+        // NOTE:
+        // This method assumes session already exists OR you created it via ensureOutgoingSession(...)
+        // If you want auto-create here, you MUST supply peerUserId somewhere above this layer.
+
+        // 1) Session must exist
+        guard var session = cacheGet(remoteDeviceId) ??
+                store.loadSession(localDeviceId: localDeviceId, remoteDeviceId: remoteDeviceId)
+        else {
+            throw C6PSessionServiceError.prekeyBundleUnavailable(remoteDeviceId: remoteDeviceId)
+        }
 
         // 2) Encode inner payload
         let plaintext: Data
@@ -225,7 +321,7 @@ final class C6PSessionService {
             clientMessageId: innerPayload.clientMessageId
         )
 
-        // 5) AEAD seal (extraAAD = wireAAD)
+        // 5) AEAD seal
         let sealed = try C6PAEAD.seal(
             plaintext: plaintext,
             with: messageKey,
@@ -259,30 +355,23 @@ final class C6PSessionService {
 
     // MARK: Decrypt DM (high-level)
 
-    /// Decrypts envelope and returns decoded inner payload (must be .dm).
     func decryptDMInner(
         from remoteDeviceId: C6PDeviceId,
         envelope: C6PEnvelope
     ) throws -> C6PInnerPayload {
 
-        // 0) Fail closed if protocol version mismatch
         guard envelope.c6pVersion == C6P_VERSION else {
             throw C6PSessionServiceError.invalidEnvelopeProtocolVersion(expected: C6P_VERSION, actual: envelope.c6pVersion)
         }
-
-        // 1) Envelope recipient check
         guard envelope.toDeviceId == localDeviceId else {
             throw C6PSessionServiceError.invalidRecipient(expected: localDeviceId, actual: envelope.toDeviceId)
         }
-
-        // 2) Sender check (caller passes “remoteDeviceId”, envelope must match)
         guard envelope.fromDeviceId == remoteDeviceId else {
             throw C6PSessionServiceError.invalidSender(expected: remoteDeviceId, actual: envelope.fromDeviceId)
         }
 
-        // 3) Load session
         guard var session = cacheGet(remoteDeviceId) ??
-            store.loadSession(localDeviceId: localDeviceId, remoteDeviceId: remoteDeviceId)
+                store.loadSession(localDeviceId: localDeviceId, remoteDeviceId: remoteDeviceId)
         else {
             throw C6PSessionServiceError.missingSessionForDecryption(
                 remoteDeviceId: remoteDeviceId,
@@ -290,14 +379,12 @@ final class C6PSessionService {
             )
         }
 
-        // 4) sessionId must match
         guard session.sessionId == envelope.sessionId else {
             session.markNeedsReHandshake()
             persistAndCache(session, remoteDeviceId: remoteDeviceId)
             throw C6PSessionServiceError.sessionIdMismatch(expected: session.sessionId, actual: envelope.sessionId)
         }
 
-        // 5) Message key + nonce (DM context => messageType .dm)
         let counter = session.recvCounter
         let messageKey = C6PKeySchedule.deriveMessageKey(
             from: session.recvChainKey,
@@ -315,7 +402,6 @@ final class C6PSessionService {
             counter: counter
         )
 
-        // 6) Wire AAD binding (Variant A) — MUST match what sender used
         let wireAAD = C6PWireAAD.envelopeAAD(
             c6pVersion: envelope.c6pVersion,
             sessionId: envelope.sessionId,
@@ -324,7 +410,6 @@ final class C6PSessionService {
             clientMessageId: envelope.clientMessageId
         )
 
-        // 7) AEAD open
         let plaintext: Data
         do {
             plaintext = try C6PAEAD.open(
@@ -339,13 +424,11 @@ final class C6PSessionService {
                 extraAAD: wireAAD
             )
         } catch {
-            // Fail closed: mark for re-handshake (potential corruption / attack / out-of-order)
             session.markNeedsReHandshake()
             persistAndCache(session, remoteDeviceId: remoteDeviceId)
             throw error
         }
 
-        // 8) Decode inner payload
         let inner: C6PInnerPayload
         do {
             inner = try decoder.decode(C6PInnerPayload.self, from: plaintext)
@@ -355,21 +438,21 @@ final class C6PSessionService {
             throw C6PSessionServiceError.decodeInnerPayloadFailed
         }
 
-        // 9) Must be DM (shape is encrypted, but we enforce the service contract)
         guard inner.context == .dm else {
             session.markNeedsReHandshake()
             persistAndCache(session, remoteDeviceId: remoteDeviceId)
             throw C6PSessionServiceError.decryptedPayloadNotDM(actual: inner.context)
         }
 
-        // 10) Sanity: message id should match envelope (collision practically impossible with AAD hash, but check anyway)
         guard inner.clientMessageId == envelope.clientMessageId else {
             session.markNeedsReHandshake()
             persistAndCache(session, remoteDeviceId: remoteDeviceId)
-            throw C6PSessionServiceError.innerClientMessageIdMismatch(envelope: envelope.clientMessageId, inner: inner.clientMessageId)
+            throw C6PSessionServiceError.innerClientMessageIdMismatch(
+                envelope: envelope.clientMessageId,
+                inner: inner.clientMessageId
+            )
         }
 
-        // 11) Ratchet forward (RECV)
         session.recvChainKey = C6PKeySchedule.ratchetChainKeyForward(session.recvChainKey)
         session.recvCounter.increment()
         session.markUpdated()
@@ -378,7 +461,6 @@ final class C6PSessionService {
         return inner
     }
 
-    /// Decrypt DM and returns raw body (innerPayload.body).
     func decryptDMBody(
         from remoteDeviceId: C6PDeviceId,
         envelope: C6PEnvelope
@@ -423,4 +505,3 @@ final class C6PSessionService {
         store.saveSession(session)
     }
 }
-
