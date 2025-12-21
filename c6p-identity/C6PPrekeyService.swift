@@ -14,6 +14,9 @@
 //
 //  Security posture: fail-closed, auditable.
 //
+//  IMPORTANT:
+//  - Wire contracts are defined ONLY in: C6PPrekeyContracts.swift (single source of truth)
+//
 
 import Foundation
 import CryptoKit
@@ -33,6 +36,8 @@ public enum C6PPrekeyServiceError: Error, CustomStringConvertible {
 
     case publishRejected(reason: String)
     case serverBundleInvalid(reason: String)
+
+    case contractInvalid(String)
 
     case keychainError(status: OSStatus, operation: String)
     case notFound(String)
@@ -60,6 +65,9 @@ public enum C6PPrekeyServiceError: Error, CustomStringConvertible {
             return "C6PPrekeyServiceError.publishRejected(reason=\(reason))"
         case .serverBundleInvalid(let reason):
             return "C6PPrekeyServiceError.serverBundleInvalid(reason=\(reason))"
+
+        case .contractInvalid(let msg):
+            return "C6PPrekeyServiceError.contractInvalid(\(msg))"
 
         case .keychainError(let status, let op):
             return "C6PPrekeyServiceError.keychainError(status=\(status), operation=\(op))"
@@ -129,13 +137,22 @@ public final class C6PPrekeyService {
 
     // MARK: - Bootstrap / publish
 
-    public func bootstrapAndPublishIfNeeded(c6pVersion: UInt8 = C6P_VERSION) async throws {
+    /// Ensures local SPK exists & is fresh; ensures OTP pool; publishes to backend.
+    public func bootstrapAndPublishIfNeeded() async throws {
         let account = try requireAccount()
         let deviceId = try requireActiveDeviceId()
         let deviceIdentity = try identityStore.loadDeviceIdentity(deviceId: deviceId)
 
+        // VN canonical check (fail-closed)
+        let vn: C6PVirtualNumber
+        do {
+            vn = try C6PVirtualNumber(canonical: account.virtualNumber)
+        } catch {
+            throw C6PPrekeyServiceError.contractInvalid("Account VN is not canonical (+99######): \(account.virtualNumber)")
+        }
+
         // 1) Ensure signed prekey (fresh)
-        let signed = try ensureSignedPrekey(
+        let signedLocal = try ensureSignedPrekey(
             deviceId: deviceId,
             signingKey: deviceIdentity.ed25519PrivateKey
         )
@@ -150,28 +167,37 @@ public final class C6PPrekeyService {
             newlyGeneratedOTPs = try generateAndStoreOneTimePrekeys(deviceId: deviceId, count: toGenerate)
         }
 
-        // 3) Publish (contract validate happens in client, but we build canonical anyway)
-        let req = try C6PPublishPrekeysRequest(
-            c6pVersion: c6pVersion,
-            virtualNumber: account.virtualNumber, // canonical +99######
-            deviceId: deviceId,
-            identityPublicKeyEd25519B64u: C6PEncoding.base64URLEncode(
-                deviceIdentity.ed25519PrivateKey.publicKey.rawRepresentation
-            ),
-            signedPrekey: C6PSignedPrekeyPublicRecord(
-                publicKeyX25519B64u: signed.publicKeyX25519B64u,
-                signatureEd25519B64u: signed.signatureEd25519B64u,
-                createdAt: signed.createdAt
-            ),
-            oneTimePrekeys: newlyGeneratedOTPs
+        // 3) Build publish request using canonical contracts
+        let spkPubRaw = try C6PEncoding.base64URLDecode(signedLocal.publicKeyX25519B64u)
+        let spkSigRaw = try C6PEncoding.base64URLDecode(signedLocal.signatureEd25519B64u)
+
+        let signedPublic = C6PSignedPrekeyPublicRecord(
+            publicKeyX25519: C6PBase64UrlData(spkPubRaw),
+            signatureEd25519: C6PBase64UrlData(spkSigRaw),
+            createdAt: signedLocal.createdAt
         )
 
+        let req: C6PPublishPrekeysRequest
+        do {
+            req = try C6PPublishPrekeysRequest(
+                c6pVersion: C6P_VERSION,
+                virtualNumber: vn,
+                deviceId: deviceId,
+                identityPublicKeyEd25519: deviceIdentity.ed25519PrivateKey.publicKey.rawRepresentation,
+                signedPrekey: signedPublic,
+                oneTimePrekeys: newlyGeneratedOTPs
+            )
+        } catch {
+            throw C6PPrekeyServiceError.contractInvalid("C6PPublishPrekeysRequest.validate failed: \(error)")
+        }
+
+        // 4) Publish
         let resp = try await api.publishPrekeys(req)
         guard resp.accepted else {
             throw C6PPrekeyServiceError.publishRejected(reason: resp.message ?? "server rejected prekeys")
         }
 
-        // Optional strict drift cleanup: remove OTPs server explicitly rejected
+        // 5) Optional strict drift cleanup: remove OTPs server explicitly rejected
         if !newlyGeneratedOTPs.isEmpty {
             let accepted = Set(resp.acceptedOneTimePrekeyIds.map { $0.hexString })
             for otp in newlyGeneratedOTPs {
@@ -211,11 +237,11 @@ public final class C6PPrekeyService {
     public func fetchPrekeyBundle(remoteDeviceId: C6PDeviceId) async throws -> C6PPrekeyBundleContract {
         let bundle = try await api.fetchPrekeyBundle(remoteDeviceId: remoteDeviceId)
 
-        // Strict contract validation (single source of truth)
-        try bundle.validate()
-
-        // Extra defensive decode (optional)
-        try validateBundleBinaryLengths(bundle)
+        do {
+            try bundle.validate()
+        } catch {
+            throw C6PPrekeyServiceError.serverBundleInvalid(reason: "bundle.validate failed: \(error)")
+        }
 
         return bundle
     }
@@ -278,6 +304,7 @@ public final class C6PPrekeyService {
             let id = try C6PKeyId.random()
             let priv = Curve25519.KeyAgreement.PrivateKey()
             let pub = priv.publicKey.rawRepresentation
+
             guard pub.count == 32 else {
                 throw C6PPrekeyServiceError.invalidPublicKeyLength(expected: 32, actual: pub.count)
             }
@@ -288,7 +315,7 @@ public final class C6PPrekeyService {
             out.append(
                 C6POneTimePrekeyPublicRecord(
                     prekeyId: id,
-                    publicKeyX25519B64u: C6PEncoding.base64URLEncode(pub),
+                    publicKeyX25519: C6PBase64UrlData(pub),
                     createdAt: Date()
                 )
             )
@@ -296,32 +323,6 @@ public final class C6PPrekeyService {
 
         try saveOTPIndex(deviceId: deviceId, index: index)
         return out
-    }
-
-    // MARK: - Bundle validation (extra defensive)
-
-    private func validateBundleBinaryLengths(_ b: C6PPrekeyBundleContract) throws {
-        let idPub = try C6PEncoding.base64URLDecode(b.identityPublicKeyEd25519B64u)
-        guard idPub.count == 32 else {
-            throw C6PPrekeyServiceError.serverBundleInvalid(reason: "identityPublicKeyEd25519 length != 32")
-        }
-
-        let spkPub = try C6PEncoding.base64URLDecode(b.signedPrekeyPublicKeyX25519B64u)
-        guard spkPub.count == 32 else {
-            throw C6PPrekeyServiceError.serverBundleInvalid(reason: "signedPrekeyPublicKeyX25519 length != 32")
-        }
-
-        let sig = try C6PEncoding.base64URLDecode(b.signedPrekeySignatureB64u)
-        guard sig.count == 64 else {
-            throw C6PPrekeyServiceError.serverBundleInvalid(reason: "signedPrekeySignature length != 64")
-        }
-
-        if let otpB64u = b.oneTimePrekeyPublicKeyX25519B64u {
-            let otp = try C6PEncoding.base64URLDecode(otpB64u)
-            guard otp.count == 32 else {
-                throw C6PPrekeyServiceError.serverBundleInvalid(reason: "oneTimePrekeyPublicKeyX25519 length != 32")
-            }
-        }
     }
 
     // MARK: - Identity guards
@@ -363,7 +364,11 @@ public final class C6PPrekeyService {
         guard let data = try? enc.encode(record) else {
             throw C6PPrekeyServiceError.encodeFailed("signedPrekeyRecord")
         }
-        try keychain.upsertData(data, key: signedPrekeyKey(deviceId: deviceId), accessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly)
+        try keychain.upsertData(
+            data,
+            key: signedPrekeyKey(deviceId: deviceId),
+            accessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        )
     }
 
     private func loadLocalSignedPrekey(deviceId: C6PDeviceId) throws -> C6PLocalSignedPrekeyRecord {
@@ -393,11 +398,19 @@ public final class C6PPrekeyService {
         guard let data = try? enc.encode(index) else {
             throw C6PPrekeyServiceError.encodeFailed("otpIndex")
         }
-        try keychain.upsertData(data, key: otpIndexKey(deviceId: deviceId), accessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly)
+        try keychain.upsertData(
+            data,
+            key: otpIndexKey(deviceId: deviceId),
+            accessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        )
     }
 
     private func saveOneTimePrekey(deviceId: C6PDeviceId, id: C6PKeyId, privateKeyRaw: Data) throws {
-        try keychain.upsertData(privateKeyRaw, key: otpItemKey(deviceId: deviceId, id: id), accessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly)
+        try keychain.upsertData(
+            privateKeyRaw,
+            key: otpItemKey(deviceId: deviceId, id: id),
+            accessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        )
     }
 
     private func loadOneTimePrekey(deviceId: C6PDeviceId, id: C6PKeyId) throws -> Data {
@@ -433,6 +446,7 @@ private final class C6PSecureKeychain {
     }
 
     func upsertData(_ data: Data, key: String, accessible: CFString) throws {
+        // update
         let q = baseQuery(key: key)
         let attrs: [String: Any] = [kSecValueData as String: data]
 
@@ -443,6 +457,7 @@ private final class C6PSecureKeychain {
             throw C6PPrekeyServiceError.keychainError(status: sUpdate, operation: "SecItemUpdate(\(key))")
         }
 
+        // add
         var addQ = q
         addQ[kSecValueData as String] = data
         addQ[kSecAttrAccessible as String] = accessible
@@ -482,4 +497,5 @@ private final class C6PSecureKeychain {
         }
     }
 }
+
 
