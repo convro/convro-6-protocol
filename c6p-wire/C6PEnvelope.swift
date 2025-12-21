@@ -3,11 +3,15 @@
 //  C6P-Protocol
 //
 //  Generic wire-level envelope for all message contexts (DM / group / channel / control).
+//
 //  IMPORTANT:
 //  - Envelope is ROUTING METADATA ONLY (server-visible).
 //  - Message "shape" (dm/group/channel + kind + contextId) is inside E2EE payload (C6PInnerPayload).
 //  - Everything outside `sealed` is UNTRUSTED from a crypto POV.
 //  - Integrity binding is done via AEAD extraAAD = C6PWireAAD.envelopeAAD(...).
+//
+//  CANONICAL v1.2:
+//  - Adds suite/streamId/messageType/counter required for deterministic nonce & strict ordering.
 //
 
 import Foundation
@@ -17,7 +21,7 @@ import Foundation
 enum C6PDeliveryState: String, Codable {
     case pending   = "PENDING"
     case delivered = "DELIVERED"
-    case read      = "READ"      // optional feature
+    case read      = "READ"
     case failed    = "FAILED"
 }
 
@@ -38,6 +42,20 @@ struct C6PEnvelope: Codable, Hashable, CustomStringConvertible {
 
     /// Session used to seal payload (lookup key for local session state).
     let sessionId: C6PSessionId
+
+    // MARK: Crypto metadata (required for deterministic nonce/AAD)
+
+    /// Negotiated encryption suite for this message/session.
+    let suite: C6PEncryptionSuite
+
+    /// Wire-stable stream id (I2R / R2I).
+    let streamId: C6PStreamId
+
+    /// Message type used in AEAD AAD/nonce derivation (protocol-defined).
+    let messageType: C6PMessageType
+
+    /// Strict counter for the wire-stable stream (UInt64).
+    let counter: UInt64
 
     /// Sealed payload (ciphertext + tag). Nonce is derived deterministically.
     let sealed: C6PSealedMessage
@@ -68,6 +86,10 @@ struct C6PEnvelope: Codable, Hashable, CustomStringConvertible {
         fromDeviceId: C6PDeviceId,
         toDeviceId: C6PDeviceId,
         sessionId: C6PSessionId,
+        suite: C6PEncryptionSuite,
+        streamId: C6PStreamId,
+        messageType: C6PMessageType,
+        counter: UInt64,
         sealed: C6PSealedMessage,
         clientMessageId: String = UUID().uuidString,
         clientTimestamp: Date = Date(),
@@ -79,6 +101,10 @@ struct C6PEnvelope: Codable, Hashable, CustomStringConvertible {
         self.fromDeviceId = fromDeviceId
         self.toDeviceId = toDeviceId
         self.sessionId = sessionId
+        self.suite = suite
+        self.streamId = streamId
+        self.messageType = messageType
+        self.counter = counter
         self.sealed = sealed
         self.clientMessageId = clientMessageId
         self.clientTimestamp = clientTimestamp
@@ -90,7 +116,7 @@ struct C6PEnvelope: Codable, Hashable, CustomStringConvertible {
     // MARK: Description
 
     var description: String {
-        "C6PEnvelope(v=\(c6pVersion), session=\(sessionId.hexString), from=\(fromDeviceId.hexString), to=\(toDeviceId.hexString), clientMessageId=\(clientMessageId))"
+        "C6PEnvelope(v=\(c6pVersion), session=\(sessionId.hexString), suite=\(suite), stream=\(streamId), type=\(messageType), ctr=\(counter), from=\(fromDeviceId.hexString), to=\(toDeviceId.hexString), clientMessageId=\(clientMessageId))"
     }
 }
 
