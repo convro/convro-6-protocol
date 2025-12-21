@@ -2,22 +2,34 @@
 //  C6PDMTransportService.swift
 //  C6P-Protocol
 //
-//  Production DM transport for Node routes.dm_messages.js (canonical v1.1)
+//  Canonical DM transport for Node routes.dm_messages.js (v1.1)
 //
-//  Endpoints (Node):
+//  Endpoints:
 //  - POST /v1/dm/messages/send      { envelope }
 //  - GET  /v1/dm/messages/inbox?afterId=0&limit=50
-//  - POST /v1/dm/messages/delivered { ids: [1,2,3] }
-//  - POST /v1/dm/messages/read      { ids: [1,2,3] }
+//  - POST /v1/dm/messages/delivered { ids: [Int] }
+//  - POST /v1/dm/messages/read      { ids: [Int] }
 //
 //  Notes:
-//  - Server NEVER decrypts.
-//  - Client decrypts strict-in-order. If one fails, stop and do NOT ACK.
+//  - Server never decrypts.
+//  - Client decrypts strict-in-order (because wire doesn't carry counter).
 //
 
 import Foundation
 
-// MARK: - DTOs (Node wire)
+// MARK: - Wire DTOs (match Node exactly)
+
+private struct DmSendRequest: Codable {
+    let envelope: C6PEnvelope
+}
+
+struct C6PDmSendResponse: Codable {
+    let ok: Bool
+    let id: Int
+    let serverMessageId: String
+    let serverTimestamp: String
+    let deduped: Bool?
+}
 
 struct C6PDmInboxResponse: Codable {
     struct Item: Codable, Hashable {
@@ -30,15 +42,11 @@ struct C6PDmInboxResponse: Codable {
     let nextAfterId: Int
 }
 
-struct C6PDmSendResponse: Codable {
-    let ok: Bool
-    let id: Int
-    let serverMessageId: String
-    let serverTimestamp: String
-    let deduped: Bool?
+private struct DmAckRequest: Codable {
+    let ids: [Int]
 }
 
-struct C6PAckResponse: Codable {
+private struct DmAckResponse: Codable {
     let ok: Bool
     let affected: Int?
 }
@@ -52,9 +60,7 @@ protocol C6PHTTPPerforming {
 final class C6PURLSessionHTTP: C6PHTTPPerforming {
     func perform(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let (data, resp) = try await URLSession.shared.data(for: request)
-        guard let http = resp as? HTTPURLResponse else {
-            throw URLError(.badServerResponse)
-        }
+        guard let http = resp as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         return (data, http)
     }
 }
@@ -64,24 +70,24 @@ final class C6PURLSessionHTTP: C6PHTTPPerforming {
 final class C6PDMTransportService {
 
     struct Config {
-        let apiBaseURL: URL              // e.g. https://tunnel.convro.eu
-        let bearerTokenProvider: () -> String?
+        let apiBaseURL: URL                    // e.g. https://tunnel.convro.eu
+        let bearerTokenProvider: () -> String? // accessToken (JWT)
     }
 
     enum TransportError: Error, CustomStringConvertible {
         case authMissing
         case badURL
         case http(status: Int, body: String?)
-        case decodeFailed
         case encodeFailed
+        case decodeFailed
 
         var description: String {
             switch self {
-            case .authMissing: return "C6PDMTransportService.TransportError.authMissing"
-            case .badURL: return "C6PDMTransportService.TransportError.badURL"
-            case .http(let s, let b): return "C6PDMTransportService.TransportError.http(status=\(s), body=\(b ?? "nil"))"
-            case .decodeFailed: return "C6PDMTransportService.TransportError.decodeFailed"
-            case .encodeFailed: return "C6PDMTransportService.TransportError.encodeFailed"
+            case .authMissing: return "TransportError.authMissing"
+            case .badURL: return "TransportError.badURL"
+            case .http(let s, let b): return "TransportError.http(status=\(s), body=\(b ?? "nil"))"
+            case .encodeFailed: return "TransportError.encodeFailed"
+            case .decodeFailed: return "TransportError.decodeFailed"
             }
         }
     }
@@ -90,8 +96,18 @@ final class C6PDMTransportService {
     private let http: C6PHTTPPerforming
     private let crypto: C6PSessionService
 
-    private let encoder: JSONEncoder = C6PJSON.makeEncoder()
-    private let decoder: JSONDecoder = C6PJSON.makeDecoder()
+    private let encoder: JSONEncoder = {
+        // spójnie z resztą pakietu: ISO8601 dla Date
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .iso8601
+        return e
+    }()
+
+    private let decoder: JSONDecoder = {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .iso8601
+        return d
+    }()
 
     init(cfg: Config, crypto: C6PSessionService, http: C6PHTTPPerforming = C6PURLSessionHTTP()) {
         self.cfg = cfg
@@ -99,29 +115,24 @@ final class C6PDMTransportService {
         self.http = http
     }
 
-    // MARK: - Send (encrypt -> POST /send)
-
-    private struct SendBody: Codable { let envelope: C6PEnvelope }
+    // MARK: - Send DM (encrypt -> POST /send)
 
     @discardableResult
     func sendDM(
         to remoteDeviceId: C6PDeviceId,
         suite: C6PEncryptionSuite,
         innerPayload: C6PInnerPayload
-    ) async throws -> (envelope: C6PEnvelope, serverDbId: Int, serverMessageId: String, deduped: Bool) {
+    ) async throws -> (envelope: C6PEnvelope, serverDbId: Int, serverMessageId: String, serverTimestamp: String) {
 
-        let token = cfg.bearerTokenProvider()
-        guard let token, !token.isEmpty else { throw TransportError.authMissing }
+        guard let token = cfg.bearerTokenProvider(), !token.isEmpty else { throw TransportError.authMissing }
+        guard let url = URL(string: "/v1/dm/messages/send", relativeTo: cfg.apiBaseURL) else { throw TransportError.badURL }
 
-        let envelope = try crypto.encryptDM(
+        // Encrypt -> envelope
+        var envelope = try crypto.encryptDM(
             to: remoteDeviceId,
             suite: suite,
             innerPayload: innerPayload
         )
-
-        guard let url = URL(string: "/v1/dm/messages/send", relativeTo: cfg.apiBaseURL) else {
-            throw TransportError.badURL
-        }
 
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
@@ -130,7 +141,7 @@ final class C6PDMTransportService {
         req.setValue("application/json", forHTTPHeaderField: "Accept")
 
         do {
-            req.httpBody = try encoder.encode(SendBody(envelope: envelope))
+            req.httpBody = try encoder.encode(DmSendRequest(envelope: envelope))
         } catch {
             throw TransportError.encodeFailed
         }
@@ -140,29 +151,31 @@ final class C6PDMTransportService {
             throw TransportError.http(status: resp.statusCode, body: String(data: data, encoding: .utf8))
         }
 
+        let decoded: C6PDmSendResponse
         do {
-            let decoded = try decoder.decode(C6PDmSendResponse.self, from: data)
-            return (envelope, decoded.id, decoded.serverMessageId, decoded.deduped == true)
+            decoded = try decoder.decode(C6PDmSendResponse.self, from: data)
         } catch {
             throw TransportError.decodeFailed
         }
+
+        // Node w inbox dołącza serverMessageId/serverTimestamp do envelope,
+        // ale po /send też zwracamy je na response -> możemy je zapisać lokalnie:
+        envelope.serverMessageId = decoded.serverMessageId
+        envelope.serverTimestamp = iso8601ToDate(decoded.serverTimestamp) ?? envelope.serverTimestamp
+        envelope.deliveryState = .pending
+
+        return (envelope, decoded.id, decoded.serverMessageId, decoded.serverTimestamp)
     }
 
-    // MARK: - Poll inbox (GET /inbox) + decrypt + delivered ACK
+    // MARK: - Poll inbox + decrypt (strict-in-order) + delivered ACK
 
-    /// Polls inbox, decrypts strict-in-order, then ACKs delivered for successfully decrypted ids.
-    ///
-    /// Returns:
-    /// - decrypted: [(dbId, innerPayload, envelope)]
-    /// - nextAfterId: cursor for next poll
     func pollInboxAndDecrypt(
         from remoteDeviceId: C6PDeviceId,
         afterId: Int,
         limit: Int = 50
     ) async throws -> (decrypted: [(dbId: Int, inner: C6PInnerPayload, envelope: C6PEnvelope)], nextAfterId: Int) {
 
-        let token = cfg.bearerTokenProvider()
-        guard let token, !token.isEmpty else { throw TransportError.authMissing }
+        guard let token = cfg.bearerTokenProvider(), !token.isEmpty else { throw TransportError.authMissing }
 
         guard var comps = URLComponents(url: cfg.apiBaseURL, resolvingAgainstBaseURL: true) else {
             throw TransportError.badURL
@@ -200,7 +213,7 @@ final class C6PDMTransportService {
                 out.append((item.id, inner, item.envelope))
                 okIds.append(item.id)
             } catch {
-                // STRICT: do not ACK partial failures; stop here
+                // strict-in-order: jak coś nie siądzie, przerywamy i nie ACKujemy dalej
                 break
             }
         }
@@ -212,20 +225,17 @@ final class C6PDMTransportService {
         return (out.map { (dbId: $0.0, inner: $0.1, envelope: $0.2) }, decoded.nextAfterId)
     }
 
-    // MARK: - Read ACK
+    // MARK: - Read receipts
 
     func markRead(ids: [Int]) async throws {
-        let token = cfg.bearerTokenProvider()
-        guard let token, !token.isEmpty else { throw TransportError.authMissing }
+        guard let token = cfg.bearerTokenProvider(), !token.isEmpty else { throw TransportError.authMissing }
         try await ack(path: "/v1/dm/messages/read", ids: ids, bearerToken: token)
     }
 
     // MARK: - ACK helper
 
-    private struct AckBody: Codable { let ids: [Int] }
-
     private func ack(path: String, ids: [Int], bearerToken: String) async throws {
-        let clean = ids.map { $0 }.filter { $0 > 0 }
+        let clean = ids.map { Int($0) }.filter { $0 > 0 }
         guard !clean.isEmpty else { return }
 
         guard let url = URL(string: path, relativeTo: cfg.apiBaseURL) else { throw TransportError.badURL }
@@ -237,7 +247,7 @@ final class C6PDMTransportService {
         req.setValue("application/json", forHTTPHeaderField: "Accept")
 
         do {
-            req.httpBody = try encoder.encode(AckBody(ids: Array(clean.prefix(200))))
+            req.httpBody = try encoder.encode(DmAckRequest(ids: Array(clean.prefix(200))))
         } catch {
             throw TransportError.encodeFailed
         }
@@ -247,8 +257,22 @@ final class C6PDMTransportService {
             throw TransportError.http(status: resp.statusCode, body: String(data: data, encoding: .utf8))
         }
 
-        // optional: parse ok/affected (not required)
-        _ = try? decoder.decode(C6PAckResponse.self, from: data)
+        // Response optional — ale dekodujmy żeby wykryć syf na serwerze
+        _ = try? decoder.decode(DmAckResponse.self, from: data)
+    }
+
+    // MARK: - ISO8601 helper
+
+    private func iso8601ToDate(_ s: String) -> Date? {
+        // Node zwraca .toISOString()
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = f.date(from: s) { return d }
+
+        // fallback bez fractional seconds
+        let f2 = ISO8601DateFormatter()
+        f2.formatOptions = [.withInternetDateTime]
+        return f2.date(from: s)
     }
 }
 
