@@ -3,16 +3,17 @@
 //  C6P-Protocol
 //
 //  c6p-identity/
-//  Secure Keychain-backed storage for C6P identity material.
+//  Production Keychain-backed storage for C6P identity material.
 //
 //  Stores:
-//  - Device private keys (Ed25519 + X25519) for THIS device
-//  - Account identity profile (VN + username + devices public identities)
+//  - Active device id (this installation)
+//  - Device private identity (Ed25519 + X25519) per deviceId
+//  - Account identity (profile metadata, non-secret but protected)
 //
 //  Security posture (v1):
-//  - kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-//  - synchronizable = false
-//  - no plaintext private keys in Codable files
+//  - kSecAttrAccessibleWhenUnlockedThisDeviceOnly (default)
+//  - synchronizable = false (default)
+//  - private keys never leave device
 //
 
 import Foundation
@@ -21,7 +22,7 @@ import CryptoKit
 
 // MARK: - Errors
 
-enum C6PIdentityKeychainStoreError: Error, CustomStringConvertible {
+public enum C6PIdentityKeychainStoreError: Error, CustomStringConvertible {
     case keychainError(status: OSStatus, operation: String)
     case notFound
     case decodeFailed
@@ -29,7 +30,7 @@ enum C6PIdentityKeychainStoreError: Error, CustomStringConvertible {
     case invalidData
     case deviceIdentityMismatch
 
-    var description: String {
+    public var description: String {
         switch self {
         case .keychainError(let status, let op):
             return "C6PIdentityKeychainStoreError.keychainError(status=\(status), operation=\(op))"
@@ -42,28 +43,27 @@ enum C6PIdentityKeychainStoreError: Error, CustomStringConvertible {
         case .invalidData:
             return "C6PIdentityKeychainStoreError.invalidData"
         case .deviceIdentityMismatch:
-            return "C6PIdentityKeychainStoreError.deviceIdentityMismatch – stored deviceId does not match expected deviceId"
+            return "C6PIdentityKeychainStoreError.deviceIdentityMismatch"
         }
     }
 }
 
 // MARK: - Keychain configuration
 
-struct C6PKeychainConfig: Hashable {
+public struct C6PKeychainConfig: Hashable {
     /// Keychain service namespace (bundle-unique recommended).
-    let service: String
+    public let service: String
 
     /// Optional Keychain access group (for app + extensions sharing).
-    let accessGroup: String?
+    public let accessGroup: String?
 
-    /// Accessibility class (v1 strict default).
-    let accessible: CFString
+    /// Accessibility class.
+    public let accessible: CFString
 
     /// Whether items should be synchronizable via iCloud Keychain.
-    /// v1 default: false
-    let synchronizable: Bool
+    public let synchronizable: Bool
 
-    init(
+    public init(
         service: String = "pl.convro.c6p.identity",
         accessGroup: String? = nil,
         accessible: CFString = kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
@@ -78,10 +78,7 @@ struct C6PKeychainConfig: Hashable {
 
 // MARK: - Store
 
-/// Keychain store for identity material.
-/// This object is synchronous and thread-safe at call-level (Keychain is serialized by OS),
-/// but we still keep operations deterministic and explicit.
-final class C6PIdentityKeychainStore {
+public final class C6PIdentityKeychainStore {
 
     private let config: C6PKeychainConfig
     private let jsonEncoder: JSONEncoder
@@ -94,45 +91,35 @@ final class C6PIdentityKeychainStore {
         static let accountIdentity = "account.identity"
     }
 
-    init(config: C6PKeychainConfig = C6PKeychainConfig()) {
+    public init(config: C6PKeychainConfig = C6PKeychainConfig()) {
         self.config = config
-        let enc = JSONEncoder()
-        enc.dateEncodingStrategy = .iso8601
-        self.jsonEncoder = enc
-
-        let dec = JSONDecoder()
-        dec.dateDecodingStrategy = .iso8601
-        self.jsonDecoder = dec
+        self.jsonEncoder = C6PJSON.makeEncoder()
+        self.jsonDecoder = C6PJSON.makeDecoder()
     }
 
-    // MARK: - Public API: Active Device Id
+    // MARK: - Active Device Id
 
-    /// Persist which deviceId is "this device" for the app installation.
-    /// v1 assumes one local device identity per installation.
-    func saveActiveDeviceId(_ deviceId: C6PDeviceId) throws {
+    public func saveActiveDeviceId(_ deviceId: C6PDeviceId) throws {
         try upsertData(deviceId.data, account: KCKey.activeDeviceId)
     }
 
-    func loadActiveDeviceId() throws -> C6PDeviceId {
+    public func loadActiveDeviceId() throws -> C6PDeviceId {
         let data = try loadData(account: KCKey.activeDeviceId)
         return try C6PDeviceId(data: data)
     }
 
-    func deleteActiveDeviceId() throws {
+    public func deleteActiveDeviceId() throws {
         try deleteItem(account: KCKey.activeDeviceId)
     }
 
-    // MARK: - Public API: Device Identity (private keys)
+    // MARK: - Device Identity (private keys)
 
-    /// Stores full private device identity (Ed25519 + X25519) under deviceId.
-    /// This is the most sensitive object in v1 identity storage.
-    func saveDeviceIdentity(_ identity: C6PDeviceIdentity) throws {
+    public func saveDeviceIdentity(_ identity: C6PDeviceIdentity) throws {
         let payload = try encodeDeviceIdentity(identity)
         try upsertData(payload, account: KCKey.deviceIdentity(deviceId: identity.deviceId))
     }
 
-    /// Loads device identity for a given deviceId.
-    func loadDeviceIdentity(deviceId: C6PDeviceId) throws -> C6PDeviceIdentity {
+    public func loadDeviceIdentity(deviceId: C6PDeviceId) throws -> C6PDeviceIdentity {
         let data = try loadData(account: KCKey.deviceIdentity(deviceId: deviceId))
         let identity = try decodeDeviceIdentity(data)
 
@@ -142,22 +129,20 @@ final class C6PIdentityKeychainStore {
         return identity
     }
 
-    func deleteDeviceIdentity(deviceId: C6PDeviceId) throws {
+    public func deleteDeviceIdentity(deviceId: C6PDeviceId) throws {
         try deleteItem(account: KCKey.deviceIdentity(deviceId: deviceId))
     }
 
-    // MARK: - Public API: Account Identity (profile + device bindings)
+    // MARK: - Account Identity (secured metadata)
 
-    /// Stores account identity in Keychain (secured).
-    /// Note: this is not a secret like private keys, but user asked for "secured protocol" baseline.
-    func saveAccountIdentity(_ identity: C6PAccountIdentity) throws {
+    public func saveAccountIdentity(_ identity: C6PAccountIdentity) throws {
         guard let data = try? jsonEncoder.encode(identity) else {
             throw C6PIdentityKeychainStoreError.encodeFailed
         }
         try upsertData(data, account: KCKey.accountIdentity)
     }
 
-    func loadAccountIdentity() throws -> C6PAccountIdentity {
+    public func loadAccountIdentity() throws -> C6PAccountIdentity {
         let data = try loadData(account: KCKey.accountIdentity)
         guard let obj = try? jsonDecoder.decode(C6PAccountIdentity.self, from: data) else {
             throw C6PIdentityKeychainStoreError.decodeFailed
@@ -165,32 +150,24 @@ final class C6PIdentityKeychainStore {
         return obj
     }
 
-    func deleteAccountIdentity() throws {
+    public func deleteAccountIdentity() throws {
         try deleteItem(account: KCKey.accountIdentity)
     }
 
     // MARK: - Wipe
 
-    /// Wipes identity material (device identity, account identity, active device id).
-    /// Use in Panic Mode / logout / local key wipe.
-    func wipeAllIdentity(for deviceId: C6PDeviceId) throws {
-        // Best-effort wipe: if something missing -> ignore notFound
-        try? deleteDeviceIdentity(deviceId: deviceId)
+    /// Best-effort wipe for identity material (no-throw on missing items).
+    public func wipeAllIdentity() {
+        // device identity (if we know active device id)
+        if let did = try? loadActiveDeviceId() {
+            try? deleteDeviceIdentity(deviceId: did)
+        }
         try? deleteAccountIdentity()
         try? deleteActiveDeviceId()
     }
 
     // MARK: - Encoding: Device Identity payload
 
-    /// We store device identity as a compact, versioned JSON blob:
-    /// - v: 1
-    /// - deviceId: hex
-    /// - ed25519Priv: base64url
-    /// - x25519Priv: base64url
-    ///
-    /// Why JSON?
-    /// - explicit versioning
-    /// - easier migration later
     private struct StoredDeviceIdentityV1: Codable {
         let v: UInt8
         let deviceIdHex: String
@@ -219,16 +196,12 @@ final class C6PIdentityKeychainStore {
         guard let model = try? jsonDecoder.decode(StoredDeviceIdentityV1.self, from: data) else {
             throw C6PIdentityKeychainStoreError.decodeFailed
         }
-        guard model.v == 1 else {
-            throw C6PIdentityKeychainStoreError.invalidData
-        }
+        guard model.v == 1 else { throw C6PIdentityKeychainStoreError.invalidData }
 
         let deviceId = try C6PDeviceId(hexString: model.deviceIdHex)
-
         let edPrivData = try C6PEncoding.base64URLDecode(model.ed25519PrivB64u)
         let xPrivData = try C6PEncoding.base64URLDecode(model.x25519PrivB64u)
 
-        // CryptoKit raw representations:
         let edPriv = try Curve25519.Signing.PrivateKey(rawRepresentation: edPrivData)
         let xPriv = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: xPrivData)
 
@@ -241,51 +214,54 @@ final class C6PIdentityKeychainStore {
 
     // MARK: - Keychain Core Ops
 
-    private func baseQuery(account: String) -> [String: Any] {
+    private func matchQuery(account: String) -> [String: Any] {
         var q: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: config.service,
-            kSecAttrAccount as String: account
+            kSecAttrAccount as String: account,
+            // IMPORTANT: synchronizable must be present on match too
+            kSecAttrSynchronizable as String: (config.synchronizable ? kCFBooleanTrue! : kCFBooleanFalse!)
         ]
 
         if let ag = config.accessGroup {
             q[kSecAttrAccessGroup as String] = ag
         }
 
-        q[kSecAttrAccessible as String] = config.accessible
-
-        // Explicitly disable sync unless asked
-        q[kSecAttrSynchronizable as String] = config.synchronizable ? kCFBooleanTrue! : kCFBooleanFalse!
-
         return q
     }
 
-    private func upsertData(_ data: Data, account: String) throws {
-        // Try update first
-        var q = baseQuery(account: account)
-        let attrs: [String: Any] = [
-            kSecValueData as String: data
+    private func addAttributes(data: Data) -> [String: Any] {
+        return [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: config.accessible,
+            kSecAttrSynchronizable as String: (config.synchronizable ? kCFBooleanTrue! : kCFBooleanFalse!)
         ]
+    }
+
+    private func upsertData(_ data: Data, account: String) throws {
+        // update first
+        let q = matchQuery(account: account)
+        let attrs: [String: Any] = [kSecValueData as String: data]
 
         let updateStatus = SecItemUpdate(q as CFDictionary, attrs as CFDictionary)
-        if updateStatus == errSecSuccess {
-            return
-        }
+        if updateStatus == errSecSuccess { return }
 
         if updateStatus != errSecItemNotFound {
             throw C6PIdentityKeychainStoreError.keychainError(status: updateStatus, operation: "SecItemUpdate(\(account))")
         }
 
-        // Add new item
-        q[kSecValueData as String] = data
-        let addStatus = SecItemAdd(q as CFDictionary, nil)
+        // add
+        var addQ = q
+        for (k, v) in addAttributes(data: data) { addQ[k] = v }
+
+        let addStatus = SecItemAdd(addQ as CFDictionary, nil)
         guard addStatus == errSecSuccess else {
             throw C6PIdentityKeychainStoreError.keychainError(status: addStatus, operation: "SecItemAdd(\(account))")
         }
     }
 
     private func loadData(account: String) throws -> Data {
-        var q = baseQuery(account: account)
+        var q = matchQuery(account: account)
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
 
@@ -306,15 +282,13 @@ final class C6PIdentityKeychainStore {
     }
 
     private func deleteItem(account: String) throws {
-        let q = baseQuery(account: account)
+        let q = matchQuery(account: account)
         let status = SecItemDelete(q as CFDictionary)
 
-        if status == errSecItemNotFound {
-            // treat as success for delete
-            return
-        }
+        if status == errSecItemNotFound { return }
         guard status == errSecSuccess else {
             throw C6PIdentityKeychainStoreError.keychainError(status: status, operation: "SecItemDelete(\(account))")
         }
     }
 }
+
