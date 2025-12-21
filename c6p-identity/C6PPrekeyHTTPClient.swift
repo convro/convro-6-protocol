@@ -4,49 +4,43 @@
 //
 //  Production HTTP client for C6P Prekeys API (handshake99).
 //
-//  Matches Node routes:
+//  Matches Node routes (typical):
 //   - POST /v1/prekeys/upload   (requireAuth)
 //   - GET  /v1/prekeys/bundle   (requireAuth)
+//   - POST /v1/prekeys/consume  (requireAuth)  <-- if you implement anti-reuse endpoint
 //
-//  Notes:
-//  - Data fields are base64 in JSON (Swift JSONEncoder/Decoder default behavior).
-//  - ExpiresAt is ISO8601 string (Node expects ISO-ish input; we send strict ISO8601).
+//  Encoding rules:
+//  - All binary fields are base64url (no padding) via C6PEncoding
+//  - Dates are ISO8601
 //
 
 import Foundation
 
 // MARK: - Errors
 
-enum C6PPrekeyHTTPClientError: Error, CustomStringConvertible {
+public enum C6PPrekeyHTTPClientError: Error, CustomStringConvertible {
     case invalidBaseURL
     case missingAccessToken
-    case invalidUserId
-    case invalidDeviceIdHex
-    case invalidKeyIdHex
-    case invalidKeyLength(label: String, expected: Int, actual: Int)
+
     case serverError(status: Int, code: String, message: String)
     case unexpectedResponse(status: Int, body: String?)
+
+    case encodingFailed(underlying: Error)
     case decodingFailed(underlying: Error)
     case networkFailed(underlying: Error)
 
-    var description: String {
+    public var description: String {
         switch self {
         case .invalidBaseURL:
             return "C6PPrekeyHTTPClientError.invalidBaseURL"
         case .missingAccessToken:
             return "C6PPrekeyHTTPClientError.missingAccessToken"
-        case .invalidUserId:
-            return "C6PPrekeyHTTPClientError.invalidUserId"
-        case .invalidDeviceIdHex:
-            return "C6PPrekeyHTTPClientError.invalidDeviceIdHex"
-        case .invalidKeyIdHex:
-            return "C6PPrekeyHTTPClientError.invalidKeyIdHex"
-        case .invalidKeyLength(let label, let expected, let actual):
-            return "C6PPrekeyHTTPClientError.invalidKeyLength(label=\(label), expected=\(expected), actual=\(actual))"
         case .serverError(let status, let code, let message):
             return "C6PPrekeyHTTPClientError.serverError(status=\(status), code=\(code), message=\(message))"
         case .unexpectedResponse(let status, let body):
             return "C6PPrekeyHTTPClientError.unexpectedResponse(status=\(status), body=\(body ?? "nil"))"
+        case .encodingFailed(let underlying):
+            return "C6PPrekeyHTTPClientError.encodingFailed(\(underlying))"
         case .decodingFailed(let underlying):
             return "C6PPrekeyHTTPClientError.decodingFailed(\(underlying))"
         case .networkFailed(let underlying):
@@ -57,48 +51,61 @@ enum C6PPrekeyHTTPClientError: Error, CustomStringConvertible {
 
 // MARK: - Config
 
-struct C6PPrekeyHTTPClientConfig: Sendable {
+public struct C6PPrekeyHTTPClientConfig: Sendable {
     /// Example: https://tunnel.convro.eu
-    let baseURL: URL
+    public let baseURL: URL
 
     /// Request timeout (seconds).
-    let timeout: TimeInterval
+    public let timeout: TimeInterval
 
     /// Extra headers if you want (e.g. User-Agent).
-    let defaultHeaders: [String: String]
+    public let defaultHeaders: [String: String]
 
-    init(
+    /// Endpoint paths (override if your Node routes differ)
+    public let uploadPath: String
+    public let bundlePath: String
+    public let consumePath: String
+
+    /// Optional extra query items for bundle (e.g. Node requires user_id)
+    public let extraBundleQueryItems: (@Sendable (_ remoteDeviceId: C6PDeviceId) -> [URLQueryItem])?
+
+    public init(
         baseURL: URL,
         timeout: TimeInterval = 12,
-        defaultHeaders: [String: String] = [
-            "Accept": "application/json"
-        ]
+        defaultHeaders: [String: String] = ["Accept": "application/json"],
+        uploadPath: String = "/v1/prekeys/upload",
+        bundlePath: String = "/v1/prekeys/bundle",
+        consumePath: String = "/v1/prekeys/consume",
+        extraBundleQueryItems: (@Sendable (_ remoteDeviceId: C6PDeviceId) -> [URLQueryItem])? = nil
     ) {
         self.baseURL = baseURL
         self.timeout = timeout
         self.defaultHeaders = defaultHeaders
+        self.uploadPath = uploadPath
+        self.bundlePath = bundlePath
+        self.consumePath = consumePath
+        self.extraBundleQueryItems = extraBundleQueryItems
     }
 }
 
 // MARK: - Access Token Provider
 
 /// Must return a valid JWT access token (same one used by your REST + WS).
-typealias C6PAccessTokenProvider = () -> String?
+public typealias C6PAccessTokenProvider = @Sendable () -> String?
 
 // MARK: - Client
 
-/// Production HTTP client matching `routes.prekeys.js`.
-final class C6PPrekeyHTTPClient {
+/// Production HTTP client that conforms to `C6PPrekeyAPIClient`.
+public final class C6PPrekeyHTTPClient: C6PPrekeyAPIClient {
 
     private let config: C6PPrekeyHTTPClientConfig
-    private let urlSession: URLSession
+    private let session: URLSession
     private let accessTokenProvider: C6PAccessTokenProvider
 
-    // JSON
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
-    init(
+    public init(
         config: C6PPrekeyHTTPClientConfig,
         accessTokenProvider: @escaping C6PAccessTokenProvider,
         urlSession: URLSession? = nil
@@ -106,154 +113,102 @@ final class C6PPrekeyHTTPClient {
         self.config = config
         self.accessTokenProvider = accessTokenProvider
 
-        // URLSession
         if let urlSession {
-            self.urlSession = urlSession
+            self.session = urlSession
         } else {
-            let sessionConfig = URLSessionConfiguration.ephemeral
-            sessionConfig.timeoutIntervalForRequest = config.timeout
-            sessionConfig.timeoutIntervalForResource = config.timeout
-            sessionConfig.waitsForConnectivity = true
-            self.urlSession = URLSession(configuration: sessionConfig)
+            let sc = URLSessionConfiguration.ephemeral
+            sc.timeoutIntervalForRequest = config.timeout
+            sc.timeoutIntervalForResource = config.timeout
+            sc.waitsForConnectivity = true
+            self.session = URLSession(configuration: sc)
         }
 
-        // JSON encoder/decoder
         let enc = JSONEncoder()
-        enc.outputFormatting = [] // keep minimal
+        enc.outputFormatting = []
         enc.dateEncodingStrategy = .iso8601
         self.encoder = enc
 
         let dec = JSONDecoder()
-        // responses here do not contain dates; keep default
+        dec.dateDecodingStrategy = .iso8601
         self.decoder = dec
     }
 
-    // MARK: - Public API
+    // MARK: - C6PPrekeyAPIClient
 
-    /// POST /v1/prekeys/upload
-    ///
-    /// Body:
-    /// {
-    ///  identity: { publicKeyEd25519: "<base64>", fingerprint?: "..." },
-    ///  signedPrekey: { publicKeyX25519: "<base64>", signatureEd25519: "<base64>", expiresAt?: "<iso8601>" },
-    ///  oneTimePrekeys: [{ keyId: "<16hex>", publicKeyX25519: "<base64>" }]
-    /// }
-    ///
-    /// Returns:
-    /// { ok: true, userDeviceId: number, storedOneTimePrekeys: number }
-    func uploadPrekeys(
-        identityPublicKeyEd25519: Data,
-        identityFingerprint: String?,
-        signedPrekeyPublicKeyX25519: Data,
-        signedPrekeySignatureEd25519: Data,
-        signedPrekeyExpiresAt: Date?,
-        oneTimePrekeys: [(keyIdHex16: String, publicKeyX25519: Data)]
-    ) async throws -> C6PPrekeysUploadResponse {
+    public func publishPrekeys(_ request: C6PPublishPrekeysRequest) async throws -> C6PPublishPrekeysResponse {
+        // contract-level validation (fail-closed)
+        try request.validate()
 
-        try validateLength(identityPublicKeyEd25519, expected: 32, label: "identity.publicKeyEd25519")
-        try validateLength(signedPrekeyPublicKeyX25519, expected: 32, label: "signedPrekey.publicKeyX25519")
-        try validateLength(signedPrekeySignatureEd25519, expected: 64, label: "signedPrekey.signatureEd25519")
-
-        var otps: [UploadDTO.OneTimePrekey] = []
-        otps.reserveCapacity(oneTimePrekeys.count)
-
-        for item in oneTimePrekeys {
-            let keyId = item.keyIdHex16.lowercased()
-            guard Self.isHex16(keyId) else {
-                throw C6PPrekeyHTTPClientError.invalidKeyIdHex
-            }
-            try validateLength(item.publicKeyX25519, expected: 32, label: "oneTimePrekeys[\(keyId)].publicKeyX25519")
-            otps.append(.init(keyId: keyId, publicKeyX25519: item.publicKeyX25519))
+        let bodyData: Data
+        do {
+            bodyData = try encoder.encode(request)
+        } catch {
+            throw C6PPrekeyHTTPClientError.encodingFailed(underlying: error)
         }
 
-        let body = UploadDTO(
-            identity: .init(
-                publicKeyEd25519: identityPublicKeyEd25519,
-                fingerprint: identityFingerprint?.isEmpty == true ? nil : identityFingerprint
-            ),
-            signedPrekey: .init(
-                publicKeyX25519: signedPrekeyPublicKeyX25519,
-                signatureEd25519: signedPrekeySignatureEd25519,
-                expiresAt: signedPrekeyExpiresAt
-            ),
-            oneTimePrekeys: otps
-        )
-
-        let data = try encoder.encode(body)
-
-        var req = try makeRequest(
-            method: "POST",
-            path: "/v1/prekeys/upload",
-            queryItems: nil
-        )
-        req.httpBody = data
+        var req = try makeRequest(method: "POST", path: config.uploadPath, queryItems: nil)
+        req.httpBody = bodyData
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let (status, responseData) = try await perform(req)
-
-        guard status == 200 else {
-            throw try parseServerError(status: status, data: responseData)
-        }
+        let (status, data) = try await perform(req)
+        guard status == 200 else { throw try parseServerError(status: status, data: data) }
 
         do {
-            return try decoder.decode(C6PPrekeysUploadResponse.self, from: responseData)
+            return try decoder.decode(C6PPublishPrekeysResponse.self, from: data)
         } catch {
             throw C6PPrekeyHTTPClientError.decodingFailed(underlying: error)
         }
     }
 
-    /// GET /v1/prekeys/bundle?user_id=...&device_id=...
-    ///
-    /// Returns C6PPrekeyBundle compatible with Swift Codable.
-    func fetchPrekeyBundle(
-        responderUserId: Int,
-        responderDeviceIdHex16: String? = nil
-    ) async throws -> C6PPrekeyBundle {
-
-        guard responderUserId > 0 else {
-            throw C6PPrekeyHTTPClientError.invalidUserId
-        }
-
+    public func fetchPrekeyBundle(remoteDeviceId: C6PDeviceId) async throws -> C6PPrekeyBundleContract {
         var query: [URLQueryItem] = [
-            .init(name: "user_id", value: String(responderUserId))
+            .init(name: "device_id", value: remoteDeviceId.hexString.lowercased())
         ]
 
-        if let deviceId = responderDeviceIdHex16 {
-            let d = deviceId.lowercased()
-            guard Self.isHex16(d) else {
-                throw C6PPrekeyHTTPClientError.invalidDeviceIdHex
-            }
-            query.append(.init(name: "device_id", value: d))
+        if let extra = config.extraBundleQueryItems?(remoteDeviceId) {
+            query.append(contentsOf: extra)
         }
 
-        let req = try makeRequest(
-            method: "GET",
-            path: "/v1/prekeys/bundle",
-            queryItems: query
-        )
-
-        let (status, responseData) = try await perform(req)
-
-        guard status == 200 else {
-            throw try parseServerError(status: status, data: responseData)
-        }
+        let req = try makeRequest(method: "GET", path: config.bundlePath, queryItems: query)
+        let (status, data) = try await perform(req)
+        guard status == 200 else { throw try parseServerError(status: status, data: data) }
 
         do {
-            let bundle = try decoder.decode(C6PPrekeyBundle.self, from: responseData)
-
-            // Hard validation (defensive)
-            try validateLength(bundle.identityPublicKeyEd25519, expected: 32, label: "bundle.identityPublicKeyEd25519")
-            try validateLength(bundle.signedPrekeyPublicKeyX25519, expected: 32, label: "bundle.signedPrekeyPublicKeyX25519")
-            try validateLength(bundle.signedPrekeySignature, expected: 64, label: "bundle.signedPrekeySignature")
-
-            if let otpPub = bundle.oneTimePrekeyPublicKeyX25519 {
-                try validateLength(otpPub, expected: 32, label: "bundle.oneTimePrekeyPublicKeyX25519")
-            }
-
+            let bundle = try decoder.decode(C6PPrekeyBundleContract.self, from: data)
+            try bundle.validate()
             return bundle
         } catch {
             throw C6PPrekeyHTTPClientError.decodingFailed(underlying: error)
         }
+    }
+
+    public func markOneTimePrekeyConsumed(responderDeviceId: C6PDeviceId, oneTimePrekeyId: C6PKeyId) async throws {
+        // If your backend does not have /consume yet, implement it OR change `consumePath`.
+        let reqBody = try C6PConsumeOneTimePrekeyRequest(
+            c6pVersion: C6P_VERSION,
+            responderDeviceId: responderDeviceId,
+            oneTimePrekeyId: oneTimePrekeyId
+        )
+
+        let bodyData: Data
+        do {
+            bodyData = try encoder.encode(reqBody)
+        } catch {
+            throw C6PPrekeyHTTPClientError.encodingFailed(underlying: error)
+        }
+
+        var req = try makeRequest(method: "POST", path: config.consumePath, queryItems: nil)
+        req.httpBody = bodyData
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let (status, data) = try await perform(req)
+
+        // Accept either 200 with JSON response or 204 no-content.
+        if status == 204 { return }
+        guard status == 200 else { throw try parseServerError(status: status, data: data) }
+
+        // Optional decode for audit; ignore body if backend returns minimal OK.
+        _ = try? decoder.decode(C6PConsumeOneTimePrekeyResponse.self, from: data)
     }
 
     // MARK: - Internals
@@ -268,18 +223,17 @@ final class C6PPrekeyHTTPClient {
             throw C6PPrekeyHTTPClientError.invalidBaseURL
         }
 
-        // Ensure path composition is stable
+        // Stable path join
         let basePath = components.path
         let joinedPath: String
         if basePath.isEmpty || basePath == "/" {
             joinedPath = path
         } else {
-            // Prevent accidental double slashes
             joinedPath = basePath.hasSuffix("/")
-                ? (basePath.dropLast() + path)
+                ? (String(basePath.dropLast()) + path)
                 : (basePath + path)
         }
-        components.path = String(joinedPath)
+        components.path = joinedPath
 
         if let queryItems, !queryItems.isEmpty {
             components.queryItems = queryItems
@@ -292,12 +246,10 @@ final class C6PPrekeyHTTPClient {
         var req = URLRequest(url: url)
         req.httpMethod = method
 
-        // headers
         for (k, v) in config.defaultHeaders {
             req.setValue(v, forHTTPHeaderField: k)
         }
 
-        // auth
         guard let token = accessTokenProvider(), !token.isEmpty else {
             throw C6PPrekeyHTTPClientError.missingAccessToken
         }
@@ -308,7 +260,7 @@ final class C6PPrekeyHTTPClient {
 
     private func perform(_ request: URLRequest) async throws -> (Int, Data) {
         do {
-            let (data, resp) = try await urlSession.data(for: request)
+            let (data, resp) = try await session.data(for: request)
             let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
             return (status, data)
         } catch {
@@ -318,68 +270,16 @@ final class C6PPrekeyHTTPClient {
 
     private func parseServerError(status: Int, data: Data) throws -> Error {
         if let body = try? decoder.decode(C6PServerErrorBody.self, from: data) {
-            return C6PPrekeyHTTPClientError.serverError(
-                status: status,
-                code: body.error,
-                message: body.message
-            )
+            return C6PPrekeyHTTPClientError.serverError(status: status, code: body.error, message: body.message)
         }
-
         let raw = String(data: data, encoding: .utf8)
         return C6PPrekeyHTTPClientError.unexpectedResponse(status: status, body: raw)
     }
-
-    private func validateLength(_ data: Data, expected: Int, label: String) throws {
-        guard data.count == expected else {
-            throw C6PPrekeyHTTPClientError.invalidKeyLength(
-                label: label,
-                expected: expected,
-                actual: data.count
-            )
-        }
-    }
-
-    private static func isHex16(_ s: String) -> Bool {
-        // exactly 16 lowercase hex chars
-        // (server lowercases anyway, we enforce)
-        guard s.count == 16 else { return false }
-        return s.range(of: "^[0-9a-f]{16}$", options: .regularExpression) != nil
-    }
 }
 
-// MARK: - DTOs / Response bodies
+// MARK: - Server error body
 
 private struct C6PServerErrorBody: Codable {
     let error: String
     let message: String
-}
-
-/// Response from POST /v1/prekeys/upload
-struct C6PPrekeysUploadResponse: Codable, Hashable {
-    let ok: Bool
-    let userDeviceId: UInt64
-    let storedOneTimePrekeys: Int
-}
-
-/// POST body DTO – matches Node.
-private struct UploadDTO: Codable {
-    struct Identity: Codable {
-        let publicKeyEd25519: Data
-        let fingerprint: String?
-    }
-
-    struct SignedPrekey: Codable {
-        let publicKeyX25519: Data
-        let signatureEd25519: Data
-        let expiresAt: Date?
-    }
-
-    struct OneTimePrekey: Codable {
-        let keyId: String          // 16 hex chars
-        let publicKeyX25519: Data  // base64
-    }
-
-    let identity: Identity
-    let signedPrekey: SignedPrekey
-    let oneTimePrekeys: [OneTimePrekey]
 }
