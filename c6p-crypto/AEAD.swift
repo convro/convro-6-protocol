@@ -32,15 +32,7 @@ enum C6PAEADError: Error, LocalizedError, CustomStringConvertible {
 
 // MARK: - Wire-level sealed message (no nonce carried; deterministic reconstruction)
 
-struct C6PSealedMessage: Hashable, Codable {
-    let ciphertext: Data
-    let tag: Data
 
-    init(ciphertext: Data, tag: Data) {
-        self.ciphertext = ciphertext
-        self.tag = tag
-    }
-}
 
 // MARK: - AEAD (Canonical)
 
