@@ -1,84 +1,91 @@
 //
-//  C6PDMTransportService.swift
-//  C6P-Protocol
+//  C6PSessionService.swift
+//  Convro-6-Protocol (C6P)
 //
-//  Production DM transport for Node routes.dm_messages.js (canonical v1.1)
+//  CANONICAL v1.2 (production)
 //
-//  Requires:
-//  - C6PSessionService (crypto + session state)
-//  - C6PEnvelope Codable
-//  - C6PInnerPayload Codable
+//  Responsibilities:
+//  - Load/validate session state (C6PSessionStore)
+//  - Derive per-message key deterministically from chain key + (sessionId, streamId, messageType, counter)
+//  - Seal/open with C6PAEAD using extraAAD = C6PWireAAD.envelopeAAD(...)
+//  - Strict counter acceptance + atomic session updates (store.saveSession)
+//
+//  NOTE:
+//  This service enforces STRICT_IN_ORDER semantics (v1).
 //
 
 import Foundation
+import CryptoKit
 
-// MARK: - DTOs (Node wire)
+// MARK: - Errors
 
-struct C6PDmInboxResponse: Codable {
-    struct Item: Codable, Hashable {
-        let id: Int
-        let serverMessageId: String
-        let serverTimestamp: String
-        let envelope: C6PEnvelope
-    }
-    let messages: [Item]
-    let nextAfterId: Int
-}
+enum C6PSessionServiceError: Error, LocalizedError, CustomStringConvertible {
+    case sessionNotFound
+    case sessionNotActive(state: C6PSessionStatus)
+    case suiteMismatch(expected: C6PEncryptionSuite, got: C6PEncryptionSuite)
+    case deviceMismatch
+    case remoteMismatch
+    case streamMismatch(expected: C6PStreamId, got: C6PStreamId)
+    case counterRejected(expected: UInt64, got: UInt64)
+    case innerDecodeFailed
+    case innerClientMessageIdMismatch
+    case sealEncodeFailed
+    case openFailed(underlying: Error)
 
-struct C6PDmSendResponse: Codable {
-    let ok: Bool
-    let id: Int
-    let serverMessageId: String
-    let serverTimestamp: String
-    let deduped: Bool?
-}
+    var errorDescription: String? { description }
 
-// MARK: - HTTP Adapter
-
-protocol C6PHTTPPerforming2 {
-    func perform(_ request: URLRequest) async throws -> (Data, HTTPURLResponse)
-}
-
-final class C6PURLSessionHTTP2: C6PHTTPPerforming2 {
-    func perform(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        let (data, resp) = try await URLSession.shared.data(for: request)
-        guard let http = resp as? HTTPURLResponse else {
-            throw URLError(.badServerResponse)
+    var description: String {
+        switch self {
+        case .sessionNotFound:
+            return "C6PSessionServiceError.sessionNotFound"
+        case .sessionNotActive(let s):
+            return "C6PSessionServiceError.sessionNotActive(state=\(s.rawValue))"
+        case .suiteMismatch(let e, let g):
+            return "C6PSessionServiceError.suiteMismatch(expected=\(e), got=\(g))"
+        case .deviceMismatch:
+            return "C6PSessionServiceError.deviceMismatch (envelope.toDeviceId != localDeviceId)"
+        case .remoteMismatch:
+            return "C6PSessionServiceError.remoteMismatch (envelope.fromDeviceId != expected remoteDeviceId)"
+        case .streamMismatch(let e, let g):
+            return "C6PSessionServiceError.streamMismatch(expected=\(e), got=\(g))"
+        case .counterRejected(let e, let g):
+            return "C6PSessionServiceError.counterRejected(expected=\(e), got=\(g))"
+        case .innerDecodeFailed:
+            return "C6PSessionServiceError.innerDecodeFailed"
+        case .innerClientMessageIdMismatch:
+            return "C6PSessionServiceError.innerClientMessageIdMismatch"
+        case .sealEncodeFailed:
+            return "C6PSessionServiceError.sealEncodeFailed"
+        case .openFailed(let u):
+            return "C6PSessionServiceError.openFailed(underlying=\(u))"
         }
-        return (data, http)
     }
 }
 
-// MARK: - Transport
+// MARK: - Service
 
-final class C6PDMTransportService {
+final class C6PSessionService {
+
+    // MARK: Config
 
     struct Config {
-        let apiBaseURL: URL              // e.g. https://tunnel.convro.eu
-        let bearerTokenProvider: () -> String?
-    }
+        /// Local device id (this client device).
+        let localDeviceId: C6PDeviceId
 
-    enum TransportError: Error, CustomStringConvertible {
-        case authMissing
-        case badURL
-        case http(status: Int, body: String?)
-        case decodeFailed
-        case encodeFailed
+        /// If true, verifies innerPayload.clientMessageId == envelope.clientMessageId.
+        let enforceInnerClientMessageIdBinding: Bool
 
-        var description: String {
-            switch self {
-            case .authMissing: return "C6PDMTransportService.TransportError.authMissing"
-            case .badURL: return "C6PDMTransportService.TransportError.badURL"
-            case .http(let s, let b): return "C6PDMTransportService.TransportError.http(status=\(s), body=\(b ?? "nil"))"
-            case .decodeFailed: return "C6PDMTransportService.TransportError.decodeFailed"
-            case .encodeFailed: return "C6PDMTransportService.TransportError.encodeFailed"
-            }
+        init(
+            localDeviceId: C6PDeviceId,
+            enforceInnerClientMessageIdBinding: Bool = true
+        ) {
+            self.localDeviceId = localDeviceId
+            self.enforceInnerClientMessageIdBinding = enforceInnerClientMessageIdBinding
         }
     }
 
     private let cfg: Config
-    private let http: C6PHTTPPerforming2
-    private let crypto: C6PSessionService
+    private let store: C6PSessionStore
 
     private let encoder: JSONEncoder = {
         let e = JSONEncoder()
@@ -92,171 +99,307 @@ final class C6PDMTransportService {
         return d
     }()
 
-    init(cfg: Config, crypto: C6PSessionService, http: C6PHTTPPerforming2 = C6PURLSessionHTTP2()) {
+    init(cfg: Config, store: C6PSessionStore) {
         self.cfg = cfg
-        self.crypto = crypto
-        self.http = http
+        self.store = store
     }
 
-    // MARK: - Send (encrypt -> POST /send)
+    // MARK: - Public: Session helpers
 
-    @discardableResult
-    func sendDM(
+    func loadSession(with remoteDeviceId: C6PDeviceId) -> C6PSessionState? {
+        store.loadSession(localDeviceId: cfg.localDeviceId, remoteDeviceId: remoteDeviceId)
+    }
+
+    func saveSession(_ session: C6PSessionState) {
+        store.saveSession(session)
+    }
+
+    func deleteSession(with remoteDeviceId: C6PDeviceId) {
+        store.deleteSession(localDeviceId: cfg.localDeviceId, remoteDeviceId: remoteDeviceId)
+    }
+
+    // MARK: - DM Encrypt (InnerPayload -> EnvelopeDM)
+
+    /// Encrypts DM inner payload into DM envelope.
+    ///
+    /// Requires an ACTIVE session for (localDeviceId, remoteDeviceId).
+    /// Uses strict counters and advances send chain key atomically.
+    func encryptDM(
         to remoteDeviceId: C6PDeviceId,
         suite: C6PEncryptionSuite,
-        innerPayload: C6PInnerPayload
-    ) async throws -> (envelope: C6PEnvelope, serverDbId: Int, serverMessageId: String) {
+        innerPayload: C6PInnerPayload,
+        messageType: C6PMessageType = .dm   // <-- jeśli w Twoim enum nazywa się inaczej, zmień TYLKO to
+    ) throws -> C6PEnvelopeDM {
 
-        let token = cfg.bearerTokenProvider()
-        guard let token, !token.isEmpty else { throw TransportError.authMissing }
+        var session = try mustLoadActiveSession(remoteDeviceId: remoteDeviceId)
 
-        let envelope = try crypto.encryptDM(
-            to: remoteDeviceId,
+        // suite must match negotiated session suite
+        guard session.suite == suite else {
+            throw C6PSessionServiceError.suiteMismatch(expected: session.suite, got: suite)
+        }
+
+        // allocate counter (and bump session timestamps)
+        let counter = session.allocateOutgoingCounter()
+        let streamId = session.localSendStream
+
+        // encode plaintext
+        let plaintext: Data
+        do {
+            plaintext = try encoder.encode(innerPayload)
+        } catch {
+            throw C6PSessionServiceError.sealEncodeFailed
+        }
+
+        // derive per-message key and next chain key (strict in-order)
+        let derived = try deriveMessageKeyAndAdvanceChainKey(
+            chainKey: &session.sendChainKey,
             suite: suite,
-            innerPayload: innerPayload
+            sessionId: session.sessionId,
+            streamId: streamId,
+            messageType: messageType,
+            counter: counter
         )
 
-        guard let url = URL(string: "/v1/dm/messages/send", relativeTo: cfg.apiBaseURL) else {
-            throw TransportError.badURL
-        }
+        // extraAAD binds envelope routing metadata (server-visible) to AEAD tag
+        // (prevents server rewriting from/to/session/clientMessageId without detection)
+        let extraAAD = C6PWireAAD.envelopeAAD(
+            c6pVersion: C6P_VERSION,
+            sessionId: session.sessionId,
+            fromDeviceId: cfg.localDeviceId,
+            toDeviceId: remoteDeviceId,
+            clientMessageId: innerPayload.clientMessageId
+        )
 
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        let bodyObj: [String: Any] = [
-            "envelope": try jsonObject(from: envelope)
-        ]
-
+        let sealed: C6PSealedMessage
         do {
-            req.httpBody = try JSONSerialization.data(withJSONObject: bodyObj, options: [])
+            sealed = try C6PAEAD.seal(
+                plaintext: plaintext,
+                with: derived.messageKey,
+                extraAAD: extraAAD
+            )
         } catch {
-            throw TransportError.encodeFailed
+            throw C6PSessionServiceError.openFailed(underlying: error)
         }
 
-        let (data, resp) = try await http.perform(req)
-        guard (200...299).contains(resp.statusCode) else {
-            throw TransportError.http(status: resp.statusCode, body: String(data: data, encoding: .utf8))
-        }
+        // persist updated session (counter + advanced sendChainKey)
+        store.saveSession(session)
 
-        do {
-            let decoded = try decoder.decode(C6PDmSendResponse.self, from: data)
-            return (envelope, decoded.id, decoded.serverMessageId)
-        } catch {
-            throw TransportError.decodeFailed
-        }
+        // Build DM envelope.
+        //
+        // IMPORTANT: This assumes your C6PEnvelopeDM carries:
+        //  - c6pVersion, fromDeviceId, toDeviceId, sessionId
+        //  - suite, streamId, messageType, counter
+        //  - sealed (ciphertext+tag)
+        //  - clientMessageId, clientTimestamp (+ optional server fields)
+        //
+        // If your property names differ, adjust ONLY this initializer mapping.
+        let env = C6PEnvelopeDM(
+            fromDeviceId: cfg.localDeviceId,
+            toDeviceId: remoteDeviceId,
+            sessionId: session.sessionId,
+            suite: suite,
+            streamId: streamId,
+            messageType: messageType,
+            counter: counter,
+            sealed: sealed,
+            clientMessageId: innerPayload.clientMessageId,
+            clientTimestamp: innerPayload.clientTimestamp
+        )
+
+        return env
     }
 
-    // MARK: - Poll inbox (GET /inbox) + decrypt + delivered ack
+    // MARK: - DM Decrypt (EnvelopeDM -> InnerPayload)
 
-    /// Polls inbox, decrypts messages (strict in-order), and ACKs delivered for successfully decrypted items.
+    /// Decrypts DM envelope into inner payload.
     ///
-    /// Returns:
-    /// - decrypted: [(dbId, innerPayload, envelope)]
-    /// - nextAfterId: cursor for next poll
-    func pollInboxAndDecrypt(
+    /// Enforces:
+    /// - envelope.toDeviceId == localDeviceId
+    /// - remoteDeviceId matches envelope.fromDeviceId
+    /// - session exists + ACTIVE
+    /// - streamId matches expected local receive stream
+    /// - counter matches expected (strict in-order)
+    /// - advances recv chain key only after successful decrypt + accept counter
+    func decryptDMInner(
         from remoteDeviceId: C6PDeviceId,
-        afterId: Int,
-        limit: Int = 50
-    ) async throws -> (decrypted: [(dbId: Int, inner: C6PInnerPayload, envelope: C6PEnvelope)], nextAfterId: Int) {
+        envelope: C6PEnvelopeDM
+    ) throws -> C6PInnerPayload {
 
-        let token = cfg.bearerTokenProvider()
-        guard let token, !token.isEmpty else { throw TransportError.authMissing }
-
-        guard var comps = URLComponents(url: cfg.apiBaseURL, resolvingAgainstBaseURL: true) else {
-            throw TransportError.badURL
+        // basic routing sanity
+        guard envelope.toDeviceId == cfg.localDeviceId else {
+            throw C6PSessionServiceError.deviceMismatch
         }
-        comps.path = "/v1/dm/messages/inbox"
-        comps.queryItems = [
-            URLQueryItem(name: "afterId", value: String(afterId)),
-            URLQueryItem(name: "limit", value: String(min(max(limit, 1), 200)))
-        ]
-        guard let url = comps.url else { throw TransportError.badURL }
-
-        var req = URLRequest(url: url)
-        req.httpMethod = "GET"
-        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        let (data, resp) = try await http.perform(req)
-        guard (200...299).contains(resp.statusCode) else {
-            throw TransportError.http(status: resp.statusCode, body: String(data: data, encoding: .utf8))
+        guard envelope.fromDeviceId == remoteDeviceId else {
+            throw C6PSessionServiceError.remoteMismatch
         }
 
-        let decoded: C6PDmInboxResponse
+        // session lookup MUST be by (localDeviceId, sessionId) for wire envelopes
+        guard var session = store.loadSession(localDeviceId: cfg.localDeviceId, sessionId: envelope.sessionId) else {
+            throw C6PSessionServiceError.sessionNotFound
+        }
+        guard session.status == .active else {
+            throw C6PSessionServiceError.sessionNotActive(state: session.status)
+        }
+
+        // suite must match
+        guard session.suite == envelope.suite else {
+            throw C6PSessionServiceError.suiteMismatch(expected: session.suite, got: envelope.suite)
+        }
+
+        // stream must be the expected incoming stream for this local role
+        let expectedStream = session.localRecvStream
+        guard envelope.streamId == expectedStream else {
+            throw C6PSessionServiceError.streamMismatch(expected: expectedStream, got: envelope.streamId)
+        }
+
+        // strict counter check BEFORE decrypt (prevents key advancement on junk)
+        let expectedCounter = session.expectedIncomingCounter(for: envelope.streamId)
+        guard envelope.counter == expectedCounter else {
+            throw C6PSessionServiceError.counterRejected(expected: expectedCounter, got: envelope.counter)
+        }
+
+        // derive message key from current recvChainKey (same derivation as sender)
+        let derived = try deriveMessageKeyAndAdvanceChainKey(
+            chainKey: &session.recvChainKey,
+            suite: envelope.suite,
+            sessionId: session.sessionId,
+            streamId: envelope.streamId,
+            messageType: envelope.messageType,
+            counter: envelope.counter
+        )
+
+        // extraAAD binding must match sender side exactly
+        let extraAAD = C6PWireAAD.envelopeAAD(
+            c6pVersion: envelope.c6pVersion,
+            sessionId: envelope.sessionId,
+            fromDeviceId: envelope.fromDeviceId,
+            toDeviceId: envelope.toDeviceId,
+            clientMessageId: envelope.clientMessageId
+        )
+
+        let plaintext: Data
         do {
-            decoded = try decoder.decode(C6PDmInboxResponse.self, from: data)
+            plaintext = try C6PAEAD.open(
+                sealed: envelope.sealed,
+                with: derived.messageKey,
+                extraAAD: extraAAD
+            )
         } catch {
-            throw TransportError.decodeFailed
+            // do NOT mutate stored session on failure
+            throw C6PSessionServiceError.openFailed(underlying: error)
         }
 
-        var okIds: [Int] = []
-        var out: [(Int, C6PInnerPayload, C6PEnvelope)] = []
+        // decode inner
+        let inner: C6PInnerPayload
+        do {
+            inner = try decoder.decode(C6PInnerPayload.self, from: plaintext)
+        } catch {
+            throw C6PSessionServiceError.innerDecodeFailed
+        }
 
-        for item in decoded.messages {
-            do {
-                let inner = try crypto.decryptDMInner(from: remoteDeviceId, envelope: item.envelope)
-                out.append((item.id, inner, item.envelope))
-                okIds.append(item.id)
-            } catch {
-                // strict-in-order: jeśli coś się wywali, NIE ACKuj i przerwij,
-                // bo następne i tak będą się wysypywać (brak wire counter)
-                break
+        // optional: ensure inner clientMessageId matches outer (defense in depth)
+        if cfg.enforceInnerClientMessageIdBinding {
+            guard inner.clientMessageId == envelope.clientMessageId else {
+                throw C6PSessionServiceError.innerClientMessageIdMismatch
             }
         }
 
-        if !okIds.isEmpty {
-            try await ackDelivered(ids: okIds, bearerToken: token)
+        // accept counter (mutates session counters) AFTER successful open+decode
+        let accepted = session.acceptIncomingCounter(envelope.counter, for: envelope.streamId)
+        guard accepted else {
+            throw C6PSessionServiceError.counterRejected(expected: expectedCounter, got: envelope.counter)
         }
 
-        return (out.map { (dbId: $0.0, inner: $0.1, envelope: $0.2) }, decoded.nextAfterId)
+        // persist updated session (recvChainKey advanced + counters bumped)
+        store.saveSession(session)
+
+        return inner
     }
 
-    // MARK: - ACK Delivered / Read
+    // MARK: - Internals
 
-    func markRead(ids: [Int]) async throws {
-        let token = cfg.bearerTokenProvider()
-        guard let token, !token.isEmpty else { throw TransportError.authMissing }
-        try await ack(path: "/v1/dm/messages/read", ids: ids, bearerToken: token)
-    }
-
-    private func ackDelivered(ids: [Int], bearerToken: String) async throws {
-        try await ack(path: "/v1/dm/messages/delivered", ids: ids, bearerToken: bearerToken)
-    }
-
-    private func ack(path: String, ids: [Int], bearerToken: String) async throws {
-        let clean = ids.filter { $0 > 0 }
-        guard !clean.isEmpty else { return }
-
-        guard let url = URL(string: path, relativeTo: cfg.apiBaseURL) else { throw TransportError.badURL }
-
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        let bodyObj: [String: Any] = ["ids": Array(clean.prefix(200))]
-        req.httpBody = try JSONSerialization.data(withJSONObject: bodyObj, options: [])
-
-        let (data, resp) = try await http.perform(req)
-        guard (200...299).contains(resp.statusCode) else {
-            throw TransportError.http(status: resp.statusCode, body: String(data: data, encoding: .utf8))
+    private func mustLoadActiveSession(remoteDeviceId: C6PDeviceId) throws -> C6PSessionState {
+        guard let s = store.loadSession(localDeviceId: cfg.localDeviceId, remoteDeviceId: remoteDeviceId) else {
+            throw C6PSessionServiceError.sessionNotFound
         }
+        guard s.status == .active else {
+            throw C6PSessionServiceError.sessionNotActive(state: s.status)
+        }
+        return s
     }
 
-    // MARK: - Helpers
+    private struct DerivedKeyResult {
+        let messageKey: C6PMessageKey
+    }
 
-    private func jsonObject(from envelope: C6PEnvelope) throws -> [String: Any] {
-        do {
-            let data = try encoder.encode(envelope)
-            let obj = try JSONSerialization.jsonObject(with: data, options: [])
-            guard let dict = obj as? [String: Any] else { throw TransportError.encodeFailed }
-            return dict
-        } catch {
-            throw TransportError.encodeFailed
-        }
+    /// Deterministic key derivation:
+    /// messageKey  = HKDF(chainKey.key, info = "C6P_MSG" + ctx)
+    /// nextChainKey = HKDF(chainKey.key, info = "C6P_CK" + ctx)
+    ///
+    /// ctx binds: sessionId + streamId + messageType + counter
+    ///
+    /// v1 strict-in-order => we can safely advance chainKey per message.
+    private func deriveMessageKeyAndAdvanceChainKey(
+        chainKey: inout C6PChainKey,
+        suite: C6PEncryptionSuite,
+        sessionId: C6PSessionId,
+        streamId: C6PStreamId,
+        messageType: C6PMessageType,
+        counter: UInt64
+    ) throws -> DerivedKeyResult {
+
+        // This assumes C6PChainKey has mutable `key: SymmetricKey`.
+        // If your field name differs, change ONLY these two lines:
+        let ck = chainKey.key
+        let ctx = buildKdfContext(sessionId: sessionId, streamId: streamId, messageType: messageType, counter: counter)
+
+        // message key
+        let mk = HKDF<SHA256>.deriveKey(
+            inputKeyMaterial: ck,
+            salt: SymmetricKey(data: Data("C6P_SALT_V1".utf8)),
+            info: Data("C6P_MSG_V1".utf8) + ctx,
+            outputByteCount: 32
+        )
+
+        // next chain key
+        let nextCk = HKDF<SHA256>.deriveKey(
+            inputKeyMaterial: ck,
+            salt: SymmetricKey(data: Data("C6P_SALT_V1".utf8)),
+            info: Data("C6P_CK_V1".utf8) + ctx,
+            outputByteCount: 32
+        )
+
+        // advance chain key atomically in memory (store.saveSession done by caller)
+        chainKey.key = nextCk
+
+        let messageKey = C6PMessageKey(
+            suite: suite,
+            sessionId: sessionId,
+            streamId: streamId,
+            messageType: messageType,
+            counter: counter,
+            key: mk
+        )
+
+        return DerivedKeyResult(messageKey: messageKey)
+    }
+
+    private func buildKdfContext(
+        sessionId: C6PSessionId,
+        streamId: C6PStreamId,
+        messageType: C6PMessageType,
+        counter: UInt64
+    ) -> Data {
+        var data = Data()
+        data.reserveCapacity(4 + 1 + 1 + 8)
+
+        data.append(sessionId.data)       // 4 bytes (v1)
+        data.append(streamId.rawValue)    // 1
+        data.append(messageType.rawValue) // 1
+
+        var be = counter.bigEndian
+        withUnsafeBytes(of: &be) { data.append(contentsOf: $0) } // 8
+
+        return data
     }
 }
