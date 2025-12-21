@@ -81,49 +81,6 @@ public protocol C6PPrekeyAPIClient {
     func markOneTimePrekeyConsumed(responderDeviceId: C6PDeviceId, oneTimePrekeyId: C6PKeyId) async throws
 }
 
-// MARK: - Wire Contracts (base64url strings)
-
-public struct C6PSignedPrekeyPublicRecord: Codable, Hashable {
-    public let publicKeyX25519B64u: String       // 32 bytes
-    public let signatureEd25519B64u: String      // signature bytes
-    public let createdAt: Date
-}
-
-public struct C6POneTimePrekeyPublicRecord: Codable, Hashable {
-    public let prekeyId: C6PKeyId
-    public let publicKeyX25519B64u: String       // 32 bytes
-    public let createdAt: Date
-}
-
-public struct C6PPublishPrekeysRequest: Codable, Hashable {
-    public let c6pVersion: UInt8
-    public let virtualNumber: String             // canonical: +99###### (no spaces)
-    public let deviceId: C6PDeviceId
-
-    public let identityPublicKeyEd25519B64u: String  // 32 bytes
-
-    public let signedPrekey: C6PSignedPrekeyPublicRecord
-    public let oneTimePrekeys: [C6POneTimePrekeyPublicRecord]
-}
-
-public struct C6PPublishPrekeysResponse: Codable, Hashable {
-    public let accepted: Bool
-    public let acceptedOneTimePrekeyIds: [C6PKeyId]
-    public let serverTime: Date
-    public let message: String?
-}
-
-public struct C6PPrekeyBundleContract: Codable, Hashable {
-    public let responderDeviceId: C6PDeviceId
-
-    public let identityPublicKeyEd25519B64u: String
-    public let signedPrekeyPublicKeyX25519B64u: String
-    public let signedPrekeySignatureB64u: String
-
-    public let oneTimePrekeyId: C6PKeyId?
-    public let oneTimePrekeyPublicKeyX25519B64u: String?
-}
-
 // MARK: - Local persistent records (Keychain)
 
 private struct C6PLocalSignedPrekeyRecord: Codable, Hashable {
@@ -172,7 +129,7 @@ public final class C6PPrekeyService {
 
     // MARK: - Bootstrap / publish
 
-    public func bootstrapAndPublishIfNeeded(c6pVersion: UInt8 = 1) async throws {
+    public func bootstrapAndPublishIfNeeded(c6pVersion: UInt8 = C6P_VERSION) async throws {
         let account = try requireAccount()
         let deviceId = try requireActiveDeviceId()
         let deviceIdentity = try identityStore.loadDeviceIdentity(deviceId: deviceId)
@@ -193,12 +150,14 @@ public final class C6PPrekeyService {
             newlyGeneratedOTPs = try generateAndStoreOneTimePrekeys(deviceId: deviceId, count: toGenerate)
         }
 
-        // 3) Publish
-        let req = C6PPublishPrekeysRequest(
+        // 3) Publish (contract validate happens in client, but we build canonical anyway)
+        let req = try C6PPublishPrekeysRequest(
             c6pVersion: c6pVersion,
-            virtualNumber: account.virtualNumber, // must already be canonical +99######
+            virtualNumber: account.virtualNumber, // canonical +99######
             deviceId: deviceId,
-            identityPublicKeyEd25519B64u: C6PEncoding.base64URLEncode(deviceIdentity.ed25519PrivateKey.publicKey.rawRepresentation),
+            identityPublicKeyEd25519B64u: C6PEncoding.base64URLEncode(
+                deviceIdentity.ed25519PrivateKey.publicKey.rawRepresentation
+            ),
             signedPrekey: C6PSignedPrekeyPublicRecord(
                 publicKeyX25519B64u: signed.publicKeyX25519B64u,
                 signatureEd25519B64u: signed.signatureEd25519B64u,
@@ -251,7 +210,13 @@ public final class C6PPrekeyService {
 
     public func fetchPrekeyBundle(remoteDeviceId: C6PDeviceId) async throws -> C6PPrekeyBundleContract {
         let bundle = try await api.fetchPrekeyBundle(remoteDeviceId: remoteDeviceId)
-        try validateBundle(bundle)
+
+        // Strict contract validation (single source of truth)
+        try bundle.validate()
+
+        // Extra defensive decode (optional)
+        try validateBundleBinaryLengths(bundle)
+
         return bundle
     }
 
@@ -318,7 +283,6 @@ public final class C6PPrekeyService {
             }
 
             try saveOneTimePrekey(deviceId: deviceId, id: id, privateKeyRaw: priv.rawRepresentation)
-
             index.ids.append(id.hexString)
 
             out.append(
@@ -334,9 +298,9 @@ public final class C6PPrekeyService {
         return out
     }
 
-    // MARK: - Bundle validation
+    // MARK: - Bundle validation (extra defensive)
 
-    private func validateBundle(_ b: C6PPrekeyBundleContract) throws {
+    private func validateBundleBinaryLengths(_ b: C6PPrekeyBundleContract) throws {
         let idPub = try C6PEncoding.base64URLDecode(b.identityPublicKeyEd25519B64u)
         guard idPub.count == 32 else {
             throw C6PPrekeyServiceError.serverBundleInvalid(reason: "identityPublicKeyEd25519 length != 32")
@@ -347,7 +311,10 @@ public final class C6PPrekeyService {
             throw C6PPrekeyServiceError.serverBundleInvalid(reason: "signedPrekeyPublicKeyX25519 length != 32")
         }
 
-        _ = try C6PEncoding.base64URLDecode(b.signedPrekeySignatureB64u) // length can vary; we only require decodable
+        let sig = try C6PEncoding.base64URLDecode(b.signedPrekeySignatureB64u)
+        guard sig.count == 64 else {
+            throw C6PPrekeyServiceError.serverBundleInvalid(reason: "signedPrekeySignature length != 64")
+        }
 
         if let otpB64u = b.oneTimePrekeyPublicKeyX25519B64u {
             let otp = try C6PEncoding.base64URLDecode(otpB64u)
@@ -466,7 +433,6 @@ private final class C6PSecureKeychain {
     }
 
     func upsertData(_ data: Data, key: String, accessible: CFString) throws {
-        // update
         let q = baseQuery(key: key)
         let attrs: [String: Any] = [kSecValueData as String: data]
 
@@ -477,7 +443,6 @@ private final class C6PSecureKeychain {
             throw C6PPrekeyServiceError.keychainError(status: sUpdate, operation: "SecItemUpdate(\(key))")
         }
 
-        // add
         var addQ = q
         addQ[kSecValueData as String] = data
         addQ[kSecAttrAccessible as String] = accessible
@@ -517,3 +482,4 @@ private final class C6PSecureKeychain {
         }
     }
 }
+
