@@ -4,313 +4,193 @@
 //
 //  Canonical wire contracts for C6P prekey distribution (handshake99).
 //
-//  This file is a SINGLE source of truth for:
+//  SINGLE source of truth for:
 //  - publishing signed prekey + one-time prekeys to backend,
 //  - fetching prekey bundle for initiator,
 //  - consuming one-time prekey (server-side anti-reuse),
 //  - strict, auditable encoding rules.
 //
-//  IMPORTANT DESIGN GOALS:
-//  1) Transport encoding is deterministic and Rust-friendly.
-//  2) Data fields are base64url (no padding) by default.
-//  3) Virtual Number (VN) is canonical: "+99" + 6 digits, no spaces.
-//     UI can display "+99 xxx xxx", but wire MUST be canonical.
-//  4) No protocol logic here: only contracts + validation helpers.
+//  Encoding rules:
+//  - Binary fields are base64url (no padding)
+//  - VN is canonical via C6PVirtualNumberString ("+99" + 6 digits)
 //
 
 import Foundation
 
 // MARK: - Contract Errors
 
-enum C6PPrekeyContractError: Error, CustomStringConvertible {
-    case invalidVirtualNumber(String)
-    case invalidBase64UrlData
-    case invalidPublicKeyLength(expected: Int, actual: Int)
-    case inconsistentOneTimePrekeyFields
+public enum C6PPrekeyContractError: Error, CustomStringConvertible {
     case invalidC6PVersion(expected: UInt8, actual: UInt8)
+    case invalidVirtualNumber(String)
 
-    var description: String {
+    case invalidBase64Url(String)
+    case invalidPublicKeyLength(label: String, expected: Int, actual: Int)
+    case inconsistentOneTimePrekeyFields
+
+    public var description: String {
         switch self {
+        case .invalidC6PVersion(let e, let a):
+            return "C6PPrekeyContractError.invalidC6PVersion(expected=\(e), actual=\(a))"
         case .invalidVirtualNumber(let s):
-            return "C6PPrekeyContractError.invalidVirtualNumber(\(s)) – expected canonical '+99' + 6 digits (no spaces)"
-        case .invalidBase64UrlData:
-            return "C6PPrekeyContractError.invalidBase64UrlData – base64url decode failed"
-        case .invalidPublicKeyLength(let expected, let actual):
-            return "C6PPrekeyContractError.invalidPublicKeyLength(expected=\(expected), actual=\(actual))"
+            return "C6PPrekeyContractError.invalidVirtualNumber(\(s))"
+        case .invalidBase64Url(let label):
+            return "C6PPrekeyContractError.invalidBase64Url(\(label))"
+        case .invalidPublicKeyLength(let label, let e, let a):
+            return "C6PPrekeyContractError.invalidPublicKeyLength(label=\(label), expected=\(e), actual=\(a))"
         case .inconsistentOneTimePrekeyFields:
-            return "C6PPrekeyContractError.inconsistentOneTimePrekeyFields – otpId and otpPublicKey must be both present or both nil"
-        case .invalidC6PVersion(let expected, let actual):
-            return "C6PPrekeyContractError.invalidC6PVersion(expected=\(expected), actual=\(actual))"
+            return "C6PPrekeyContractError.inconsistentOneTimePrekeyFields"
         }
     }
 }
 
-// MARK: - Base64Url Data wrapper (no padding)
+// MARK: - Base64url validation helpers
 
-/// Deterministic binary encoding for JSON:
-/// - Encodes Data as **base64url without padding**.
-/// - Decodes base64url without padding.
-/// - Stable across Swift / Rust / Node implementations.
-///
-/// NOTE:
-/// Uses `C6PEncoding.base64URLEncode` / `base64URLDecode` from `c6p-crypto/Primitives.swift`.
-struct C6PBase64UrlData: Hashable, Codable, CustomStringConvertible {
-    let data: Data
+public enum C6PPrekeyContractValidation {
 
-    init(_ data: Data) {
-        self.data = data
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.singleValueContainer()
-        let s = try c.decode(String.self)
+    @inline(__always)
+    public static func requireB64uDecodes(_ s: String, label: String) throws -> Data {
         do {
-            self.data = try C6PEncoding.base64URLDecode(s)
+            return try C6PEncoding.base64URLDecode(s)
         } catch {
-            throw C6PPrekeyContractError.invalidBase64UrlData
+            throw C6PPrekeyContractError.invalidBase64Url(label)
         }
     }
 
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.singleValueContainer()
-        try c.encode(C6PEncoding.base64URLEncode(data))
-    }
-
-    var description: String {
-        "C6PBase64UrlData(\(data.count)B)"
-    }
-}
-
-// MARK: - Virtual Number (VN)
-
-/// Canonical Virtual Number for Convro/C6P.
-/// WIRE FORMAT (canonical):
-///   +99XXXXXX   (exactly 6 digits, no spaces)
-///
-/// UI FORMAT (display):
-///   +99 XXX XXX
-struct C6PVirtualNumber: Hashable, Codable, CustomStringConvertible {
-    /// Canonical representation: "+99" + 6 digits, no spaces.
-    let canonical: String
-
-    init(canonical: String) throws {
-        let trimmed = canonical.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard Self.isValidCanonical(trimmed) else {
-            throw C6PPrekeyContractError.invalidVirtualNumber(trimmed)
+    @inline(__always)
+    public static func requireB64uLen(_ s: String, expected: Int, label: String) throws {
+        let d = try requireB64uDecodes(s, label: label)
+        if d.count != expected {
+            throw C6PPrekeyContractError.invalidPublicKeyLength(label: label, expected: expected, actual: d.count)
         }
-        self.canonical = trimmed
     }
 
-    /// Convenience: accepts UI-formatted VN like "+99 123 456" and normalizes to canonical.
-    static func fromDisplay(_ display: String) throws -> C6PVirtualNumber {
-        let normalized = display
-            .replacingOccurrences(of: " ", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return try C6PVirtualNumber(canonical: normalized)
-    }
-
-    /// Returns UI display format: "+99 XXX XXX".
-    var display: String {
-        // canonical: +99 + 6 digits => total length 9
-        // Example: +99123456 -> +99 123 456
-        let s = canonical
-        guard s.count == 9 else { return canonical }
-        let start = s.prefix(3) // "+99"
-        let digits = s.suffix(6)
-        let a = digits.prefix(3)
-        let b = digits.suffix(3)
-        return "\(start) \(a) \(b)"
-    }
-
-    var description: String { canonical }
-
-    // MARK: Codable
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.singleValueContainer()
-        let s = try c.decode(String.self)
-        try self.init(canonical: s)
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.singleValueContainer()
-        try c.encode(canonical)
-    }
-
-    // MARK: Validation
-
-    static func isValidCanonical(_ s: String) -> Bool {
-        // "+99" + 6 digits
-        guard s.count == 9 else { return false }
-        guard s.hasPrefix("+99") else { return false }
-        let tail = s.dropFirst(3)
-        guard tail.count == 6 else { return false }
-        return tail.allSatisfy { $0 >= "0" && $0 <= "9" }
-    }
-}
-
-// MARK: - Prekey Public Records
-
-/// Public Signed Prekey record published to backend.
-/// - publicKeyX25519: 32 bytes
-/// - signatureEd25519: signature over label || publicKeyX25519
-struct C6PSignedPrekeyPublicRecord: Codable, Hashable {
-    let publicKeyX25519: C6PBase64UrlData
-    let signatureEd25519: C6PBase64UrlData
-    let createdAt: Date
-
-    func validate() throws {
-        let pubLen = publicKeyX25519.data.count
-        guard pubLen == 32 else {
-            throw C6PPrekeyContractError.invalidPublicKeyLength(expected: 32, actual: pubLen)
-        }
-        // Signature length for Ed25519 is 64 bytes in standard libs.
-        // We don't hard-fail on signature length here to allow future agility,
-        // but you CAN enforce 64 if you want strict v1:
-        // guard signatureEd25519.data.count == 64 else ...
-    }
-}
-
-/// Public One-Time Prekey record published to backend.
-/// - prekeyId: stable ID
-/// - publicKeyX25519: 32 bytes
-struct C6POneTimePrekeyPublicRecord: Codable, Hashable {
-    let prekeyId: C6PKeyId
-    let publicKeyX25519: C6PBase64UrlData
-    let createdAt: Date
-
-    func validate() throws {
-        let pubLen = publicKeyX25519.data.count
-        guard pubLen == 32 else {
-            throw C6PPrekeyContractError.invalidPublicKeyLength(expected: 32, actual: pubLen)
+    @inline(__always)
+    public static func requireVNCanonical(_ vn: String) throws {
+        guard C6PVirtualNumberString.isValidCanonical(vn) else {
+            throw C6PPrekeyContractError.invalidVirtualNumber(vn)
         }
     }
 }
 
-// MARK: - Publish Prekeys (client -> backend)
+// MARK: - Public records
 
-struct C6PPublishPrekeysRequest: Codable, Hashable {
+public struct C6PSignedPrekeyPublicRecord: Codable, Hashable {
+    /// 32 bytes X25519 public key, base64url (no padding)
+    public let publicKeyX25519B64u: String
 
-    /// Global protocol version (C6P_VERSION).
-    let c6pVersion: UInt8
+    /// Ed25519 signature bytes over: label || publicKeyX25519, base64url (no padding)
+    public let signatureEd25519B64u: String
 
-    /// Canonical VN: "+99" + 6 digits, no spaces.
-    let virtualNumber: C6PVirtualNumber
+    public let createdAt: Date
 
-    /// Device that owns these prekeys.
-    let deviceId: C6PDeviceId
+    public func validate() throws {
+        try C6PPrekeyContractValidation.requireB64uLen(publicKeyX25519B64u, expected: 32, label: "signedPrekey.publicKeyX25519B64u")
+        // Signature length commonly 64 for Ed25519; enforce strict v1:
+        try C6PPrekeyContractValidation.requireB64uLen(signatureEd25519B64u, expected: 64, label: "signedPrekey.signatureEd25519B64u")
+    }
+}
 
-    /// Identity public key (Ed25519, 32 bytes).
-    let identityPublicKeyEd25519: C6PBase64UrlData
+public struct C6POneTimePrekeyPublicRecord: Codable, Hashable {
+    public let prekeyId: C6PKeyId
 
-    /// Signed prekey (X25519) record.
-    let signedPrekey: C6PSignedPrekeyPublicRecord
+    /// 32 bytes X25519 public key, base64url (no padding)
+    public let publicKeyX25519B64u: String
 
-    /// Newly generated OTPs to add to pool.
-    /// Server may accept all or subset.
-    let oneTimePrekeys: [C6POneTimePrekeyPublicRecord]
+    public let createdAt: Date
 
-    init(
+    public func validate() throws {
+        try C6PPrekeyContractValidation.requireB64uLen(publicKeyX25519B64u, expected: 32, label: "oneTimePrekeys[\(prekeyId.hexString)].publicKeyX25519B64u")
+    }
+}
+
+// MARK: - Publish (client -> backend)
+
+public struct C6PPublishPrekeysRequest: Codable, Hashable {
+    public let c6pVersion: UInt8
+
+    /// canonical "+99######" (no spaces)
+    public let virtualNumber: String
+
+    public let deviceId: C6PDeviceId
+
+    /// 32 bytes Ed25519 public key, base64url
+    public let identityPublicKeyEd25519B64u: String
+
+    public let signedPrekey: C6PSignedPrekeyPublicRecord
+    public let oneTimePrekeys: [C6POneTimePrekeyPublicRecord]
+
+    public init(
         c6pVersion: UInt8,
-        virtualNumber: C6PVirtualNumber,
+        virtualNumber: String,
         deviceId: C6PDeviceId,
-        identityPublicKeyEd25519: Data,
+        identityPublicKeyEd25519B64u: String,
         signedPrekey: C6PSignedPrekeyPublicRecord,
         oneTimePrekeys: [C6POneTimePrekeyPublicRecord]
     ) throws {
         self.c6pVersion = c6pVersion
         self.virtualNumber = virtualNumber
         self.deviceId = deviceId
-        self.identityPublicKeyEd25519 = C6PBase64UrlData(identityPublicKeyEd25519)
+        self.identityPublicKeyEd25519B64u = identityPublicKeyEd25519B64u
         self.signedPrekey = signedPrekey
         self.oneTimePrekeys = oneTimePrekeys
         try validate()
     }
 
-    func validate() throws {
-        // Strict c6pVersion check (v1)
-        guard c6pVersion == C6P_VERSION else {
+    public func validate() throws {
+        if c6pVersion != C6P_VERSION {
             throw C6PPrekeyContractError.invalidC6PVersion(expected: C6P_VERSION, actual: c6pVersion)
         }
-        // Identity pubkey len
-        let idLen = identityPublicKeyEd25519.data.count
-        guard idLen == 32 else {
-            throw C6PPrekeyContractError.invalidPublicKeyLength(expected: 32, actual: idLen)
-        }
+        try C6PPrekeyContractValidation.requireVNCanonical(virtualNumber)
+        try C6PPrekeyContractValidation.requireB64uLen(identityPublicKeyEd25519B64u, expected: 32, label: "identityPublicKeyEd25519B64u")
         try signedPrekey.validate()
-        try oneTimePrekeys.forEach { try $0.validate() }
+        for o in oneTimePrekeys { try o.validate() }
     }
 }
 
-struct C6PPublishPrekeysResponse: Codable, Hashable {
-    /// If false -> request rejected.
-    let accepted: Bool
-
-    /// If accepted, backend may return list of accepted OTP ids.
-    /// (Allows server to enforce quotas / reject duplicates.)
-    let acceptedOneTimePrekeyIds: [C6PKeyId]
-
-    /// UTC server time (auditable).
-    let serverTime: Date
-
-    /// Optional message for logs.
-    let message: String?
+public struct C6PPublishPrekeysResponse: Codable, Hashable {
+    public let accepted: Bool
+    public let acceptedOneTimePrekeyIds: [C6PKeyId]
+    public let serverTime: Date
+    public let message: String?
 }
 
-// MARK: - Fetch Prekey Bundle (initiator <- backend)
+// MARK: - Bundle (initiator <- backend)
 
-/// This is the bundle initiator fetches for handshake99.
-/// It contains only public material.
-///
-/// NOTE:
-/// - identityPublicKeyEd25519: 32 bytes
-/// - signedPrekeyPublicKeyX25519: 32 bytes
-/// - signedPrekeySignature: signature over label||SPK_pub (typically 64 bytes)
-/// - oneTimePrekey fields are optional; if present must be consistent.
-struct C6PPrekeyBundleContract: Codable, Hashable {
+public struct C6PPrekeyBundleContract: Codable, Hashable {
+    public let responderDeviceId: C6PDeviceId
 
-    let responderDeviceId: C6PDeviceId
+    public let identityPublicKeyEd25519B64u: String
+    public let signedPrekeyPublicKeyX25519B64u: String
+    public let signedPrekeySignatureB64u: String
 
-    let identityPublicKeyEd25519: C6PBase64UrlData
-    let signedPrekeyPublicKeyX25519: C6PBase64UrlData
-    let signedPrekeySignature: C6PBase64UrlData
+    public let oneTimePrekeyId: C6PKeyId?
+    public let oneTimePrekeyPublicKeyX25519B64u: String?
 
-    let oneTimePrekeyId: C6PKeyId?
-    let oneTimePrekeyPublicKeyX25519: C6PBase64UrlData?
+    public func validate() throws {
+        try C6PPrekeyContractValidation.requireB64uLen(identityPublicKeyEd25519B64u, expected: 32, label: "bundle.identityPublicKeyEd25519B64u")
+        try C6PPrekeyContractValidation.requireB64uLen(signedPrekeyPublicKeyX25519B64u, expected: 32, label: "bundle.signedPrekeyPublicKeyX25519B64u")
+        try C6PPrekeyContractValidation.requireB64uLen(signedPrekeySignatureB64u, expected: 64, label: "bundle.signedPrekeySignatureB64u")
 
-    func validate() throws {
-        let idLen = identityPublicKeyEd25519.data.count
-        guard idLen == 32 else {
-            throw C6PPrekeyContractError.invalidPublicKeyLength(expected: 32, actual: idLen)
-        }
-        let spkLen = signedPrekeyPublicKeyX25519.data.count
-        guard spkLen == 32 else {
-            throw C6PPrekeyContractError.invalidPublicKeyLength(expected: 32, actual: spkLen)
-        }
-
-        // OTP consistency:
         let hasId = (oneTimePrekeyId != nil)
-        let hasPub = (oneTimePrekeyPublicKeyX25519 != nil)
+        let hasPub = (oneTimePrekeyPublicKeyX25519B64u != nil)
         guard hasId == hasPub else {
             throw C6PPrekeyContractError.inconsistentOneTimePrekeyFields
         }
-        if let otpPub = oneTimePrekeyPublicKeyX25519 {
-            let otpLen = otpPub.data.count
-            guard otpLen == 32 else {
-                throw C6PPrekeyContractError.invalidPublicKeyLength(expected: 32, actual: otpLen)
-            }
+
+        if let otpPub = oneTimePrekeyPublicKeyX25519B64u {
+            try C6PPrekeyContractValidation.requireB64uLen(otpPub, expected: 32, label: "bundle.oneTimePrekeyPublicKeyX25519B64u")
         }
     }
 }
 
-// MARK: - Consume One-Time Prekey (client -> backend)
+// MARK: - Consume OTP (client -> backend)
 
-struct C6PConsumeOneTimePrekeyRequest: Codable, Hashable {
-    let c6pVersion: UInt8
-    let responderDeviceId: C6PDeviceId
-    let oneTimePrekeyId: C6PKeyId
+public struct C6PConsumeOneTimePrekeyRequest: Codable, Hashable {
+    public let c6pVersion: UInt8
+    public let responderDeviceId: C6PDeviceId
+    public let oneTimePrekeyId: C6PKeyId
 
-    init(
+    public init(
         c6pVersion: UInt8,
         responderDeviceId: C6PDeviceId,
         oneTimePrekeyId: C6PKeyId
@@ -321,15 +201,15 @@ struct C6PConsumeOneTimePrekeyRequest: Codable, Hashable {
         try validate()
     }
 
-    func validate() throws {
-        guard c6pVersion == C6P_VERSION else {
+    public func validate() throws {
+        if c6pVersion != C6P_VERSION {
             throw C6PPrekeyContractError.invalidC6PVersion(expected: C6P_VERSION, actual: c6pVersion)
         }
     }
 }
 
-struct C6PConsumeOneTimePrekeyResponse: Codable, Hashable {
-    let consumed: Bool
-    let serverTime: Date
-    let message: String?
+public struct C6PConsumeOneTimePrekeyResponse: Codable, Hashable {
+    public let consumed: Bool
+    public let serverTime: Date
+    public let message: String?
 }
