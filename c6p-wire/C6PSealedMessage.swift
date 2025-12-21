@@ -1,11 +1,3 @@
-//
-//  C6PSealedMessage.swift
-//  C6P-Protocol
-//
-//  Sealed payload container used inside C6PEnvelope.
-//  Codable Data -> base64 in JSON by default.
-//
-
 import Foundation
 
 enum C6PSealedMessageError: Error {
@@ -14,11 +6,7 @@ enum C6PSealedMessageError: Error {
 }
 
 struct C6PSealedMessage: Codable, Hashable {
-
-    /// Ciphertext bytes (no tag).
     let ciphertext: Data
-
-    /// AEAD tag (ChaCha20-Poly1305 => 16 bytes).
     let authTag: Data
 
     init(ciphertext: Data, authTag: Data) throws {
@@ -28,5 +16,23 @@ struct C6PSealedMessage: Codable, Hashable {
         }
         self.ciphertext = ciphertext
         self.authTag = authTag
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ciphertext
+        case authTag
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let ciphertext = try c.decode(Data.self, forKey: .ciphertext)
+        let authTag = try c.decode(Data.self, forKey: .authTag)
+        try self.init(ciphertext: ciphertext, authTag: authTag) // ✅ zawsze waliduje
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(ciphertext, forKey: .ciphertext)
+        try c.encode(authTag, forKey: .authTag)
     }
 }
