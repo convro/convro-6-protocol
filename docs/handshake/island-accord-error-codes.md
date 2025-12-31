@@ -1,4 +1,4 @@
-# cs/handshake/island-accord-error-codes.md
+# island-accord-error-codes.md
 **IslandAccord v1 — Error Codes (Canonical)**  
 Status: **PRODUCTION / NORMATIVE**  
 Applies to: **/v1/prekeys/**, **/v1/dm/sessions/open**, **/v1/dm/handshake/accept**  
@@ -300,4 +300,3 @@ MUST NOT: “OTP not found”, “user does not exist”, “wrong device”, �
 }
 
 
-ChatGPT może popełniać błędy. Sprawdź ważne informacje. Zobacz Preferencje dotyczące plików cookie.
