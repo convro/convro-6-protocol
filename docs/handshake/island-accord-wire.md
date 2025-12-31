@@ -68,7 +68,7 @@ If present, server MUST reject.
 
 **Auth:** Required  
 **Response (JSON):**
-```json
+json
 {
   "ok": true,
   "deviceId": "0123abcd4567ef89",
