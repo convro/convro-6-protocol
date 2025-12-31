@@ -12,7 +12,7 @@ Audience: auditors, backend (Node), client (Swift/Rust), QA.
 
 Wszystkie endpointy IslandAccord **MUST** zwracać błędy w jednym, spójnym formacie:
 
-'''json
+json'''
 {
   "ok": false,
   "code": "C6P_...",
