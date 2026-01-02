@@ -1,0 +1,251 @@
+# C6P Encoding & Canonicalization (v1)
+
+Status: **PRODUCTION — NORMATIVE**
+Applies to: **C6P v1**, **IslandAccord v1**, DM/Group/Control wire objects, backend storage identifiers.
+
+This document defines the **single canonical** byte-level representation used across all Convro/C6P components
+(Rust core, Node backend, Swift client). It exists to prevent multi-representation bugs, ambiguity attacks,
+and cross-language drift.
+
+---
+
+## 1. Normative Keywords
+
+The key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, **MAY** are to be interpreted as in RFC 2119.
+
+---
+
+## 2. Design Goal
+
+We enforce:
+
+1) **One canonical byte representation** for every cryptographic input and identifier.  
+2) **Fail-closed parsing** (reject anything that is not canonical or not within allowed ranges).  
+3) **No cryptographic hashing of JSON / text**. Only explicit byte layouts are hashed/KDF’d.  
+4) **Cross-language determinism**: Swift, Rust, Node must produce identical bytes for the same semantic value.
+
+---
+
+## 3. Canonical Binary Form vs Transport Form
+
+### 3.1 Canonical Binary Form
+The canonical internal representation is always **bytes** (`Data` / `[u8]`) with a defined length and byte order.
+
+### 3.2 Transport Forms
+Transport forms are textual encodings over JSON/HTTP:
+- **hex (lowercase)**
+- **base64url (unpadded)**
+
+Transport encodings MUST decode to canonical bytes and MUST match expected lengths.
+
+**Canonical output rule:** whenever the system outputs hex/base64url, it MUST output the canonical form:
+- hex: lowercase only
+- base64url: URL-safe alphabet, **no `=` padding**
+
+---
+
+## 4. Hex Encoding (Identifiers)
+
+### 4.1 Allowed Alphabet
+For canonical output: `0-9 a-f` only (lowercase).
+
+### 4.2 Decoder Acceptance (Input Policy)
+To avoid fragile UX while keeping one canonical output:
+- Decoders **MAY accept uppercase A–F** on input.
+- Decoders MUST reject:
+  - whitespace inside the string
+  - odd-length strings
+  - non-hex characters
+
+After decoding:
+- all internal storage and re-serialization MUST use lowercase canonical hex.
+
+### 4.3 Length Constraints (NORMATIVE)
+All hex identifiers MUST be fixed-length:
+
+| Type | Bytes | Hex length |
+|------|-------|------------|
+| `C6PDeviceId` | 8 | 16 |
+| `C6PKeyId`    | 8 | 16 |
+| `C6PSessionId`| 4 | 8 |
+
+Anything else MUST be rejected.
+
+---
+
+## 5. Base64url Encoding (Binary Fields)
+
+### 5.1 Canonical Base64url (No Padding)
+All binary fields in JSON/HTTP that are not hex identifiers MUST use base64url **without padding**:
+
+- `+` → `-`
+- `/` → `_`
+- no `=` characters permitted in canonical output
+
+### 5.2 Decoder Acceptance (Input Policy)
+Decoders MUST:
+- reject non-base64url alphabet characters
+- reject whitespace inside the string
+- after decoding, enforce byte-length exactly
+
+Decoders MAY accept padded input only if explicitly stated by an endpoint contract.
+**Default** for C6P v1 is **reject padding** to prevent multiple representations.
+
+### 5.3 Length Constraints (NORMATIVE)
+Examples (not exhaustive):
+
+| Field | Bytes |
+|------|-------|
+| X25519 public key | 32 |
+| Ed25519 public key | 32 |
+| Ed25519 signature | 64 |
+| Transcript hash (SHA-256) | 32 |
+| AAD hash (if present) | 32 |
+
+If decoded length does not match the specification, it MUST be rejected.
+
+---
+
+## 6. JSON / HTTP Parsing Rules
+
+### 6.1 No JSON in Crypto Inputs
+No cryptographic hashing, signing, or KDF steps may operate on JSON text or “stringified objects”.
+
+All cryptographic computations MUST use explicitly specified byte layouts (see `c6p-key-schedule.md`,
+`c6p-aead-and-aad.md`, `docs/handshake/island-accord-wire.md`).
+
+### 6.2 Duplicate Keys
+Duplicate-key detection is not consistently available in all parsers.
+
+- Implementations **SHOULD** reject JSON objects with duplicate keys if the parser/runtime can detect them.
+- Regardless of duplicate-key handling, all crypto-critical fields MUST be validated and length-checked after decode.
+
+### 6.3 Integer Safety (Wire v1 Policy)
+JavaScript cannot safely represent all 64-bit integers in JSON numbers.
+
+Therefore, for **wire v1**:
+- **All UInt64 counters and indices MUST be transported as decimal strings**.
+- Implementations MUST parse them into UInt64 with strict bounds checks.
+
+This includes:
+- message `counter`
+- any ratchet chain counters
+- any future monotonic indices that can exceed 2^53-1
+
+**MUST reject:**
+- non-decimal characters
+- leading `+`, leading whitespace
+- negative values
+- values > UInt64.max
+- empty string
+
+**Canonical output:** no leading zeros except `"0"` itself.
+
+> Rationale: This eliminates an entire class of silent precision loss bugs in Node/JS and makes audit trivial.
+
+---
+
+## 7. Canonical Byte Layouts (Identifiers)
+
+This section defines canonical byte-level meanings. Transport forms must decode into these bytes.
+
+### 7.1 `C6PDeviceId` and `C6PKeyId` (8 bytes)
+- Canonical bytes: **Big-endian** representation of UInt64 (`BE64`).
+- Transport: lowercase hex of those bytes.
+
+### 7.2 `C6PSessionId` (4 bytes)
+- Canonical bytes: **Big-endian** representation of UInt32 (`BE32`).
+- Transport: lowercase hex of those bytes.
+
+### 7.3 Canonical Source of Truth
+The canonical bytes are the source of truth.
+Hex is strictly a reversible transport encoding of those bytes.
+
+There is no alternative representation.
+
+---
+
+## 8. Canonical Transcript / AAD Encoding (High Level)
+
+All transcript and AAD constructions:
+- MUST specify the exact byte sequence
+- MUST specify field order
+- MUST specify fixed-length fields
+- MUST specify per-field tag/marker bytes when optional fields exist
+- MUST be identical across languages
+
+IslandAccord v1 is defined in:
+- `docs/handshake/island-accord-wire.md`
+- `docs/handshake/island-accord-crypto.md`
+- `docs/handshake/island-accord-state-machine.md`
+
+AEAD/AAD is defined in:
+- `docs/crypto/c6p-aead-and-aad.md`
+
+Key schedule / HKDF info strings are defined in:
+- `docs/crypto/c6p-key-schedule.md`
+- `docs/crypto/c6p-crypto-registry.md`
+
+**Implementations MUST NOT invent new concatenation layouts.**
+
+---
+
+## 9. Canonical Error Handling (Fail-Closed)
+
+For any decode or validation failure:
+- Return a deterministic error code (see `docs/crypto/c6p-error-codes.md`)
+- Do not attempt “best effort” or normalization inside crypto critical paths
+- Do not proceed with partial values
+
+**Do not log secrets.**
+Only log:
+- error code
+- field name
+- decoded length vs expected length
+- opaque identifiers (sessionId/deviceId) if already public at that stage
+
+---
+
+## 10. Conformance Tests (REQUIRED)
+
+### 10.1 Cross-Language Encoding Vectors
+A shared test-vector set MUST exist with:
+- input strings (hex/base64url/decimal counters)
+- expected decoded bytes (hex dump)
+- expected re-serialized canonical outputs
+
+### 10.2 Deterministic Round-Trips
+Every implementation MUST pass:
+- decode → validate → encode == canonical output
+- reject non-canonical inputs (wrong lengths, whitespace, invalid chars)
+
+### 10.3 Crypto-Adjacent Vectors
+In addition to encoding vectors, include:
+- transcript byte dumps for IslandAccord v1 scenarios
+- AAD byte dumps for DM envelope scenarios
+
+---
+
+## 11. Security Rationale Summary (Auditor Notes)
+
+This specification prevents:
+- ambiguity attacks via multiple encodings of the same semantic object
+- JSON canonicalization pitfalls
+- JS numeric precision loss for counters
+- length-extension-style “variable layout” bugs by forcing fixed, explicit layouts
+- cross-language drift between Rust core and app/backend integrations
+
+---
+
+## 12. Change Control
+
+Any change to:
+- identifier lengths
+- allowed alphabets
+- transcript layouts
+- AAD layouts
+- counter encoding policy
+
+
+
+
