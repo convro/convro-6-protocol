@@ -1,67 +1,89 @@
 # C6P Crypto Registry (v1)
 
 **Status:** Production / normative  
-**Scope:** Cryptographic identifiers, suites, labels, lengths, canonical encodings, negotiation rules.  
-**Applies to:** C6P wire, C6P DM/group/channel envelopes, **IslandAccord v1** (handshake), and future protocol versions.
+**Scope:** Cryptographic identifiers, suites, labels, lengths, canonical encodings, and negotiation rules.  
+**Applies to:** C6P wire, C6P DM/group/channel envelopes, **IslandAccord v1** (handshake), and all v1 implementations (Rust core, Node backend, Swift bridge/client).  
 
-This document is intentionally strict: it defines the **only allowed** crypto identifiers and parameters for C6P v1, plus the rules by which new versions may extend them.
+This document is intentionally strict: it defines the **only allowed** crypto identifiers and parameters for C6P v1, plus the discipline by which future versions may extend them.
+
+> **Authority rule (normative):** This registry is the **single source of truth** for all wire-stable identifiers, suite IDs, labels, and fixed-size types.  
+> Any other document that conflicts with this registry MUST be updated to match it.
 
 ---
 
 ## 0. Goals
 
 1. **One registry for everything crypto**: auditors can verify that every byte string and identifier used on wire is known, documented, and stable.
-2. **Wire stability**: wire-facing IDs must never change once released.
-3. **Fail-closed**: unknown suite/alg ID => reject (unless explicitly allowed by a documented compatibility rule).
-4. **Compatibility discipline**: new versions can be added without silently weakening security.
+2. **Wire stability**: wire-facing IDs MUST never change once released.
+3. **Fail-closed**: unknown suite/alg ID => reject.
+4. **Compatibility discipline**: new versions can be added without silent weakening.
 
 ---
 
 ## 1. Terminology
 
-- **Wire ID** – compact numeric identifier serialized on the wire (e.g., `suite=0x01`).
+- **Wire ID** – compact numeric identifier serialized on the wire (e.g., `suite_id=0x01`).
 - **Algorithm ID** – canonical human-readable string constant (spec/audit-facing).
 - **Label** – ASCII string used in transcript construction, signatures, and KDF info separation.
-- **Suite** – a bundle of primitives (KDF + AEAD + nonce format + AAD schema) under one wire ID.
-- **Domain separation** – strict separation of key derivations and signatures by label/info strings.
+- **Suite** – bundle of primitives (KDF + AEAD + nonce length + AAD schema binding) under one wire ID.
+- **Domain separation** – strict separation of derivations and signatures by label/info strings.
 
 ---
 
 ## 2. Canonical Encodings (Normative)
 
 ### 2.1 Base64url (no padding)
-All binary fields transported in JSON MUST use base64url without padding (`=` removed).
+Binary fields transported in JSON MUST use **base64url without padding**.
 
-- Alphabet: RFC 4648 URL-safe (`-` and `_`).
-- Decoder MUST accept missing padding and restore as needed.
-- Encoder MUST NOT emit padding.
+- Alphabet: RFC 4648 URL-safe (`A–Z a–z 0–9 - _`)
+- Encoder MUST NOT emit `=`
+- Decoder MUST reject:
+  - any `=`
+  - any `+` or `/`
+  - any whitespace
+  - invalid characters / invalid decode
 
-### 2.2 Hex (lowercase)
-All fixed-size identifiers that are represented as hex MUST be lowercase and fixed-length when applicable.
+**Implementation note (non-normative):** A decoder MAY internally restore padding for decoding, but it MUST still reject any on-wire input that contains `=`.
 
-- `DeviceId`: 8 bytes => 16 hex chars
-- `KeyId`: 8 bytes => 16 hex chars
-- `SessionId`: **8 bytes => 16 hex chars** (normative for production)  
-  - Rationale: 32-bit session IDs are acceptable for toy/prototype, but production requires collision resistance across time and shards. C6P v1 uses 64-bit session IDs for wire and storage.
+### 2.2 Hex (lowercase, fixed-length)
+All fixed-size identifiers transported as hex MUST be:
+- lowercase only `[0-9a-f]`
+- fixed-length for that type
+- no `0x` prefix
+- no whitespace
 
-### 2.3 Big-endian integer encoding
-All integer IDs serialized as bytes MUST be big-endian.
+Unknown-length or “almost valid” encodings MUST be rejected.
+
+### 2.3 Big-endian integer encoding (canonical bytes)
+When an identifier is represented as bytes inside transcripts/KDF/AAD:
+- integers MUST be big-endian (BE)
+- counters MUST be `BE64(counter)`
 
 ---
 
 ## 3. Fixed-Length Types (Normative)
 
+### 3.1 IDs (wire + canonical bytes)
+| Type | Canonical bytes | Wire encoding | Wire length |
+|------|------------------:|--------------|------------:|
+| `C6PDeviceId` | 16 bytes | hex (lowercase) | 32 chars |
+| `C6PSessionId` | 8 bytes | hex (lowercase) | 16 chars |
+| `C6PKeyId` | 8 bytes | hex (lowercase) | 16 chars |
+
+**Hard rule:** Any decoded length mismatch MUST be rejected before any cryptographic operation.
+
+### 3.2 Core crypto objects
 | Type | Length | Encoding | Notes |
-|------|--------|----------|------|
+|------|-------:|----------|------|
 | `X25519 public key` | 32 | base64url | Raw Montgomery u-coordinate |
 | `X25519 private key` | 32 | internal | Stored locally only |
 | `Ed25519 public key` | 32 | base64url | Identity signing public key |
-| `Ed25519 signature` | 64 | base64url | Deterministic per RFC8032 |
-| `RootKey` | 32 | base64url | Output of HKDF extract/expand schedule |
-| `ChainKey` | 32 | base64url | Per-stream chain key state |
-| `MessageKey` | 32 | base64url | Per-message AEAD key material |
+| `Ed25519 signature` | 64 | base64url | Deterministic (RFC 8032) |
 | `TranscriptHash` | 32 | base64url | SHA-256 over canonical transcript |
-| `Nonce` | suite-defined | bytes | Deterministic; see suites |
+| `RootKey` | 32 | base64url | HKDF output |
+| `ChainKey` | 32 | base64url | Per-stream chain state |
+| `MessageKeyMaterial` | 32 | base64url | Per-message material, mapped per suite |
+| `KcKey` | 32 | base64url | Key confirmation key |
 
 ---
 
@@ -70,64 +92,56 @@ All integer IDs serialized as bytes MUST be big-endian.
 ### 4.1 DH: X25519
 - **Algorithm ID:** `C6P_DH_X25519_V1`
 - Used in IslandAccord and session ratchet.
-- Implementations MUST use a constant-time X25519 implementation.
+- MUST use a constant-time X25519 implementation.
 
 ### 4.2 Signatures: Ed25519
 - **Algorithm ID:** `C6P_SIG_ED25519_V1`
-- Used for identity signatures and **IslandAccord v1 initiator signature** (auditor-grade authentication & anti-splice).
+- Used for identity signatures and IslandAccord v1 initiator authentication.
 
 ### 4.3 Hash: SHA-256
 - **Algorithm ID:** `C6P_HASH_SHA256_V1`
-- Used for transcript hashing and registry-defined commitments.
+- Used for transcript hashing, session binding, and commitments.
 
 ### 4.4 KDF: HKDF-SHA256
 - **Algorithm ID:** `C6P_KDF_HKDFSHA256_V1`
-- Used for initial root derivation and chain/message derivations with explicit domain separation info.
+- Used for root/chain/message/nonce/KC derivations with strict domain separation.
 
 ---
 
 ## 5. AEAD Suites (Wire-Level) (Normative)
 
+### 5.1 Suite registry (wire-stable)
 C6P v1 defines the following **wire-stable** suite IDs:
 
-### 5.1 Suite registry
+| Suite | `suite_id` | Algorithm ID | Key bytes | Nonce bytes | Tag bytes | Status |
+|------|-----------:|--------------|----------:|------------:|----------:|--------|
+| ChaCha20-Poly1305 | `0x01` | `C6P_AEAD_CHACHA20POLY1305_V1` | 32 | 12 | 16 | **REQUIRED** |
+| XChaCha20-Poly1305 | `0x02` | `C6P_AEAD_XCHACHA20POLY1305_V1` | 32 | 24 | 16 | OPTIONAL (v1) |
+| AEGIS-128L | `0x03` | `C6P_AEAD_AEGIS_128L_V1` | 16* | 16 | 16 | OPTIONAL (v1, gated) |
 
-| Suite | Wire ID | Algorithm ID | Key | Nonce | AAD | Status |
-|------|---------|--------------|-----|-------|-----|--------|
-| ChaCha20-Poly1305 | `0x01` | `C6P_AEAD_CHACHA20POLY1305_V1` | 32B | 12B | required | REQUIRED |
-| AEGIS-128L | `0x02` | `C6P_AEAD_AEGIS_128L_V1` | 16B derived from MK | 16B | required | OPTIONAL (v1) |
-| XChaCha20-Poly1305 | `0x03` | `C6P_AEAD_XCHACHA20POLY1305_V1` | 32B | 24B | required | OPTIONAL (v1) |
+\* AEGIS key bytes are derived deterministically from `MessageKeyMaterial` as specified in the Key Schedule (no truncation ambiguity).
 
-**Production default:** `0x01` ChaCha20-Poly1305.  
-**Negotiation rule:** if peers do not agree, the sender MUST fall back to `0x01` or abort depending on policy (see §10).
+**Hard rule:** Unknown `suite_id` MUST be rejected.
 
-### 5.2 Deterministic Nonce Policy (Normative)
+**Production default:** `0x01` ChaCha20-Poly1305.
 
-C6P uses **deterministic nonces** derived from:
-- `session_id`
-- `stream_id`
-- `message_counter`
-- suite-specific constant label
+### 5.2 Deterministic nonce policy (normative pointer)
+C6P uses deterministic nonces derived from canonical context.  
+Nonce derivation MUST follow `docs/crypto/c6p-key-schedule.md` and `docs/crypto/c6p-nonce-policy.md` once aligned.
 
-This is permitted ONLY because:
-1. Message counters are monotonic per stream.
-2. Nonce generation is injective over `(session, stream, counter)`.
-3. Reuse across messages is cryptographically prevented by construction.
+**Hard rule:** If a sender ever reuses the same `(session_id, stream_id, counter, suite_id, message_type)` with the same derived key schedule state, that is a fatal invariant breach.
 
-**Hard rule:** If a sender ever reuses the same `(session_id, stream_id, counter)` with the same suite and key, the implementation MUST treat it as a fatal invariant breach.
-
-### 5.3 AAD Required (Normative)
-
-All AEAD operations MUST include AAD. AAD MUST bind at least:
+### 5.3 AAD required (normative pointer)
+All AEAD operations MUST include AAD and MUST bind:
 - protocol version
-- message type (dm/group/channel/control)
+- message type
 - suite id
 - session id
 - stream id
 - counter
-- sender/receiver device binding (where applicable in envelope)
+- canonical session binding (device pair binding)
 
-If wire format uses an envelope that already contains these fields, AAD MUST be computed as a canonical serialization over those exact fields (see `docs/wire/...` once present).
+AAD construction is defined in `docs/crypto/c6p-aead-and-aad.md`.
 
 ---
 
@@ -135,137 +149,137 @@ If wire format uses an envelope that already contains these fields, AAD MUST be 
 
 IslandAccord v1 is the **canonical** prekey-based authenticated handshake for C6P v1.
 
-### 6.1 Handshake identifier
-
+### 6.1 Handshake identifier & labels
 - **Handshake name:** `IslandAccord`
 - **Version:** `v1`
 - **Handshake label:** `C6P_ISLAND_ACCORD_V1`
 - **Prekey signature label:** `C6P_PREKEY_V1`
-- **Key confirmation label:** `C6P_KC_V1`
 - **Initiator signature label:** `C6P_IA_SIG_V1`
+- **Key confirmation label:** `C6P_KC_V1`
 
-### 6.2 IslandAccord DH set (Auditor-grade)
+Labels are ASCII bytes, case-sensitive, exact.
 
-IslandAccord v1 uses **3DH (+ optional OTP)** with explicit authentication and confirmation:
+### 6.2 DH set (auditor-grade)
+IslandAccord v1 uses 3DH (+ optional OTP):
 
 - `DH1 = X25519(IK_dh_initiator, SPK_responder)`
 - `DH2 = X25519(EK_initiator, IK_dh_responder)`
 - `DH3 = X25519(EK_initiator, SPK_responder)`
 - `DH4 = X25519(EK_initiator, OTP_responder)` (optional; if OTP reserved)
 
-**IK_dh** is an X25519 identity DH key associated with the account/device identity.  
-**IK_sig** is Ed25519 identity signing key.
+`IK_dh` is X25519 identity DH key; `IK_sig` is Ed25519 identity signing key.
 
-### 6.3 Initiator authentication (Normative)
+### 6.3 Initiator authentication (normative)
+Initiator MUST sign the transcript commitment:
 
-The initiator MUST sign the handshake transcript commitment:
+- `sig = Ed25519.Sign(IK_sig_initiator, SHA256(transcript_bytes))`
 
-- `sig = Ed25519.Sign(IK_sig_initiator, H(transcript))`
+Responder MUST verify before accepting the handshake as valid.
 
-Responder MUST verify it against initiator `IK_sig_pub`.
+### 6.4 Key confirmation (normative)
+Key confirmation MUST be computed after deriving initial root:
+- `kc_key` derived via HKDF with info label `C6P_KC_V1`
+- KC tag derived via HMAC-SHA256 over a canonical payload (see Key Schedule)
 
-### 6.4 Key confirmation (Normative)
-
-A key confirmation MAC MUST be computed by both parties after deriving the initial root:
-
-- `kc = HMAC-SHA256(kc_key, transcript_hash || context)`
-- `kc_key` is derived from the root via HKDF with `info = "C6P_KC_V1"`
-
-The responder MUST send `kc_r`, initiator MUST verify before marking the session as active (or vice versa depending on wire flow). Confirmation MUST be explicit in the state machine.
+State machine MUST NOT transition to `ACTIVE` until expected directional KC tag is verified.
 
 ---
 
 ## 7. Key Schedule Registry Hooks (Normative)
 
-C6P key schedule MUST be domain-separated by fixed info strings:
+Key schedule MUST be domain-separated by these ASCII labels:
 
-- `C6P_ROOT_V1` – initial root extraction/expansion
-- `C6P_CHAIN_V1` – per-stream chain derivation
-- `C6P_MSG_V1` – per-message key derivation
-- `C6P_NONCE_V1` – nonce derivation
-- `C6P_REKEY_V1` – future rekey hooks (reserved)
+- `C6P_ROOT_V1`
+- `C6P_CHAIN_V1`
+- `C6P_MSG_V1`
+- `C6P_NONCE_V1`
+- `C6P_KC_V1`
+- `C6P_REKEY_V1` (reserved)
+- `C6P_EXPORT_V1` (reserved)
 
-Each info string MUST include:
-- protocol version byte
-- suite id
-- message type
-- stream id (where applicable)
+All derivations MUST use exact label bytes and the canonical layouts defined in `docs/crypto/c6p-key-schedule.md`.
 
 ---
 
 ## 8. Stream Registry (Wire-stable) (Normative)
 
-Stream IDs MUST be stable and are part of the AEAD binding and ratchet.
+Stream IDs are wire-stable and MUST be AAD/KDF-bound:
 
-| Stream | Wire ID | Meaning |
-|--------|---------|---------|
+| Stream | `stream_id` | Meaning |
+|------|------------:|---------|
 | `i2r` | `0x01` | Initiator → Responder |
 | `r2i` | `0x02` | Responder → Initiator |
+
+Unknown `stream_id` MUST be rejected.
 
 ---
 
 ## 9. Message Types (Wire-stable) (Normative)
 
-| Type | Wire ID |
-|------|---------|
+Message type IDs are wire-stable and MUST be AAD/KDF-bound:
+
+| Type | `message_type` |
+|------|---------------:|
 | `dm` | `0x01` |
 | `group` | `0x02` |
 | `channel` | `0x03` |
 | `control` | `0x10` |
 
-Message type MUST be AAD-bound.
+Unknown `message_type` MUST be rejected.
 
 ---
 
 ## 10. Negotiation & Compatibility Rules (Normative)
 
 ### 10.1 Supported suite list exchange
-Any “capabilities” exchange MUST:
-- be authenticated (inside an encrypted channel or signed during handshake),
+Any capability exchange MUST:
+- be authenticated (inside encrypted channel or signed during handshake),
 - include `protocol_version`,
-- include an ordered list of supported suite IDs.
+- include an ordered list of supported `suite_id`s.
 
 ### 10.2 Selection policy
-- Preferred suite is the first common element by the sender’s policy order, unless overridden by compliance policy.
+- Preferred suite is first common element by sender policy order (unless compliance policy overrides).
 - If no overlap exists:
-  - For **DM**: abort handshake/session creation.
-  - For **group/channel**: abort membership or require server-mediated policy (explicit).
+  - **DM:** abort session creation / handshake completion.
+  - **group/channel/control:** abort or require explicit server-mediated policy (out of scope here).
 
 ### 10.3 Unknown IDs
-- Unknown suite ID or algorithm ID MUST cause fail-closed rejection.
-- Unknown optional fields MAY be ignored only if the wire schema defines them as optional and they are not security-critical.
+- Unknown `suite_id`, `stream_id`, `message_type`, algorithm IDs MUST cause fail-closed rejection.
+- Unknown optional fields MAY be ignored only if the wire schema explicitly marks them optional and non-security-critical.
 
 ### 10.4 Deprecation
 A suite can be deprecated only by:
-1. marking it `DEPRECATED` in this registry,
+1. marking it `DEPRECATED` here,
 2. updating negotiation policy docs,
-3. retaining decoder support for a defined sunset period (explicitly stated).
+3. retaining decoder support for a defined sunset window (explicit).
+
+No silent weakening is allowed.
 
 ---
 
-## 11. Rust Implementation Notes (Non-normative but production-oriented)
+## 11. Rust Implementation Notes (Non-normative)
 
 Auditors will expect:
-- constant-time primitives (use battle-tested crates),
+- constant-time primitives (battle-tested crates),
 - zeroization for secret material,
-- strict separation between “wire parsing” and “crypto”.
+- strict separation between wire parsing and crypto.
 
-Recommended mapping:
+Suggested mapping:
 - X25519: `x25519-dalek`
 - Ed25519: `ed25519-dalek`
 - HKDF/HMAC/SHA256: `hkdf`, `hmac`, `sha2`
 - ChaCha20-Poly1305 / XChaCha20-Poly1305: `chacha20poly1305`
-- AEGIS-128L: only if using a reputable, reviewed crate; otherwise keep OPTIONAL and behind feature gate.
+- AEGIS-128L: only behind a feature gate and only with a reputable implementation.
 
 ---
 
 ## 12. Versioning & Extension Process (Normative)
 
-To add anything in v2:
+To introduce v2:
 1. Introduce `C6P_VERSION = 0x02`.
-2. Add new suite IDs **without changing existing IDs**.
+2. Add new suite IDs without changing existing IDs.
 3. Add new labels with version suffix.
-4. Provide migration guidance and compatibility matrix.
+4. Provide explicit migration guidance and compatibility matrix.
 
 No backporting silent changes to v1 is allowed.
 
@@ -276,14 +290,14 @@ No backporting silent changes to v1 is allowed.
 Implementations MUST enforce:
 
 - [ ] Reject non-canonical base64url/hex encodings.
-- [ ] Reject wrong-length keys/signatures.
-- [ ] Reject unknown suite IDs.
+- [ ] Reject wrong-length keys/signatures/IDs.
+- [ ] Reject unknown suite/stream/type IDs.
 - [ ] AAD is always present and canonical.
-- [ ] Nonce never repeats for same `(session, stream, counter, suite)`.
-- [ ] IslandAccord v1 transcript hash is identical on both sides.
-- [ ] Initiator Ed25519 signature verified before session activation.
-- [ ] Key confirmation verified before session activation.
-- [ ] OTP usage is consistent: if offer references OTP id, responder must consume that OTP exactly once.
+- [ ] Nonce never repeats for same `(session, stream, counter, suite, type)`.
+- [ ] Transcript hash is identical on both sides.
+- [ ] Initiator signature verified before activation.
+- [ ] Key confirmation verified before activation.
+- [ ] OTP referenced in offer MUST be consumed exactly once if used.
 
 ---
 
@@ -295,8 +309,8 @@ Implementations MUST enforce:
 - `C6P_HASH_SHA256_V1`
 - `C6P_KDF_HKDFSHA256_V1`
 - `C6P_AEAD_CHACHA20POLY1305_V1`
-- `C6P_AEAD_AEGIS_128L_V1`
 - `C6P_AEAD_XCHACHA20POLY1305_V1`
+- `C6P_AEAD_AEGIS_128L_V1`
 
 ### A.2 Labels
 - `C6P_ISLAND_ACCORD_V1`
@@ -308,6 +322,7 @@ Implementations MUST enforce:
 - `C6P_MSG_V1`
 - `C6P_NONCE_V1`
 - `C6P_REKEY_V1`
+- `C6P_EXPORT_V1`
 
 ### A.3 Wire IDs
 - Suites: `0x01`, `0x02`, `0x03`
