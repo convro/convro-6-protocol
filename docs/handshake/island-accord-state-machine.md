@@ -1,11 +1,18 @@
 # IslandAccord v1 — State Machine & Server Invariants (island-accord-state-machine.md)
 
-**Status:** Production / Canonical  
+**Status:** PRODUCTION / CANONICAL / NORMATIVE  
 **Handshake family:** IslandAccord v1  
-**Scope:** DM session state machine (server authority), invariants, idempotency rules, TTL/replay/OTP reservation lifecycle, concurrency notes.  
+**Scope:** DM session state machine (server authority), invariants, idempotency rules, TTL/replay/OTP reservation lifecycle, and concurrency notes.  
 **Audience:** Security auditors, backend implementers, client implementers.  
-**Principle:** The server is **not trusted for secrecy**, but is **authoritative for state, routing and scarcity resources** (OTP).  
+**Principle:** The server is **not trusted for secrecy**, but is **authoritative for state, routing, and scarcity resources** (OTP).  
 **Fail-closed:** Invalid transitions MUST be rejected.
+
+**Depends on (normative):**
+- `docs/handshake/island-accord-wire.md`
+- `docs/handshake/island-accord-crypto.md`
+- `docs/crypto/c6p-error-codes.md`
+- `docs/crypto/c6p-crypto-registry.md`
+- `docs/crypto/c6p-replay-and-skip-window.md` (for DM ratchet replay semantics; handshake replay is covered here)
 
 ---
 
@@ -14,182 +21,230 @@
 ### 0.1 Actors
 - **Initiator (I):** party creating the DM session.
 - **Responder (R):** party receiving and accepting the DM session.
-- **Server (S):** message router + state authority, never derives secrets.
+- **Server (S):** message router + state authority; **never derives secrets**.
 
-### 0.2 Identifiers
-- `sessionId`: hex8, unique per `(initiatorDeviceId, responderDeviceId, sessionId)` tuple.
-- `initiatorDeviceId`: hex16
-- `responderDeviceId`: hex16
-- `otpId`: hex16 (optional)
+### 0.2 Canonical identifiers (wire-stable)
 
-### 0.3 Records (conceptual)
-- **DM Session Record** (`dm_sessions`):
-  - initiatorUserId, initiatorDeviceId
-  - responderUserId, responderDeviceId
-  - sessionId
-  - offerBlob (immutable once written)
-  - acceptBlob (immutable once written)
-  - state
-  - otpId (nullable)
-  - createdAt, updatedAt, expiresAt
-- **OTP Record** (`prekeys_otp`):
-  - deviceId
-  - otpId
-  - pubKey
-  - status: AVAILABLE / RESERVED / PENDING_CONSUMPTION / CONSUMED / EXPIRED
-  - reservedFor (optional binding; see §5)
-  - reservedAt, expiresAt, consumedAt
+All IDs MUST follow `island-accord-wire.md` §1.
+
+- `sessionId`: **8 bytes** encoded as **hex16 lowercase**  
+  - Regex: `^[0-9a-f]{16}$`
+- `initiatorDeviceId`: **16 bytes** encoded as **hex32 lowercase**
+- `responderDeviceId`: **16 bytes** encoded as **hex32 lowercase**
+- `spkId`, `otpId`: **8 bytes** encoded as **hex16 lowercase** (prekey ids)
+
+### 0.3 Cryptographic suite policy (server-level)
+- `suiteId` is carried in the offer and is part of transcript/signature binding (client-side).
+- Server MUST enforce supported suites per policy.
+- **Production default policy:** ChaCha20-Poly1305 (`suite_id = 0x01`) unless explicitly configured otherwise.
+- Unknown or disallowed `suiteId` MUST be rejected:
+  - `C6P.AEAD.UNSUPPORTED_SUITE`
+
+### 0.4 Records (conceptual)
+
+#### 0.4.1 DM Session Record (`dm_sessions`)
+Minimum conceptual fields (implementation may split/normalize):
+- `id` (server db id)
+- `initiatorUserId`, `initiatorDeviceId`
+- `responderUserId`, `responderDeviceId`
+- `sessionId` (hex16)
+- `suiteId` (u8 semantics)
+- `offerBlob` (immutable once written; opaque to server beyond strict decoding checks)
+- `acceptBlob` (immutable once written; opaque to server beyond strict decoding checks)
+- `state` (enum)
+- `otpId` (nullable, hex16)
+- `createdAt`, `updatedAt`, `expiresAt`
+
+#### 0.4.2 OTP Record (`prekeys_otp`)
+- `deviceId` (hex32)  // owner device (responder)
+- `otpId` (hex16)
+- `pubKeyX25519` (b64url32)
+- `status` enum:
+  - `AVAILABLE` / `RESERVED` / `PENDING_CONSUMPTION` / `CONSUMED` / `EXPIRED`
+- optional bindings (recommended):
+  - `reservedForInitiatorDeviceId` (hex32, nullable)
+  - `linkedSessionDbId` (nullable)
+- `reservedAt`, `expiresAt`, `consumedAt`
 
 ---
 
-## 1. Canonical States (Server)
+## 1. Canonical Server States
 
-### 1.1 DM Session states
+### 1.1 DM session states (handshake-layer)
 - `PENDING` — offer stored and deliverable to responder; not yet accepted
-- `ACTIVE` — accept stored; deliverable to initiator; considered established at server-level
+- `ACTIVE` — accept stored; deliverable to initiator; established at server-level (clients still must verify `kc2`)
 - `REJECTED` — responder explicitly rejected (optional endpoint) or policy reject
-- `EXPIRED` — TTL elapsed without accept
+- `EXPIRED` — offer TTL elapsed without accept
 - `CANCELLED` — initiator cancelled before accept (optional endpoint)
 - `ABORTED` — server terminated due to invariants violation or admin action (rare)
 
-**Note:** Even if server says `ACTIVE`, clients still MUST validate `kc2` and only then mark local crypto session active.
+**Terminal states:** `ACTIVE`, `REJECTED`, `EXPIRED`, `CANCELLED`, `ABORTED`  
+(“ACTIVE” is terminal for handshake; chat lifecycle continues elsewhere.)
 
 ### 1.2 OTP states (server authority)
 - `AVAILABLE` — can be reserved for bundle fetch
-- `RESERVED` — reserved during bundle fetch for a specific flow
+- `RESERVED` — reserved during bundle fetch for a specific flow (TTL bounded)
 - `PENDING_CONSUMPTION` — referenced by a stored offer; cannot be used elsewhere
 - `CONSUMED` — permanently consumed by stored accept
-- `EXPIRED` — reservation TTL elapsed without offer/accept completion
+- `EXPIRED` — reservation TTL elapsed without successful progression
 
 ---
 
 ## 2. State Machine Diagram (DM Sessions)
 
-Text diagram (canonical):
+Canonical transitions:
 
-
-
-         ┌───────────────┐
-open() │ │ accept()
-────────────▶│ PENDING ├────────────▶ ACTIVE
+open() ─────────────▶ PENDING ─────────────▶ ACTIVE
 │ │
-└──────┬────────┘
+│ ├──────────────▶ EXPIRED (ttl / expire job)
 │
-reject() │ expire() / ttl
-│
-▼
-REJECTED
-│
-│ (terminal)
-▼
-(END)
+├──────────────▶ REJECTED (optional reject endpoint)
+├──────────────▶ CANCELLED (optional cancel endpoint)
+└──────────────▶ ABORTED (admin/policy)
+ACTIVE ───────────────▶ ABORTED (admin/policy)
 
-PENDING ── cancel() ──▶ CANCELLED (terminal)
-PENDING ── abort() ──▶ ABORTED (terminal)
-ACTIVE ── abort() ──▶ ABORTED (terminal)
-PENDING ── expire() ──▶ EXPIRED (terminal)
-
-
-**Terminal states:** ACTIVE, REJECTED, EXPIRED, CANCELLED, ABORTED  
-(“ACTIVE” is terminal with respect to handshake; it may later transition to chat/session lifecycle states outside this document.)
 
 ---
 
 ## 3. Transitions (Normative)
 
 ### 3.1 `open()` — POST `/v1/dm/sessions/open`
-**Preconditions (MUST):**
-- Authenticated as initiator.
-- `initiatorDeviceId` equals auth deviceId.
-- `responderDeviceId` belongs to `peerUserId` and exists.
-- `(initiatorDeviceId, responderDeviceId, sessionId)` is not already present.
-- Referenced SPK exists and matches offered SPK pub.
-- If offer references `otpId`, it MUST be in a valid reserved pipeline (see §5).
 
-**Effects (MUST):**
-- Create dm_session row with state `PENDING`.
-- Persist immutable `offerBlob`.
-- Set `expiresAt = createdAt + DM_OFFER_TTL`.
+See `island-accord-wire.md` §5.1 for wire shape.
+
+#### Preconditions (MUST)
+1) **Auth / binding**
+- Request authenticated as initiator.
+- `handshakeOffer.initiatorDeviceId` MUST equal auth device id.
+  - else `C6P.HANDSHAKE.DEVICE_BINDING_MISMATCH`
+
+2) **Target binding**
+- `handshakeOffer.responderDeviceId` MUST belong to `peerUserId`.
+  - else `C6P.HANDSHAKE.DEVICE_BINDING_MISMATCH` or `C6P.WIRE.INVALID_ENVELOPE` (choose one policy; keep stable)
+
+3) **Uniqueness / replay**
+- `(initiatorDeviceId, responderDeviceId, sessionId)` MUST be unique.
+  - duplicates handled per §6.1 idempotency
+
+4) **Suite policy**
+- `suiteId` MUST be supported by server policy (production default: allow ChaCha20-Poly1305).
+  - else `C6P.AEAD.UNSUPPORTED_SUITE`
+
+5) **Responder SPK binding (authoritative DB check)**
+- `usedSignedPrekeyId` MUST exist for responder device and MUST match stored SPK pub key.
+  - if missing: `C6P.KEYS.KEY_NOT_FOUND`
+  - if mismatch: `C6P.WIRE.INVALID_ENVELOPE` or `C6P.KEYS.KEY_STATE_INVALID` (policy; mismatch is suspicious)
+
+6) **OTP pipeline (if `usedOneTimePrekeyId` is present)**
+- OTP MUST:
+  - belong to responder device
+  - be in `RESERVED`
+  - not expired
+  - (recommended) be bound to initiator device or reservation token minted at bundle fetch
+- If not satisfied: `C6P.HANDSHAKE.OTP_MISSING` or `C6P.KEYS.KEY_NOT_FOUND` (pick one and keep consistent)
+- Server MUST transition OTP `RESERVED -> PENDING_CONSUMPTION` atomically with session creation (see §5.3).
+
+#### Effects (MUST)
+- Create `dm_sessions` row:
+  - state = `PENDING`
+  - store `offerBlob` (immutable)
+  - set `expiresAt = createdAt + DM_OFFER_TTL`
+  - store `suiteId` and referenced `otpId` if any
 - Make offer deliverable to responder.
 
-**Idempotency (MUST):**
-- If the exact same `(initiatorDeviceId, responderDeviceId, sessionId)` already exists:
-  - If `offerBlob` matches byte-for-byte, server SHOULD return same `sessionId` and current state.
-  - If `offerBlob` differs, server MUST reject with `C6P_SESSION_REPLAY` or `C6P_STATE_CONFLICT`.
-
-### 3.2 `accept()` — POST `/v1/dm/handshake/accept`
-**Preconditions (MUST):**
-- Authenticated as responder.
-- `responderDeviceId` equals auth deviceId.
-- dm_session exists with matching sessionId + responderDeviceId.
-- dm_session.state == `PENDING`.
-- dm_session is not expired.
-
-**Effects (MUST):**
-- Store immutable `acceptBlob` containing `kc2`.
-- Transition dm_session.state to `ACTIVE`.
-- Atomically consume OTP if session references one (see §5.4).
-- Make accept deliverable to initiator.
-
-**Idempotency (MUST):**
-- If dm_session.state == `ACTIVE`:
-  - If provided `kc2` matches stored accept `kc2`, return ok (idempotent success).
-  - Else reject with `C6P_STATE_CONFLICT`.
-
-### 3.3 `reject()` — OPTIONAL endpoint (recommended)
-**POST** `/v1/dm/handshake/reject` (optional but auditor-friendly)
-- Preconditions: authenticated responder, session exists in `PENDING`.
-- Effect: state -> `REJECTED`, store reason code (non-sensitive).
-- OTP cleanup: if OTP was `PENDING_CONSUMPTION`, it SHOULD become `EXPIRED` only after reservation TTL, or be marked `UNUSABLE` for that offer (policy-dependent).
-
-### 3.4 `cancel()` — OPTIONAL endpoint (recommended)
-**POST** `/v1/dm/handshake/cancel` (initiator)
-- Preconditions: authenticated initiator, session exists in `PENDING`.
-- Effect: state -> `CANCELLED`, stop delivery.
-- OTP handling: same as reject() policy.
-
-### 3.5 `expire()` — internal scheduler / on-read enforcement
-- Trigger: `now >= expiresAt` and state == `PENDING`.
-- Effect: state -> `EXPIRED` (terminal), stop delivery.
-- OTP cleanup: see §5.5.
-
-### 3.6 `abort()` — admin/policy termination
-- Used for abuse, corrupted rows, emergency.
-- Moves any non-terminal to `ABORTED`.
+#### Fail-closed behavior (MUST)
+- If any validation fails: do not create or partially create session rows.
+- If OTP transition fails: abort entire transaction; do not create session.
 
 ---
 
-## 4. Server Invariants (Must-Hold Always)
+### 3.2 `accept()` — POST `/v1/dm/handshake/accept`
+
+See `island-accord-wire.md` §5.2 for wire shape.
+
+#### Preconditions (MUST)
+1) Authenticated as responder.
+2) `responderDeviceId` equals auth device id.
+   - else `C6P.HANDSHAKE.DEVICE_BINDING_MISMATCH`
+3) Session exists for `(sessionId, responderDeviceId)`.
+   - else `C6P.WIRE.SESSION_ID_MISMATCH` or `C6P.WIRE.INVALID_ENVELOPE`
+4) Session state MUST be `PENDING`.
+   - if terminal already: handle per idempotency rules below
+5) Session MUST NOT be expired (`now < expiresAt`).
+   - else transition to `EXPIRED` and reject accept with `C6P.HANDSHAKE.STATE_VIOLATION` (or return state)
+
+#### Effects (MUST)
+- Store `acceptBlob` (immutable) containing `kc2`.
+- Transition session state: `PENDING -> ACTIVE`.
+- Atomically consume OTP if session references one (see §5.4):
+  - `PENDING_CONSUMPTION -> CONSUMED`
+- Make accept deliverable to initiator.
+
+---
+
+### 3.3 `reject()` — OPTIONAL (recommended, auditor-friendly)
+**POST** `/v1/dm/handshake/reject` (optional)
+- Preconditions: authenticated responder; session exists in `PENDING`; not expired.
+- Effect: session state -> `REJECTED` (terminal); optional non-sensitive reason code.
+- OTP policy:
+  - If OTP is `PENDING_CONSUMPTION`, it MUST NOT be reattached to another session.
+  - It SHOULD remain bound until reservation TTL cleanup marks it `EXPIRED` (or a dedicated `UNUSABLE` policy state).
+
+### 3.4 `cancel()` — OPTIONAL (recommended)
+**POST** `/v1/dm/handshake/cancel` (initiator)
+- Preconditions: authenticated initiator; session exists in `PENDING`; not expired.
+- Effect: state -> `CANCELLED` (terminal); stop delivery.
+- OTP policy: same as `reject()`.
+
+### 3.5 `expire()` — internal scheduler / on-read enforcement
+- Trigger: `now >= expiresAt` and session state == `PENDING`.
+- Effect: state -> `EXPIRED` (terminal); stop delivery.
+- OTP cleanup: see §5.5.
+
+### 3.6 `abort()` — admin/policy termination
+- Can move `PENDING` or `ACTIVE` to `ABORTED` (terminal).
+- Used for abuse, corrupted rows, emergency containment.
+
+---
+
+## 4. Server Invariants (MUST hold always)
 
 ### 4.1 Authorization invariants
-- A dm_session belongs to exactly one initiator device and one responder device.
+- A session belongs to exactly one initiator device and one responder device.
 - Server MUST NOT allow:
   - accept by a device that is not the responder device
-  - retrieval of offer by non-responder
-  - retrieval of accept by non-initiator
+  - offer delivery to non-responder user/device
+  - accept delivery to non-initiator user/device
 
 ### 4.2 Uniqueness / replay invariants
-- Unique constraint MUST exist:
+- DB MUST enforce unique tuple:
   - `UNIQUE(initiatorDeviceId, responderDeviceId, sessionId)`
-- Server MUST reject any `open()` that tries to reuse an existing tuple with different offer content.
+- Server MUST reject reuse of the tuple if offer differs (see §6.1).
+- This is handshake-level replay resistance; message-level replay is in ratchet docs.
 
 ### 4.3 Immutability invariants
-- `offerBlob` MUST be immutable once stored.
-- `acceptBlob` MUST be immutable once stored.
-- State transitions MUST be monotonic according to §2 and §3.
+- `offerBlob` MUST be immutable after first write.
+- `acceptBlob` MUST be immutable after first write.
+- State transitions MUST follow §2 and §3 (no illegal backward transitions).
 
-### 4.4 Delivery invariants
-- Offer deliverable only when `PENDING`.
-- Accept deliverable only when `ACTIVE`.
-- Terminal states stop delivery.
+### 4.4 OTP scarcity invariants
+- An OTP id MUST be attachable to at most one DM session.
+- Once moved to `PENDING_CONSUMPTION`, it MUST NOT be returned by bundle fetch to another initiator.
+- Once `CONSUMED`, it MUST NOT return to `AVAILABLE`.
 
-### 4.5 Logging invariants (privacy)
-- Server logs MUST NOT include:
-  - raw offer blobs
-  - any derived key material (not applicable by design)
-  - full base64 key fields (store only hashes/fingerprints)
-- Logs MAY include:
-  - sessionId, deviceIds, state transition, requestId, timestamps, reason codes
+### 4.5 Delivery invariants
+- Offer deliverable only when `state == PENDING`.
+- Accept deliverable only when `state == ACTIVE`.
+- Terminal states MUST stop delivery.
+
+### 4.6 Logging invariants (privacy)
+Server logs MUST NOT include:
+- raw offer/accept blobs
+- any derived key material (not applicable by design)
+- raw base64 key fields (store only hashes/fingerprints if needed)
+
+Logs MAY include:
+- `sessionId`, hashed device identifiers (or deviceId if already public in your system), state transitions, timestamps, reason codes, `traceId`.
 
 ---
 
@@ -199,143 +254,183 @@ IslandAccord treats OTP as a **scarce resource** managed by the server.
 
 ### 5.1 Goals
 - Prevent two initiators from receiving the same OTP.
-- Prevent malicious initiator from referencing arbitrary OTP ids.
-- Ensure OTP cannot be “replayed” into multiple sessions.
+- Prevent initiators from referencing arbitrary OTP ids.
+- Ensure OTP cannot be reused across sessions.
 
-### 5.2 Reservation: bundle fetch (GET `/v1/prekeys/bundle`)
-**If OTP available**, server MUST:
-1) pick one `AVAILABLE` OTP for responder device
-2) atomically set it to `RESERVED`
-3) set `reservedAt = now`, `expiresAt = now + OTP_RESERVATION_TTL`
-4) return it in bundle
+### 5.2 Reservation at bundle fetch — GET `/v1/prekeys/bundle`
+If OTP is available, server MUST:
+1) select one `AVAILABLE` OTP for responder device
+2) atomically set status to `RESERVED`
+3) set `reservedAt = now`
+4) set `expiresAt = now + OTP_RESERVATION_TTL`
+5) return it in bundle
 
-**Recommendation (auditor candy):** Bind reservation to a `reservationToken` (opaque) or to `(initiatorDeviceId)` if already known.  
-If you do not add a token, then binding MUST happen at `open()` time using strict checks (see §5.3).
+**Recommended binding:** store `reservedForInitiatorDeviceId` at reservation if initiator is authenticated and known at fetch time.  
+If you cannot bind at fetch time, binding MUST occur at `open()` time and MUST be strict (see §5.3).
 
-### 5.3 Link OTP to session at `open()` time
-When initiator calls `open()` referencing `usedOneTimePrekeyId`:
-- Server MUST verify OTP is:
-  - owned by responder device
-  - currently `RESERVED`
+### 5.3 Link OTP to session at `open()` time (atomic)
+When `open()` references `usedOneTimePrekeyId`:
+- Server MUST verify OTP:
+  - owner device == responderDeviceId
+  - status == `RESERVED`
   - not expired
-- Server MUST transition OTP -> `PENDING_CONSUMPTION` **atomically within the same transaction** that creates the dm_session row.
+  - (if `reservedForInitiatorDeviceId` exists) equals initiatorDeviceId
+- In the SAME transaction as session creation, server MUST:
+  - set OTP status: `RESERVED -> PENDING_CONSUMPTION`
+  - set `linkedSessionDbId = dm_sessions.id`
+  - (recommended) persist `reservedForInitiatorDeviceId = initiatorDeviceId` if not already set
 
-**Binding rule:**
-- OTP MUST become linked to that dm_session:
-  - `otp.sessionDbId = dm_sessions.id` (or equivalent)
-  - `otp.reservedForInitiatorDeviceId = initiatorDeviceId` (recommended)
-- After this, OTP MUST NOT be eligible for any other session.
+**Fail-closed:** if OTP cannot be moved to `PENDING_CONSUMPTION`, `open()` MUST fail and no session must be created.
 
 ### 5.4 Consume OTP at accept time (atomic)
-When responder accepts:
-- If session has `otpId`, server MUST in the same transaction:
-  - set OTP -> `CONSUMED`
+When responder calls `accept()`:
+- If session has `otpId`, in the SAME transaction server MUST:
+  - move OTP: `PENDING_CONSUMPTION -> CONSUMED`
   - set `consumedAt = now`
-- If OTP already consumed or not in expected state -> reject accept with `C6P_STATE_CONFLICT` (or `C6P_PREKEY_NOT_FOUND` depending on policy).
+- If OTP is not in `PENDING_CONSUMPTION` (already consumed/expired/missing):
+  - reject accept with `C6P.HANDSHAKE.STATE_VIOLATION` or `C6P.KEYS.KEY_ALREADY_CONSUMED` (pick one and keep consistent)
 
-### 5.5 Reservation expiry cleanup
+### 5.5 Reservation expiry cleanup (scheduled job)
 A scheduled job MUST:
-- find OTPs in `RESERVED` where `now >= expiresAt` and no dm_session linked
-- set them to `EXPIRED` (or return to `AVAILABLE` only if your model allows safe reuse; generally **do not reuse** OTP ids; instead mint new OTPs)
+- find OTPs in `RESERVED` where `now >= expiresAt` AND not linked to any session
+- move them to `EXPIRED`
 
-**Strong recommendation:** Never reuse OTP ids; create new OTPs on top-up.
-
----
-
-## 6. Timing / TTL Policy (Recommended Defaults)
-
-These values are policy; auditors will want them explicit.
-
-- `DM_OFFER_TTL`: 7 days (or shorter if you want aggressive cleanup)
-- `OTP_RESERVATION_TTL`: 10 minutes (tight window reduces hoarding)
-- `MAX_PENDING_PER_PEER`: e.g., 3 pending sessions from same initiator->responder pair
-- `OPEN_RATE_LIMIT`: e.g., 10 per minute per initiator device (plus peer-targeted limit)
-
-**Note:** “Tight TTL” reduces metadata and abuse surface.
+**Strong recommendation:** never reuse OTP ids. Refill by minting new OTP rows.
 
 ---
 
-## 7. Idempotency Rules (Detailed)
+## 6. Idempotency Rules (Normative)
 
-### 7.1 open() idempotency key
-The idempotency key is effectively `(initiatorDeviceId, responderDeviceId, sessionId)`.
-- Same tuple + same offer => same response.
-- Same tuple + different offer => reject.
+### 6.1 open() idempotency
+Idempotency key:
+- `(initiatorDeviceId, responderDeviceId, sessionId)`
 
-### 7.2 accept() idempotency key
-The idempotency key is `(sessionId, responderDeviceId)`.
-- Same accept `kc2` => ok.
-- Different `kc2` => reject.
+Rules:
+- If tuple exists and `offerBlob` matches byte-for-byte:
+  - server SHOULD return the existing session state (PENDING/ACTIVE/terminal) without mutation.
+- If tuple exists and `offerBlob` differs:
+  - server MUST reject:
+    - `C6P.HANDSHAKE.REPLAYED_OFFER` or `C6P.HANDSHAKE.STATE_VIOLATION` (choose one stable mapping)
+
+### 6.2 accept() idempotency
+Idempotency key:
+- `(sessionId, responderDeviceId)`
+
+Rules:
+- If session is `ACTIVE` and provided `kc2` matches stored accept:
+  - return OK (idempotent success).
+- If session is `ACTIVE` and provided `kc2` differs:
+  - reject with `C6P.HANDSHAKE.STATE_VIOLATION`.
+- If session is terminal non-ACTIVE (`REJECTED/EXPIRED/CANCELLED/ABORTED`):
+  - reject with `C6P.HANDSHAKE.STATE_VIOLATION` (fail-closed).
 
 ---
 
-## 8. Race & Concurrency Scenarios (What auditors test)
+## 7. TTL / Rate-Limit Policy (Recommended Defaults)
+
+Auditors expect explicit values (policy; can be configured, but defaults MUST be documented).
+
+- `DM_OFFER_TTL`: **7 days**
+- `OTP_RESERVATION_TTL`: **10 minutes**
+- `MAX_PENDING_PER_PEER`: **3** pending sessions per `(initiatorDeviceId, responderDeviceId)`
+- `OPEN_RATE_LIMIT`: **10/min** per initiator device + additional per-target throttling
+
+Tight TTL reduces hoarding and abuse surface.
+
+---
+
+## 8. Concurrency Scenarios (Auditor Test Plan)
 
 ### 8.1 Two initiators fetch bundle simultaneously
-**Expected behavior:**
-- They MUST receive distinct OTPs (or one gets OTP, other gets none).
+Expected:
+- They MUST receive distinct OTPs, or one gets OTP while the other gets no OTP.
 
-### 8.2 Initiator fetches bundle but never opens
-- OTP remains `RESERVED` then expires by TTL -> `EXPIRED` (not reused).
+### 8.2 Initiator fetches bundle but never calls open()
+Expected:
+- OTP stays `RESERVED` then becomes `EXPIRED` after TTL.
 
-### 8.3 Initiator opens twice with same otpId
-- Second open MUST fail once otp moved to `PENDING_CONSUMPTION` (or session uniqueness triggers).
+### 8.3 Initiator calls open() twice with same otpId
+Expected:
+- Second open MUST fail once OTP moved to `PENDING_CONSUMPTION` (or session uniqueness fires).
 
 ### 8.4 Responder accepts twice
-- Second accept with same kc2 returns ok.
-- Second accept with different kc2 rejected.
+Expected:
+- same `kc2` => OK
+- different `kc2` => reject
 
-### 8.5 Offer delivery replay
-- Server may deliver offer multiple times (WS reconnect).
+### 8.5 Offer delivery replay (WS reconnect)
+Expected:
+- Server may re-deliver offer while session is `PENDING`.
 - Client must handle idempotently.
-- Server should be able to re-send `PENDING` offer until accepted/expired.
+- Delivery MUST stop on terminal state.
 
 ---
 
-## 9. Recommended DB Constraints (Auditor-Facing)
+## 9. Database Constraints (Auditor-Facing)
 
 ### 9.1 dm_sessions
-- UNIQUE `(initiator_device_id, responder_device_id, session_id)`
-- INDEX `(responder_user_id, state, created_at)` for delivery
-- INDEX `(initiator_user_id, state, created_at)` for accept delivery
+- `UNIQUE(initiator_device_id, responder_device_id, session_id)`
+- Indexes:
+  - `(responder_user_id, state, created_at)` for delivering offers
+  - `(initiator_user_id, state, created_at)` for delivering accepts
 
-### 9.2 otp_prekeys
-- UNIQUE `(device_id, otp_id)`
-- INDEX `(device_id, status, expires_at)`
-- OPTIONAL UNIQUE `(session_db_id)` if OTP can only attach to one session
+### 9.2 prekeys_otp
+- `UNIQUE(device_id, otp_id)`
+- Indexes:
+  - `(device_id, status, expires_at)`
+- Recommended:
+  - `UNIQUE(linked_session_db_id)` if OTP must attach to only one session
 
 ---
 
-## 10. Non-Goals / Security Clarifications (Explicit)
+## 10. Error Mapping (Canonical Codes)
 
-- The server does **not** derive handshake secrets.
-- The server does **not** cryptographically validate `kc1/kc2/signatures` as a security boundary.
-- The server’s responsibility is:
-  - enforce state machine correctness
-  - enforce authorization and routing
-  - enforce OTP scarcity, uniqueness, TTL
-  - enforce replay resistance at protocol metadata level
+This module MUST use codes from `docs/crypto/c6p-error-codes.md`.
+
+Recommended mappings (stable):
+- invalid hex/b64 lengths: `C6P.ENC.*`
+- malformed envelopes/state: `C6P.WIRE.INVALID_ENVELOPE`, `C6P.HANDSHAKE.STATE_VIOLATION`
+- device binding mismatch: `C6P.HANDSHAKE.DEVICE_BINDING_MISMATCH`
+- prekey missing: `C6P.KEYS.KEY_NOT_FOUND`
+- otp missing/unreserved: `C6P.HANDSHAKE.OTP_MISSING` or `C6P.KEYS.KEY_NOT_FOUND` (choose once globally)
+- otp already consumed: `C6P.KEYS.KEY_ALREADY_CONSUMED` (recommended)
+- session replay: `C6P.HANDSHAKE.REPLAYED_OFFER` (recommended)
+
+**Non-leakage rule:** server MUST NOT reveal whether `kc1/kc2/signature` are cryptographically correct.
+
+---
+
+## 11. Explicit Non-Goals (Security Clarifications)
+
+- Server does **not** derive: DH, PRK, root, chain keys, message keys, nonces.
+- Server does **not** validate cryptographic correctness of `transcriptHash`, `kc1`, `kc2`, or signatures as a security boundary.
+- Server enforces:
+  - authorization/routing
+  - state machine correctness
+  - tuple uniqueness/replay resistance
+  - OTP scarcity + TTL + atomic transitions
 
 Clients remain the ultimate authority for cryptographic acceptance.
 
 ---
 
-## 11. Implementation Checklist (Server)
+## 12. Implementation Checklist (Server)
 
+- [ ] Strict decoding/validation per `island-accord-wire.md`
 - [ ] Unique constraint for session tuple
 - [ ] Atomic transaction for `open()`:
   - validate
-  - write dm_session(PENDING)
-  - move OTP -> PENDING_CONSUMPTION
+  - write `dm_sessions(PENDING)`
+  - OTP: `RESERVED -> PENDING_CONSUMPTION` (+ link)
 - [ ] Atomic transaction for `accept()`:
   - validate
   - write acceptBlob
-  - move session -> ACTIVE
-  - move OTP -> CONSUMED
-- [ ] TTL job for session expiry
-- [ ] TTL job for OTP reservation expiry
+  - session: `PENDING -> ACTIVE`
+  - OTP: `PENDING_CONSUMPTION -> CONSUMED`
+- [ ] TTL job for session expiry (`PENDING -> EXPIRED`)
+- [ ] TTL job for OTP reservation expiry (`RESERVED -> EXPIRED`)
 - [ ] Rate limits (initiator + per-target)
-- [ ] Non-sensitive error messages and logging
-- [ ] Comprehensive test matrix coverage (see `island-accord-test-matrix.md`)
+- [ ] Non-sensitive structured error payloads + logging
+- [ ] Test suite covering concurrency scenarios (§8)
 
 ---
