@@ -1,66 +1,74 @@
 # C6P Encoding & Canonicalization (v1)
 
 **Status:** Production / normative  
-**Scope:** Canonical bytes for every field that crosses module/language boundaries; hex/base64url rules; endianness; JSON canonical forms; strict decoding; “no ambiguity” policy.  
-**Depends on:** `docs/crypto/c6p-crypto-registry.md`, `docs/crypto/c6p-key-schedule.md`, `docs/crypto/c6p-aead-and-aad.md`, `docs/handshake/island-accord-wire.md`  
-**Applies to:** Rust core, Node backend, Swift client (and any future implementation).
+**Scope:** Canonical bytes for every field crossing module/language boundaries; strict hex/base64url rules; endianness; JSON wire contracts; strict decoding; “no ambiguity” policy.  
+**Registry authority:** `docs/crypto/c6p-crypto-registry.md` (wire-stable IDs, suites, types)  
+**Depends on:** `docs/crypto/c6p-crypto-registry.md`, `docs/crypto/c6p-key-schedule.md`, `docs/crypto/c6p-aead-and-aad.md`, `docs/crypto/c6p-nonce-policy.md`, `docs/handshake/island-accord-wire.md`  
+**Applies to:** Rust core, Node backend, Swift bridge/client (and any future implementation).
 
 This document is deliberately strict. If something is “almost valid”, it MUST be rejected.
+
+> **Authority rule (normative):** If any document conflicts with the registry’s fixed sizes / IDs / suite mapping, the other document MUST be updated.  
+> This file is aligned to the registry as canonical.
 
 ---
 
 ## 0. Design Principles (Non-negotiable)
 
-1. **One canonical byte representation** for every logical value.
+1. **One canonical byte representation** for every logical value used in crypto.
 2. **Round-trip determinism** across Rust/Node/Swift.
-3. **Fail-closed** parsing: reject invalid/ambiguous encodings.
-4. **No “helpful” normalization** (no trimming, no case-folding beyond what is explicitly permitted).
-5. **No dual encodings** for the same field (e.g., sometimes hex, sometimes base64url) unless explicitly specified.
-6. **No locale/timezone effects** in cryptographic or protocol-critical material.
+3. **Fail-closed parsing:** reject invalid/ambiguous encodings.
+4. **No “helpful normalization”** (no trimming, no case-folding unless explicitly permitted).
+5. **No dual encodings** for the same field unless explicitly specified.
+6. **No locale/timezone effects** in protocol-critical material.
+7. **Registry-aligned:** fixed sizes, IDs, and suite mapping MUST match `c6p-crypto-registry.md`.
 
 ---
 
 ## 1. Terminology
 
-- **Canonical bytes**: the unique byte sequence that represents a value *inside cryptographic operations* (hashing/AAD/KDF signatures).
-- **Wire form**: the representation sent on the network (JSON fields, query parameters, websocket frames).
-- **Transport encoding**: hex or base64url used to carry bytes over JSON.
+- **Canonical bytes:** the unique byte sequence that represents a value inside cryptographic operations (hashing/AAD/KDF/signatures).
+- **Wire form:** the representation sent on the network (JSON fields, query parameters, websocket frames).
+- **Transport encoding:** hex or base64url used to carry bytes over JSON.
 
 ---
 
-## 2. Global Encoding Rules
+## 2. Global Encoding Rules (Wire)
 
 ### 2.1 ASCII labels
-Protocol labels used in transcripts/KDF info/AAD are ASCII byte strings, not Unicode.
+Protocol labels used in transcripts/KDF info/AAD are **ASCII byte strings**, not Unicode.
 
 - MUST be ASCII
 - MUST be exactly as specified (case-sensitive)
 - MUST NOT include trailing NUL
-- MUST NOT include whitespace unless explicitly included in the label string
+- MUST NOT include whitespace unless explicitly present in the label bytes
 
-Examples:
-- `"C6P_AAD_V1"` (ASCII bytes)
-- `"C6P_HANDSHAKE99_V1"` / `"C6P_PREKEY_V1"` (if used in IslandAccord v1 as specified in handshake docs)
+Examples (illustrative, registry defines the authoritative list):
+- `"C6P_AAD_V1"`
+- `"C6P_ISLAND_ACCORD_V1"`
+- `"C6P_PREKEY_V1"`
+- `"C6P_KC_V1"`
 
 ### 2.2 Whitespace policy
 **No trimming** in decoding of security-critical fields:
+
 - hex strings: MUST NOT contain whitespace
 - base64url strings: MUST NOT contain whitespace
 - IDs: MUST NOT contain whitespace
 - signatures: MUST NOT contain whitespace
+- counters (wire string): MUST NOT contain whitespace
 
-If a value arrives with leading/trailing whitespace -> reject.
+If any value arrives with leading/trailing whitespace → reject.
 
 ### 2.3 Case policy
-- **hex**: MUST be lowercase on the wire (JSON).  
-  - Decoder MAY accept uppercase **only** if explicitly allowed for that field.  
-  - Default: reject uppercase to prevent dual canonical forms.
-- **base64url**: case-sensitive; MUST use URL-safe alphabet (`A–Z a–z 0–9 - _`) with **no padding**.
+- **hex:** MUST be lowercase on the wire (`[0-9a-f]` only).  
+  Default behavior: reject uppercase to prevent dual canonical forms.
+- **base64url:** case-sensitive and MUST use URL-safe alphabet (`A–Z a–z 0–9 - _`) with **no padding**.
 
 ### 2.4 Length policy
-All fixed-size fields MUST validate their decoded length exactly.
-- If it’s 31 or 33 bytes -> reject.
-- “Close enough” -> reject.
+All fixed-size fields MUST validate decoded length exactly.
+- 31 or 33 bytes → reject
+- “close enough” → reject
 
 ---
 
@@ -77,19 +85,17 @@ Canonical bytes for `UInt32 x`:
 - `BE32(x)` = 4 bytes, most significant byte first.
 
 ### 3.3 Counters
-- `counter` is `UInt64`, canonical bytes = `BE64(counter)`.
+- `counter` is `UInt64`.
+- canonical bytes = `BE64(counter)`.
 
-**Rule:** Do not encode counters as decimal strings inside cryptographic transcripts/AAD/KDF.
-Decimal is allowed only as UI/debug presentation and must never be hashed.
+**Hard rule:** Do not encode counters as decimal strings inside cryptographic transcripts/AAD/KDF.  
+Decimal is allowed only as wire/UI/debug and must never be hashed directly.
 
 ---
 
 ## 4. Hex Encoding (Wire transport)
 
-Hex is used for stable identifiers that are “small” and frequently used in routing/DB:
-- `device_id` (8 bytes -> 16 hex chars)
-- `session_id` (4 bytes -> 8 hex chars)
-- `key_id` (8 bytes -> 16 hex chars)
+Hex is used for stable identifiers that are small, frequent, and DB/routing-friendly.
 
 ### 4.1 Hex alphabet
 - Allowed: `[0-9a-f]` only (lowercase)
@@ -99,24 +105,22 @@ Hex is used for stable identifiers that are “small” and frequently used in r
 ### 4.2 Decoding rules
 A hex string MUST be rejected if:
 - contains non-hex characters
-- contains uppercase A–F (unless explicitly permitted)
+- contains uppercase A–F
 - contains prefix `0x`
 - contains whitespace
 - wrong length
 
-### 4.3 Canonical lengths (normative)
-| Field | Bytes | Hex chars | Example |
+### 4.3 Canonical lengths (normative; registry-aligned)
+| Field | Canonical bytes | Hex chars | Example |
 |---|---:|---:|---|
-| `C6PDeviceId` | 8 | 16 | `7f01ab...` |
-| `C6PSessionId` | 4 | 8 | `0a1b2c3d` |
+| `C6PDeviceId` | 16 | 32 | `001122...ffeedd` |
+| `C6PSessionId` | 8 | 16 | `0a1b2c3d4e5f6071` |
 | `C6PKeyId` | 8 | 16 | `0011223344556677` |
 
-**Rule:** Session IDs on the wire MUST be 8 hex characters (lowercase) and represent exactly 4 bytes.
-
 ### 4.4 Canonical bytes
-Hex is *only transport*. Canonical bytes are always the decoded fixed-width bytes:
-- `device_id_bytes = hex_decode(device_id_hex)` (must be 8 bytes)
-- `session_id_bytes = hex_decode(session_id_hex)` (must be 4 bytes)
+Hex is transport only. Canonical bytes are always decoded bytes:
+- `device_id_bytes = hex_decode(device_id_hex)` (must be 16 bytes)
+- `session_id_bytes = hex_decode(session_id_hex)` (must be 8 bytes)
 - `key_id_bytes = hex_decode(key_id_hex)` (must be 8 bytes)
 
 ---
@@ -124,10 +128,10 @@ Hex is *only transport*. Canonical bytes are always the decoded fixed-width byte
 ## 5. Base64url (Wire transport for binary)
 
 Base64url is used for:
-- public keys (X25519: 32 bytes, Ed25519: 32 bytes)
-- signatures (Ed25519: 64 bytes)
-- ciphertext blobs, tags, nonces, derived keys (varies)
-- hashes (SHA-256: 32 bytes)
+- public keys (X25519: 32, Ed25519: 32)
+- signatures (Ed25519: 64)
+- ciphertext blobs, tags, derived keys, hashes
+- nonces (suite-defined length)
 
 ### 5.1 Alphabet & padding
 Base64url MUST:
@@ -165,98 +169,90 @@ JSON is used as the wire format for HTTP and for some WS messages.
 
 ### 6.1 JSON parsing policy
 - Use a standards-compliant JSON parser.
-- Reject invalid JSON, duplicate keys (where possible), and type mismatches.
-- Enforce strict types:
-  - IDs: string
-  - counters: number OR string? (choose one canonical—see §6.3)
-  - binary: base64url string
+- Reject invalid JSON.
+- Reject type mismatches.
+- Reject duplicate keys **where the platform permits** (or enforce schema validation that detects duplicates).
 
-### 6.2 No JSON-in-crypto
-**Critical rule:** Cryptographic transcripts/AAD/KDF MUST NOT be defined as “JSON bytes” or “string concatenation of JSON fields”.  
+Strict types:
+- IDs: string
+- binary: base64url string (no padding)
+- enums (`suite_id`, `stream_id`, `message_type`): integer in range 0–255 (or string if wire schema defines string; choose one and lock it)
+- counters: see §6.3
+
+### 6.2 No JSON-in-crypto (critical)
+Cryptographic transcripts/AAD/KDF MUST NOT be defined as “JSON bytes” or “string concatenation of JSON fields”.
+
 Only canonical byte layouts defined in crypto/handshake docs are used.
 
-### 6.3 Counter wire type (normative recommendation)
+### 6.3 Counter wire type (normative)
 To avoid JS integer precision issues:
-- `counter` MUST be encoded as a **string** on JSON wire if it can exceed `2^53-1`.
-- In DM baseline, you might not hit that soon, but production-grade should still be correct.
+- `counter` on JSON wire MUST be a **decimal string** containing only digits (`[0-9]+`), no sign, no whitespace.
+- parser MUST bounds-check to `u64`.
 
-**Normative choice for Convro/IslandAccord v1:**
-- `counter` on JSON wire = **string decimal**  
-- Canonical bytes = `BE64(parse_u64(counter_string))`
-
-(If you already ship `counter` as JSON number in Node, keep it for now but document a migration path + validation caps. Auditors will ask.)
-
-### 6.4 Stable field names
-Field names are case-sensitive; do not accept aliases.
-Example:
-- accept `sessionId` if spec says `sessionId`
-- reject `session_id` if spec says `sessionId`
-
-(Choose one naming convention and lock it. In docs we treat those as wire-contract.)
+Canonical bytes remain:
+- `counter_bytes = BE64(parse_u64(counter_string))`
 
 ---
 
 ## 7. Canonicalization of Protocol-Critical Objects
 
-This section defines exactly what bytes are used when hashing/signing.
+This section defines exactly what bytes are used when hashing/signing/deriving.
 
-### 7.1 DeviceId / SessionId / KeyId canonical bytes
-- `device_id_bytes = BE64(device_id_u64)` OR `hex_decode(device_id_hex)` (must match)
-- `session_id_bytes = BE32(session_id_u32)` OR `hex_decode(session_id_hex)`
-- `key_id_bytes = BE64(key_id_u64)` OR `hex_decode(key_id_hex)`
+### 7.1 IDs canonical bytes
+- `C6PDeviceId` canonical bytes: 16 bytes (decoded from wire hex32)
+- `C6PSessionId` canonical bytes: 8 bytes (decoded from wire hex16)
+- `C6PKeyId` canonical bytes: 8 bytes (decoded from wire hex16)
 
-**Rule:** We do not mix “numeric ID in DB” with “wire hex string” without a stable conversion.
+**Hard rule:** Implementations MUST NOT maintain an alternative “numeric DB id” and treat it as equivalent unless there is a single canonical conversion path and tests proving equivalence. Wire IDs are authoritative.
 
 ### 7.2 Public keys
 - X25519/Ed25519 public keys are treated as raw bytes (`32`).
-- Canonical bytes are exactly those 32 bytes, no prefixes.
+- Canonical bytes are exactly those 32 bytes, no prefixes, no type tags.
 
 ### 7.3 Signatures
-- Ed25519 signature is exactly 64 bytes.
+- Ed25519 signature canonical bytes are exactly 64 bytes.
 
 ### 7.4 Hashes
-- SHA-256 hash canonical bytes are 32 bytes.
+- SHA-256 hash canonical bytes are exactly 32 bytes.
 
 ---
 
-## 8. Canonical Transcript Rules for IslandAccord v1
+## 8. Canonical Transcript Rules for IslandAccord v1 (Normative)
 
 IslandAccord transcripts MUST use:
-- fixed-width IDs (device/session/key IDs) as raw bytes
+- fixed-width IDs as raw bytes (per registry sizes)
 - public keys as raw bytes
-- explicit flags/markers for optional parts
+- explicit presence markers for optional parts
 - protocol labels as ASCII bytes
 
-**Rule:** A transcript MUST NOT depend on:
+**Hard rule:** A transcript MUST NOT depend on:
 - JSON stringification
 - platform-specific UTF-8 normalization
 - locale settings
 - unordered maps/dictionaries
 
-If the handshake doc defines an “OTP-present marker”, it MUST be a single byte with fixed value (e.g., `0x00` / `0x01`) and MUST be included even when OTP is absent.
+If the handshake defines an “OTP-present marker”, it MUST be a single byte with fixed value (e.g., `0x00`/`0x01`) and MUST be included even when OTP is absent.
 
 ---
 
-## 9. Canonical AAD Rules (link)
+## 9. Canonical AAD Rules (Normative pointer)
 
-AAD is defined in `docs/crypto/c6p-aead-and-aad.md` and is **fully canonical**:
-- ASCII label
-- fixed-width numeric fields
-- fixed byte order
-- stable length
+AAD is fully defined in `docs/crypto/c6p-aead-and-aad.md`.
 
-This doc adds only the **encoding contracts**:
-- session_id hex -> decode -> 4 bytes
-- device_id hex -> decode -> 8 bytes
-- counter string -> parse -> u64 -> 8 bytes BE64
+This document defines only the encoding contracts used to build AAD:
+- `session_id_hex16 -> decode -> 8 bytes`
+- `device_id_hex32 -> decode -> 16 bytes` (for session binding and local session context)
+- `counter_wire_string -> parse_u64 -> BE64`
+
+**Hard rule:** AAD bytes MUST be constructed only from canonical bytes and the exact AAD layout.
 
 ---
 
 ## 10. Error Handling (Normative)
 
-Decoders MUST return structured error codes (see `docs/handshake/island-accord-error-codes.md` and crypto error registry).
+Decoders MUST return structured error codes (see `docs/crypto/c6p-error-codes.md` and handshake error registries).
 
-Minimum error categories:
+Minimum encoding error categories:
 - `ENC_HEX_INVALID_CHAR`
 - `ENC_HEX_INVALID_LEN`
 - `ENC_B64URL_INVALID_CHAR`
@@ -266,112 +262,63 @@ Minimum error categories:
 - `ENC_JSON_TYPE_MISMATCH`
 - `ENC_RANGE_INVALID` (e.g., counter > u64)
 
-**Rule:** Do not “best effort” decode. Reject early.
+**Hard rule:** Do not “best effort” decode. Reject early.
 
 ---
 
-## 11. Interop Test Vectors (Must-have)
+## 11. Interop Test Vectors (Requirement)
 
-This repo MUST include cross-language vectors in `docs/crypto/test-vectors/`.
+This repo MUST include cross-language vectors in:
+- `docs/crypto/test-vectors/`
+- `docs/handshake/test-vectors/`
+- `docs/identity/test-vectors/`
+- `docs/Sessions/test-vectors/`
 
 Vectors MUST cover:
-1. Hex decode/encode round-trips for IDs.
-2. Base64url decode/encode round-trips for 32/64/16 bytes.
-3. AAD bytes for fixed inputs (`aad_hex`).
-4. Nonce derivation bytes for fixed inputs (`nonce_b64u`).
-5. Full seal/open for each suite:
-   - plaintext -> sealed (b64u)
-   - ensure Swift decrypts Rust output and vice versa
+1. Hex decode/encode round-trips for IDs (device/session/key).
+2. Base64url decode/encode round-trips for fixed sizes (32/64/16, nonce sizes).
+3. Counter parsing: wire decimal string → u64 bounds-check → BE64.
+4. Canonical AAD bytes for fixed inputs.
+5. Deterministic nonce derivation bytes for fixed inputs.
+6. AEAD seal/open round-trip per suite:
+   - plaintext → sealed
+   - Swift decrypts Rust output and vice versa
+7. Negative vectors:
+   - uppercase hex
+   - `0x` prefix
+   - base64 padding
+   - invalid lengths
+   - whitespace contamination
+   - counter overflow
 
-Vector file format recommendation (JSON):
-- `case_id`
-- `device_id_hex_initiator`, `device_id_hex_responder`
-- `session_id_hex`
-- `stream_id`, `message_type`, `suite_id`
-- `counter_wire` (string)
-- `aad_hex`
-- `suite_key_b64u`
-- `nonce_b64u`
-- `plaintext_utf8`
-- `sealed_b64u`
-
-**Rule:** Vectors must be generated by the Rust reference implementation and verified by Swift and Node test harnesses.
+**Hard rule:** Vectors MUST be generated by the Rust reference implementation and verified by Swift and Node harnesses.
 
 ---
 
-## 12. Implementation Guidance (Rust / Node / Swift)
+## 12. Implementation Guidance (Non-normative)
 
 ### 12.1 Rust
-- Treat hex/base64url decoding as separate audited modules.
-- Use constant-time comparisons where relevant (`subtle` crate) for MAC/tag comparisons if you ever manually compare.
+- Keep hex/base64url decode in small audited modules.
+- Use constant-time comparisons where relevant for tags/MAC.
 - Never accept both padded and unpadded base64url.
 
 ### 12.2 Node
-- Never use JS numbers for counters beyond `2^53-1`.
-- Prefer string counters in API and convert using BigInt -> bounds-check -> u64 for canonical bytes.
+- Counters MUST be string on wire; parse via `BigInt`, bounds-check to u64, then build BE64 bytes.
+- Enforce strict schema validation before any crypto/routing decisions.
 
 ### 12.3 Swift
-- Use strict decoding; do not auto-trim.
+- Use strict decoding; no trimming.
 - Ensure base64url decoder rejects padding and non-url alphabet.
 
 ---
 
-## 13. Security Notes (Audit-Facing)
-
-1. **Ambiguity attacks** (multiple encodings for same bytes) are prevented by strict rejection of non-canonical encodings.
-2. **Precision loss** in JS is mitigated by representing counters as decimal strings.
-3. **Cross-language drift** is mitigated by test vectors and canonical byte layouts.
-
----
-
-## Appendix A — Reference Implementations (Pseudo-code)
+## Appendix A — Strict decoding reference (Pseudo-code)
 
 ### A.1 Strict hex decode (no trim, lowercase only)
-
+```rust
 fn hex_decode_strict(s: &str, expected_len: usize) -> Result<Vec<u8>, EncErr> {
-if s.len() != expected_len { return Err(ENC_HEX_INVALID_LEN); }
-if !s.chars().all(|c| matches!(c, '0'..='9'|'a'..='f')) { return Err(ENC_HEX_INVALID_CHAR); }
-// decode pairs...
+  if s.len() != expected_len { return Err(ENC_HEX_INVALID_LEN); }
+  if !s.chars().all(|c| matches!(c, '0'..='9'|'a'..='f')) { return Err(ENC_HEX_INVALID_CHAR); }
+  // decode pairs...
+  Ok(bytes)
 }
-
-
-### A.2 Strict base64url decode (no padding)
-
-
-
-fn b64url_decode_strict(s: &str, expected_bytes: Option<usize>) -> Result<Vec<u8>, EncErr> {
-if s.contains('=') { return Err(ENC_B64URL_PADDING_NOT_ALLOWED); }
-if s.chars().any(|c| !is_b64url(c)) { return Err(ENC_B64URL_INVALID_CHAR); }
-let bytes = decode_urlsafe_no_pad(s).map_err(|_| ENC_B64URL_INVALID_DECODE)?;
-if let Some(n) = expected_bytes { if bytes.len() != n { return Err(ENC_LEN_MISMATCH); } }
-Ok(bytes)
-}
-
-
-### A.3 Counter from wire string
-
-
-
-fn parse_counter_u64(s: &str) -> Result<u64, EncErr> {
-// no whitespace, only digits
-if s.is_empty() || !s.chars().all(|c| c.is_ascii_digit()) { return Err(ENC_RANGE_INVALID); }
-let v = s.parse::<u128>().map_err(|_| ENC_RANGE_INVALID)?;
-if v > u64::MAX as u128 { return Err(ENC_RANGE_INVALID); }
-Ok(v as u64)
-}
-
-
----
-
-## Appendix B — Canonical Length Table (Quick Reference)
-
-- device_id_hex: 16 chars -> 8 bytes
-- session_id_hex: 8 chars -> 4 bytes
-- key_id_hex: 16 chars -> 8 bytes
-- x25519 pub: 32 bytes (b64url)
-- ed25519 pub: 32 bytes (b64url)
-- ed25519 sig: 64 bytes (b64url)
-- sha256 hash: 32 bytes (b64url)
-- tag: 16 bytes (inside sealed)
-- nonce: 12 / 24 / 16 bytes depending on suite
-
