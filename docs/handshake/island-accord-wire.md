@@ -1,81 +1,119 @@
 # IslandAccord v1 — Wire Contract & Validation (island-accord-wire.md)
 
-**Status:** Production / Canonical  
+**Status:** PRODUCTION / CANONICAL / AUDIT-GRADE  
 **Handshake:** IslandAccord v1  
-**Scope:** HTTP + WS delivery formats, strict validation rules, server invariants, client invariants, error taxonomy.  
+**Scope:** HTTP + WS delivery formats, strict validation rules, server invariants, client invariants, and canonical error mapping.  
 **Audience:** Security auditors, backend implementers, client implementers.  
 **Principle:** **Fail-closed.** Any deviation from this contract MUST be rejected.
+
+**Depends on (normative):**
+- `docs/crypto/c6p-encoding-and-canonicalization.md`
+- `docs/crypto/c6p-crypto-registry.md`
+- `docs/handshake/island-accord-crypto.md`
+- `docs/handshake/island-accord-state-machine.md`
+- `docs/crypto/c6p-error-codes.md`
 
 ---
 
 ## 0. Normative Language
 
 - **MUST / MUST NOT / SHOULD / MAY** are used as defined in RFC 2119.
-- “Server” is untrusted for secrecy but trusted to enforce **state/invariants** (OTP reservation, session uniqueness, replay mitigation).
+- “Server” is **not trusted for secrecy** (never derives secrets), but is authoritative for **state/invariants**:
+  - OTP reservation/consumption
+  - session uniqueness
+  - idempotency and TTL
+  - routing/delivery
 
 ---
 
-## 1. Canonical Identifiers & Encodings
+## 1. Canonical Identifiers & Encodings (Wire)
 
-### 1.1 Hex identifiers (strict)
-- `deviceId`: **8 bytes** encoded as **hex16 lowercase**.
+All encoding rules in this section are **strict**. No trimming. No “helpful” normalization.
+
+### 1.1 Hex identifiers (strict, lowercase only)
+
+All hex IDs MUST be lowercase and fixed-length:
+
+- `deviceId`: **16 bytes** → **hex32**  
+  - Regex: `^[0-9a-f]{32}$`
+- `sessionId`: **8 bytes** → **hex16**  
   - Regex: `^[0-9a-f]{16}$`
-- `sessionId`: **4 bytes** encoded as **hex8 lowercase**.
-  - Regex: `^[0-9a-f]{8}$`
-- `keyId` (SPK/OTP): **8 bytes** encoded as **hex16 lowercase**.
+- `keyId` / `spkId` / `otpId`: **8 bytes** → **hex16**  
   - Regex: `^[0-9a-f]{16}$`
 
-**Normalization rule:**  
-Clients MUST lower-case all hex on output. Servers MUST reject any hex not lowercase or not matching regex.
+**Server rule:** any uppercase hex or wrong length MUST be rejected with:
+- `C6P.ENC.NON_CANONICAL_HEX` (uppercase) or `C6P.ENC.INVALID_HEX` / `C6P.ENC.LENGTH_MISMATCH`.
 
-### 1.2 base64url (no padding) (strict)
-All binary fields (keys/hashes/mac/signatures) are base64url without padding:
-- Characters: `A–Z a–z 0–9 - _`
+### 1.2 Base64url (no padding) (strict)
+
+All binary fields are base64url without padding:
+- Allowed characters: `A–Z a–z 0–9 - _`
 - Regex: `^[A-Za-z0-9_-]+$`
-- MUST decode to exact byte length specified per field.
+- Padding (`=`) MUST NOT appear.
+- Decoded length MUST match the table in §1.3 exactly.
 
-**Padding:** MUST NOT be present (`=` forbidden).  
-If present, server MUST reject.
+Reject with:
+- `C6P.ENC.INVALID_B64URL` (invalid alphabet / decode)
+- `C6P.ENC.LENGTH_MISMATCH` (decoded size wrong)
 
-### 1.3 Byte lengths (strict table)
+### 1.3 Byte lengths (decoded, strict)
 
-| Field | Type | Bytes (decoded) |
-|------|------|------------------|
+| Field | Encoding | Bytes |
+|------|----------|------:|
 | X25519 public key | b64url | 32 |
 | Ed25519 public key | b64url | 32 |
+| Ed25519 signature | b64url | 64 |
 | SHA-256 hash | b64url | 32 |
 | HMAC-SHA256 output | b64url | 32 |
-| Ed25519 signature | b64url | 64 |
 
 ---
 
-## 2. Protocol Versioning & Suite
+## 2. Versioning & Suite Policy
 
-### 2.1 Version
+### 2.1 Protocol version
 - `version` MUST be integer `1`.
 
 ### 2.2 Suite
-- `suiteId` MUST be a valid one-byte suite id supported by the implementation.
-- Unknown suiteId MUST be rejected.
-- `suiteId` MUST be included in transcript and in initiator signature input (downgrade resistance).
+- `suiteId` MUST be a supported suite id (u8 semantics) as defined in `c6p-crypto-registry.md`.
+- Unknown `suiteId` MUST be rejected with `C6P.AEAD.UNSUPPORTED_SUITE`.
+
+**Production default (policy):** ChaCha20-Poly1305 (registry default; no downgrade-by-accident).  
+If server restricts allowed suites, it MUST do so explicitly and consistently.
 
 ---
 
-## 3. Endpoints (Canonical)
+## 3. Counter Representation (JSON)
 
-### 3.1 Prekeys status
-**GET** `/v1/prekeys/status`
+To avoid JS precision loss:
+- `counter` on JSON wire MUST be **string decimal** (no whitespace, digits only).
+- Parsed value MUST fit in `u64`.
 
-**Auth:** Required  
+Reject with:
+- `C6P.ENC.INVALID_DECIMAL_U64` (parse fails / overflow)
+- `C6P.WIRE.COUNTER_INVALID` (wrong type, missing, etc.)
+
+---
+
+## 4. Endpoints (Canonical)
+
+All request/response bodies are JSON unless stated otherwise.
+
+### 4.1 Prekeys status
+
+**GET** `/v1/prekeys/status`  
+**Auth:** Required
+
 **Response (JSON):**
-json
+```json
 {
   "ok": true,
-  "deviceId": "0123abcd4567ef89",
-  "signedPreKeyFingerprint": "…",
+  "deviceId": "0123abcd...<hex32>",
+  "signedPrekeyId": "bbbbbbbbbbbbbbbb",
+  "signedPrekeyFingerprint": "<b64url32>",
   "oneTimeAvailable": 64,
-  "lastRotationAt": "2025-12-31T12:34:56.000Z"
+  "lastRotationAt": "2026-01-03T12:34:56.000Z"
 }
+```
 
 Validation rules:
 
@@ -83,51 +121,70 @@ oneTimeAvailable MUST be integer ≥ 0.
 
 Server MUST compute oneTimeAvailable from authoritative store (not client hints).
 
-3.2 Fetch bundle (atomic OTP reservation)
+4.2 Fetch bundle (atomic OTP reservation)
 
-GET /v1/prekeys/bundle?device_id=<hex16>
-
+GET /v1/prekeys/bundle?deviceId=<hex32>
 Auth: Required
-Semantics: Server returns responder bundle for a device. If OTP is available, server MUST atomically reserve one OTP and include it in response.
+Semantics: Server returns responder bundle for a device. If OTP is available, server MUST atomically reserve one OTP and include it.
 
 Response (JSON) — BundleResponse:
 
 {
-  "responderDeviceId": "aaaaaaaaaaaaaaaa",
+  "responderDeviceId": "aaaaaaaa...<hex32>",
+
   "identityPublicKeyEd25519": "<b64url32>",
   "identityPublicKeyX25519": "<b64url32>",
+
   "signedPrekeyId": "bbbbbbbbbbbbbbbb",
   "signedPrekeyPublicKeyX25519": "<b64url32>",
   "signedPrekeySignature": "<b64url64>",
+
   "oneTimePrekeyId": "cccccccccccccccc",
   "oneTimePrekeyPublicKeyX25519": "<b64url32>"
 }
 
-Rules:
 
-responderDeviceId MUST equal requested device_id.
+Rules (server):
 
-If oneTimePrekeyId is present, oneTimePrekeyPublicKeyX25519 MUST be present (and vice versa).
-If exactly one exists => reject/abort (server bug or tampering).
+responderDeviceId MUST equal requested deviceId.
 
-Server MUST ensure OTP returned in bundle is reserved for the requesting initiator (or reserved for that session creation attempt) and cannot be returned to another initiator concurrently.
+OTP pair presence is all-or-nothing:
 
-Client validation:
+If oneTimePrekeyId exists, oneTimePrekeyPublicKeyX25519 MUST exist and vice versa.
 
-Decode lengths strictly.
+If exactly one exists → reject internally and do not respond partial. Surface C6P.INVAR.ASSERTION_FAILED.
+
+Reservation MUST be atomic:
+
+Reserved OTP MUST NOT be returned to other initiators concurrently.
+
+Reservation MUST have TTL (see §8.2).
+
+Rules (client):
+
+Strictly decode lengths.
 
 Verify SPK signature using identityPublicKeyEd25519:
 
-VerifyEd25519(idSigPub, spkSig, LABEL_PREKEY || spkId_bytes || spkPub_bytes)
+VerifyEd25519(IKsigPub, spkSig, LABEL_PREKEY || spkId_bytes || spkPub_bytes)
 
-If signature invalid => client MUST abort.
+Where:
 
-3.3 Upload prekeys
+LABEL_PREKEY is defined in island-accord-crypto.md and registry labels,
+
+spkId_bytes = hex_decode(signedPrekeyId) (8 bytes),
+
+spkPub_bytes is 32 bytes.
+
+If invalid → abort (C6P.HANDSHAKE.SPK_SIGNATURE_INVALID).
+
+4.3 Upload prekeys
 
 POST /v1/prekeys/upload
-
 Auth: Required
+
 Request (JSON):
+
 {
   "identityPublicKeyEd25519": "<b64url32>",
   "identityPublicKeyX25519": "<b64url32>",
@@ -140,45 +197,46 @@ Request (JSON):
     { "prekeyId": "cccccccccccccccc", "publicKeyX25519": "<b64url32>" }
   ]
 }
-Validation:
+
+
+Validation (server):
 
 All fields required except oneTimePrekeys MAY be empty list.
 
 keyId / prekeyId must be lowercase hex16.
 
-Signatures MUST be valid:
+Signature MUST be valid (per handshake crypto spec):
 
 Sig = SignEd25519(IK_sig_priv, LABEL_PREKEY || spkId_bytes || spkPub_bytes)
 
 Server MUST reject duplicates for (deviceId, keyId) that do not match stored value exactly.
 
-Server MUST store identity keys immutably per device (rotation is versioned, never “overwrite without record”).
+Server MUST store identity keys immutably per device (rotation is versioned; no silent overwrite).
 
 Response (JSON):
 
 {
-  "accepted": true,
-  "message": "ok",
+  "ok": true,
   "acceptedOneTimePrekeyIds": ["cccccccccccccccc"]
 }
 
-4. DM Session Establishment (IslandAccord)
-4.1 Open DM session (creates and delivers offer)
+5. DM Session Establishment (IslandAccord)
+5.1 Open DM session (creates and stores offer)
 
 POST /v1/dm/sessions/open
-
 Auth: Required
-Purpose: Initiator creates DM session request and stores offer for responder delivery.
+Purpose: Initiator creates DM session request and stores the offer for responder delivery.
 
-4.1.1 Request JSON — OpenRequest
+5.1.1 Request JSON — OpenRequest
 {
   "peerUserId": 12345,
   "handshakeOffer": {
     "version": 1,
     "suiteId": 1,
-    "sessionId": "11223344",
-    "initiatorDeviceId": "aaaaaaaaaaaaaaaa",
-    "responderDeviceId": "bbbbbbbbbbbbbbbb",
+
+    "sessionId": "1122334455667788",
+    "initiatorDeviceId": "aaaaaaaa...<hex32>",
+    "responderDeviceId": "bbbbbbbb...<hex32>",
 
     "initiatorIdentityDhPub": "<b64url32>",
     "initiatorIdentitySigPub": "<b64url32>",
@@ -186,6 +244,7 @@ Purpose: Initiator creates DM session request and stores offer for responder del
 
     "usedSignedPrekeyId": "cccccccccccccccc",
     "usedSignedPrekeyPublicKeyX25519": "<b64url32>",
+
     "usedOneTimePrekeyId": "dddddddddddddddd",
 
     "transcriptHash": "<b64url32>",
@@ -193,7 +252,15 @@ Purpose: Initiator creates DM session request and stores offer for responder del
     "offerSignatureEd25519": "<b64url64>"
   }
 }
-4.1.2 Server-side validation (MUST)
+
+
+Notes:
+
+usedOneTimePrekeyId MAY be omitted or null if OTP not used.
+
+If present, it MUST be hex16 and must correspond to a server-reserved OTP for responder.
+
+5.1.2 Server-side validation (MUST)
 
 Structural:
 
@@ -201,242 +268,189 @@ peerUserId MUST be integer > 0.
 
 handshakeOffer.version MUST equal 1.
 
-suiteId must be supported by server policy (server may restrict suites).
+suiteId must be supported by server policy.
 
-All hex must be lowercase and match regex.
+All hex and base64url fields must pass strict decoding and length checks.
 
-All b64url must match regex and decode to exact length.
-
-Binding / sanity checks:
+Binding / authorization:
 
 initiatorDeviceId MUST equal authenticated deviceId from token/session.
 
-responderDeviceId MUST belong to peerUserId (canonical mapping in DB).
+If not: C6P.HANDSHAKE.DEVICE_BINDING_MISMATCH.
 
-usedSignedPrekeyId MUST exist for responder device and MUST match usedSignedPrekeyPublicKeyX25519.
+responderDeviceId MUST belong to peerUserId (authoritative DB mapping).
 
-If usedOneTimePrekeyId present:
+If not: C6P.WIRE.INVALID_ENVELOPE or C6P.HANDSHAKE.DEVICE_BINDING_MISMATCH (policy).
 
-MUST be reserved for this initiator-session creation attempt OR be “reserved token” minted by server during bundle fetch.
+Prekey binding (server-side authoritative consistency):
 
-MUST exist for responder device and MUST match stored OTP pub.
+usedSignedPrekeyId MUST exist for responder device AND MUST match stored usedSignedPrekeyPublicKeyX25519.
 
-MUST be in state RESERVED and transition to PENDING_CONSUMPTION.
+If not: C6P.KEYS.KEY_NOT_FOUND or C6P.WIRE.INVALID_ENVELOPE.
 
+OTP reservation rules (if usedOneTimePrekeyId present):
+
+OTP id MUST be reserved for this initiator + responder + session attempt OR referenced by a reservation token minted by server during bundle fetch (implementation choice, but MUST be enforced).
+
+OTP MUST exist for responder device AND pub must match stored record.
+
+OTP MUST be in state RESERVED and transition to PENDING_CONSUMPTION when the offer is accepted for storage.
+
+Failures:
+
+Not reserved: C6P.HANDSHAKE.OTP_MISSING or C6P.KEYS.KEY_NOT_FOUND (choose one policy and keep consistent).
+
+Session replay/uniqueness:
 sessionId MUST be unique per tuple:
 
 (initiatorDeviceId, responderDeviceId, sessionId)
 
-Duplicate MUST be rejected (replay).
+Duplicate MUST be rejected as replay with:
 
-Server cryptography rule:
+C6P.HANDSHAKE.REPLAYED_OFFER (or C6P.WIRE.INVALID_ENVELOPE only if you want less explicitness).
 
-Server MUST NOT verify or recompute transcriptHash / kc1 / signature as security-critical secrets.
-(Server MAY do superficial checks like decoding lengths only.)
+Server cryptography rule (strict):
 
-Correctness is enforced client-side; server enforces state & routing invariants.
+Server MUST NOT recompute or validate transcriptHash, kc1, or signature cryptographically as part of correctness.
 
-Rate limits:
+Server MAY decode and length-check only, enforcing state/routing invariants.
 
-MUST apply per initiator device and per peer target to mitigate spam/DoS.
+Rate limits (MUST):
 
-4.1.3 Response JSON — OpenResponse
+Apply per initiator device and per peer target to mitigate spam/DoS.
+
+On throttle: C6P.INVAR.CONFIG_INVALID is NOT appropriate; use your normal API throttling code + map to a safe error response (see §7).
+
+5.1.3 Response JSON — OpenResponse
 {
   "ok": true,
   "sessionDbId": 987,
-  "sessionId": "11223344",
+  "sessionId": "1122334455667788",
   "responderUserId": 12345,
-  "responderDeviceId": "bbbbbbbbbbbbbbbb",
+  "responderDeviceId": "bbbbbbbb...<hex32>",
   "state": "PENDING"
 }
+
+
 State meanings:
 
 PENDING: offer stored, responder not yet accepted.
 
-ACTIVE: accept stored (but initiator still MUST verify kc2).
+ACTIVE: accept stored (initiator still MUST verify kc2 client-side).
 
 REJECTED / EXPIRED: explicit denial or TTL expiry.
 
-4.2 Responder accept (delivers kc2)
+5.2 Responder accept (attaches kc2)
 
 POST /v1/dm/handshake/accept
-
 Auth: Required (responder)
 Purpose: Responder attaches key confirmation kc2 to existing session.
 
-4.2.1 Request JSON — AcceptRequest
+5.2.1 Request JSON — AcceptRequest
 {
-  "sessionId": "11223344",
-  "responderDeviceId": "bbbbbbbbbbbbbbbb",
+  "sessionId": "1122334455667788",
+  "responderDeviceId": "bbbbbbbb...<hex32>",
   "kc2": "<b64url32>"
 }
-4.2.2 Server validation (MUST)
+
+5.2.2 Server validation (MUST)
 
 responderDeviceId MUST equal authenticated responder device.
 
-Session must exist in DB with:
+Session MUST exist with:
 
-same sessionId
+same sessionId,
 
-same responder device
+same responder device,
 
-state PENDING
+state PENDING.
 
-If session already ACTIVE, accept is idempotent only if kc2 matches stored value exactly; otherwise reject.
+Idempotency:
 
-OTP consumption rules:
+If session already ACTIVE, accept is idempotent only if kc2 matches stored value exactly.
 
-If the session offer references usedOneTimePrekeyId, server MUST transition OTP:
+If mismatch: C6P.HANDSHAKE.STATE_VIOLATION or C6P.WIRE.INVALID_ENVELOPE (choose one and keep consistent).
 
-from PENDING_CONSUMPTION -> CONSUMED
+OTP consumption (atomic):
 
-This must happen atomically with storing accept record.
+If offer references usedOneTimePrekeyId, server MUST transition OTP:
 
-Server MUST ensure OTP cannot be used in any other session once consumed.
+PENDING_CONSUMPTION -> CONSUMED
 
-4.2.3 Response JSON — AcceptResponse
-{
-  "ok": true
-}
+This MUST be atomic with storing the accept record.
 
-5. Delivery (Polling / WS)
+5.2.3 Response JSON — AcceptResponse
+{ "ok": true }
 
-Implementations may deliver offer/accept via:
+6. Delivery (Polling / WS)
 
-WebSocket push
+Offer and accept may be delivered via WebSocket push, long-poll, or notification+pull.
+Payloads MUST remain identical regardless of transport.
 
-Long-poll
-
-Notification + pull
-
-The wire payload MUST remain identical.
-
-5.1 Responder incoming offer payload
+6.1 Responder incoming offer payload
 {
   "type": "dm.handshake.offer.v1",
-  "offer": { ...handshakeOffer... },
+  "offer": { "...": "handshakeOffer" },
   "peerUserId": 111,
-  "createdAt": "2025-12-31T12:34:56.000Z"
+  "createdAt": "2026-01-03T12:34:56.000Z"
 }
 
-5.2 Initiator incoming accept payload
+6.2 Initiator incoming accept payload
 {
   "type": "dm.handshake.accept.v1",
-  "sessionId": "11223344",
-  "responderDeviceId": "bbbbbbbbbbbbbbbb",
+  "sessionId": "1122334455667788",
+  "responderDeviceId": "bbbbbbbb...<hex32>",
   "kc2": "<b64url32>",
-  "createdAt": "2025-12-31T12:35:40.000Z"
+  "createdAt": "2026-01-03T12:35:40.000Z"
 }
 
 
 Delivery rules:
 
-Server MUST only deliver offer to responder user/device.
+Server MUST only deliver the offer to the responder user/device.
 
-Server MUST only deliver accept to the original initiator device.
+Server MUST only deliver the accept to the original initiator device.
 
-Payloads MUST be replay-safe at the client:
+Client MUST treat accept as valid only if it matches a local PENDING session state.
 
-client treats accept as valid only if it matches a local PENDING session state.
+7. Error Handling (Canonical Mapping)
 
-6. Client-Side Strict Validation Checklist
-6.1 Initiator (on creating offer)
+All server error responses for this module MUST use canonical registry codes from:
 
-Initiator MUST:
+docs/crypto/c6p-error-codes.md
 
-ensure local auth deviceId matches offer.initiatorDeviceId
+7.1 Error response shape (server)
 
-ensure sessionId is freshly generated and not reused
-
-validate bundle signature before computing secrets
-
-compute transcriptHash exactly per spec
-
-compute kc1 and include in offer
-
-sign offer with Ed25519 and include signature
-
-store session locally as PENDING
-
-6.2 Responder (on receiving offer)
-
-Responder MUST:
-
-Validate JSON schema + encoding + lengths.
-
-Check responderDeviceId matches local device.
-
-Load appropriate SPK private:
-
-must match usedSignedPrekeyId and pub must match usedSignedPrekeyPublicKeyX25519
-
-supports rotation window if implemented, else reject.
-
-If OTP id present:
-
-load OTP private by id; if missing => reject
-
-Recompute transcriptHash and compare with offer.transcriptHash (constant-time compare).
-
-Verify initiator Ed25519 signature.
-
-Verify kc1.
-
-Derive session keys and store as ACTIVE.
-
-Consume OTP locally after successful session creation.
-
-Send accept with kc2.
-
-6.3 Initiator (on receiving accept)
-
-Initiator MUST:
-
-locate local PENDING session by sessionId
-
-verify kc2
-
-only then mark local state ACTIVE
-
-7. Error Taxonomy (Auditor-grade)
-7.1 Server error response shape
-
-Servers MUST return:
 
 {
   "ok": false,
-  "code": "C6P_…",
-  "message": "human readable (non-sensitive)",
-  "requestId": "…"
+  "errorCode": "C6P.WIRE.INVALID_ENVELOPE",
+  "message": "Invalid request.",
+  "retry": "NO_RETRY",
+  "traceId": "t-7c9e..."
 }
 
-7.2 Canonical error codes
 
-C6P_BAD_REQUEST — malformed JSON, missing field
+Rules:
 
-C6P_BAD_ENCODING — invalid hex/b64url or wrong length
+errorCode REQUIRED.
 
-C6P_UNAUTHORIZED — missing/invalid auth
+traceId REQUIRED on backend.
 
-C6P_FORBIDDEN — deviceId mismatch vs auth
+message MUST be non-sensitive and MUST NOT reveal cryptographic correctness (kc/signature validity).
 
-C6P_PEER_NOT_FOUND — peer user/device unknown
+7.2 Suggested HTTP status mapping (non-normative)
 
-C6P_PREKEY_NOT_FOUND — referenced SPK/OTP missing
+400: invalid input / decode / non-canonical (C6P.ENC.*, C6P.WIRE.*)
 
-C6P_OTP_NOT_RESERVED — OTP id not reserved for this flow
+409: state conflict (C6P.HANDSHAKE.STATE_VIOLATION, C6P.RATCHET.*)
 
-C6P_SESSION_REPLAY — duplicate sessionId tuple
+422: semantically invalid but well-formed (rare here; generally keep fail-closed with safe text)
 
-C6P_STATE_CONFLICT — accept/open invalid for current state
-
-C6P_RATE_LIMIT — throttled
-
-No sensitive leakage rule:
-Server MUST NOT reveal whether kc1/kc2/signature were “cryptographically correct”.
+500: internal invariant (C6P.INVAR.*, store atomicity violations)
 
 8. Storage & TTL (Server Invariants)
-8.1 dm_sessions row invariants (conceptual)
+8.1 DM session record (conceptual)
 
 A DM session record MUST store:
 
@@ -454,7 +468,7 @@ state enum
 
 createdAt, updatedAt, expiresAt
 
-referenced OTP id (nullable)
+referenced otpId (nullable)
 
 8.2 Expiry rules
 
@@ -462,21 +476,58 @@ Offers MUST have TTL (e.g., 7 days) after which state becomes EXPIRED.
 
 Reserved OTPs MUST have reservation TTL.
 
-If session expires before accept, server MAY recycle OTP only after reservation TTL elapses.
+If session expires before accept, server MAY recycle the reserved OTP only after reservation TTL elapses.
 
-If accept stored, OTP MUST be permanently consumed.
+If accept stored, OTP MUST be permanently CONSUMED.
 
-9. Privacy / Metadata Minimization (Wire-Level)
+9. Client-Side Strict Validation Checklist (Normative)
+9.1 Initiator (creating offer)
 
-IslandAccord v1 wire minimizes metadata by:
+Initiator MUST:
 
-Not sending phone numbers / emails in handshake.
+ensure local auth deviceId matches offer.initiatorDeviceId
 
-Using device-scoped identifiers and ephemeral sessionId.
+ensure sessionId is freshly generated and never reused
 
-Keeping offer payload free of UI/extra profile fields.
+validate bundle SPK signature before computing secrets
 
-For delivery, server SHOULD avoid including peer full profile; client can fetch profile separately.
+compute transcriptHash exactly per island-accord-crypto.md
+
+compute kc1 and include it in offer
+
+sign offer and include signature
+
+store local session as PENDING
+
+9.2 Responder (receiving offer)
+
+Responder MUST:
+
+validate JSON schema + encoding + lengths
+
+ensure offer.responderDeviceId equals local deviceId
+
+load SPK private by usedSignedPrekeyId (rotation window if supported)
+
+if OTP present: load OTP private by id; if missing → abort
+
+recompute transcriptHash; compare constant-time to offer.transcriptHash
+
+verify initiator Ed25519 signature
+
+verify kc1
+
+derive session keys; store local state; send accept with kc2
+
+9.3 Initiator (receiving accept)
+
+Initiator MUST:
+
+locate local PENDING session by sessionId
+
+verify kc2
+
+only then mark local state ACTIVE
 
 10. Audit Notes (what auditors will try to break)
 
@@ -484,28 +535,24 @@ Auditors will test:
 
 wrong length base64url fields
 
-uppercase hex
+uppercase hex or wrong-length hex
 
 padding in base64url
 
-signature and kc mismatch paths (must fail-closed)
+replay of sessionId tuple
 
-replay of sessionId
-
-OTP race: two initiators fetching bundle concurrently
-
-SPK rotation edge cases
+OTP race: concurrent bundle fetches
 
 accept idempotency correctness
 
 authorization bypass (deviceId mismatch)
 
-metadata leakage (error messages, logs)
+metadata leakage via errors/logs
 
 Implementations MUST demonstrate:
 
 unit tests for all validation branches
 
-property-based tests for encoding/decoding
+property tests for encoding/decoding strictness
 
-state machine tests for open/accept/expire/replay
+state-machine tests for open/accept/expire/replay
