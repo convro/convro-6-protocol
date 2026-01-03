@@ -1,376 +1,670 @@
-# docs/handshake/island-accord-observability.md
-**IslandAccord v1 — Observability & Audit Telemetry (Canonical)**  
-Status: **PRODUCTION / NORMATIVE**  
-Scope: Node backend + Rust core + (optional) Swift client logging hooks  
-Goal: audytowalność, SLO, forensics — **bez wycieków metadanych**.
+# IslandAccord v1 — Observability & Security Telemetry (island-accord-observability.md)
+
+**Status:** PRODUCTION / CANONICAL (Normative)  
+**Handshake family:** IslandAccord v1  
+**Scope:** Handshake + server state pipeline observability, security telemetry, structured event schema, logging privacy rules, metrics, tracing, and alerting guidance.  
+**Applies to:** Node backend, Rust core (reference), Swift client, and any service handling IslandAccord offers/accepts or OTP reservation/consumption.  
+**Aligned with (normative pointers):**
+- `docs/crypto/c6p-crypto-error-codes.md` (canonical error registry, severity, retry policy)
+- `docs/handshake/island-accord-wire.md` (wire validation + endpoint behavior)
+- `docs/handshake/island-accord-state-machine.md` (server session states + OTP lifecycle)
+- `docs/crypto/c6p-crypto-registry.md` (IDs, lengths, suite IDs, message types, stream IDs)
+- `docs/crypto/c6p-aead-and-aad.md` (session binding concept + AAD fields; never log keys/nonces)
+
+This document is **normative**. Implementations MUST follow it exactly. Any deviation MUST be treated as a security and audit risk.
 
 ---
 
-## 0) Design Principles (MUST)
-
-1) **No secret material in logs.**  
-   Logs/metrics/traces **MUST NOT** contain: private keys, shared secrets, chain/root keys, plaintext, message keys, nonces, transcript hashes, or raw public keys.
-
-2) **Metadata-minimized.**  
-   Prefer *event types + coarse counts* over identifiers. Jeśli identyfikator jest konieczny do korelacji, używamy **opaque correlation ids**.
-
-3) **Stable semantics.**  
-   Nazwy eventów, pól i kodów błędów są stabilne (to też kontrakt audytowy).
-
-4) **Correlation without deanonymization.**  
-   Korelacja między usługami i etapami handshake odbywa się przez:
-   - `requestId` (per HTTP request)
-   - `flowId` (per IslandAccord attempt)
-   - `sessionTag` (opaque, HMAC-based tag — nie sessionId)
-
-5) **Fail-closed diagnostics.**  
-   Debug-only detale istnieją, ale **nie w produkcji**.
-
----
-
-## 1) Identifiers & Correlation (Canonical)
-
-### 1.1 requestId (MUST)
-- Generowany per request na backendzie (uuidv4 lub 128-bit random).  
-- Zwracany do klienta tylko w headerze lub polu w JSON (jeśli wspólnie uzgodnione).  
-- **MUST** być logowany w każdym evencie dot. requestu.
-
-**Header (recommended):**
-- Request in: `X-Request-Id` (accept if provided; otherwise generate)
-- Response out: `X-Request-Id`
-
-### 1.2 flowId (MUST)
-- Generowany przy `open()` (pierwszy request inicjatora) i przenoszony w ramach state machine.  
-- **Nie jest** sessionId.  
-- 128-bit random, base64url.
-
-### 1.3 sessionTag (MUST)
-Zamiast logowania `sessionId` wprost, logujemy `sessionTag`:
-
-- `sessionTag = base64url( HMAC-SHA256(server_observability_key, "IA1" || sessionId || responderDeviceId || initiatorDeviceId) )[0..16]`
-- Truncation: 16 bytes output (128-bit tag).
-- `server_observability_key` **MUST** być rotowany i trzymany tylko po stronie serwera.
-- Dzięki temu audytor ma korelację zdarzeń handshake, ale **bez ujawnienia** realnych ID.
-
-> Jeśli audyt wymaga “bridge” do realnego sessionId — robimy to **tylko** w offline forensics, w kontrolowanym narzędziu, nie w runtime logach.
-
----
-
-## 2) Event Model (Structured Logs)
-
-### 2.1 Log format (MUST)
-JSON structured logs.
-
-Minimalny szkielet:
-
-
-{
-  "ts": "2025-12-31T21:37:12.123Z",
-  "level": "INFO",
-  "service": "convro-backend",
-  "component": "island-accord",
-  "event": "IA_OPEN_ACCEPTED",
-  "requestId": "…",
-  "flowId": "…",
-  "sessionTag": "…",
-  "result": "ok",
-  "code": null,
-  "latencyMs": 42
-}
-
-2.2 Fields (Canonical)
-
-ts (RFC3339 UTC) MUST
-
-level (DEBUG|INFO|WARN|ERROR) MUST
-
-service MUST
-
-component = "island-accord" MUST
-
-event (lista poniżej) MUST
-
-requestId MUST
-
-flowId MUST (od momentu open)
-
-sessionTag MUST (od momentu posiadania sessionId na backendzie)
-
-result = ok|fail MUST
-
-code = error code z cs/handshake/island-accord-error-codes.md (gdy fail)
-
-latencyMs (int) SHOULD
-
-route (np. /v1/dm/sessions/open) SHOULD
-
-actor = initiator|responder|server SHOULD
-
-peerClass = dm SHOULD (pod przyszłe rozszerzenia)
-
-2.3 MUST NOT fields
-
-IP, UA, geolokacja
-
-peerUserId/initiatorUserId/responderUserId wprost (jeśli wymagane — patrz §5)
-
-deviceId wprost
-
-sessionId wprost
-
-otpId/spkId wprost
-
-public keys / sig / transcriptHash
-
-payload snippets
-
-3) Canonical Event Catalog
-3.1 Prekeys
-
-IA_PREKEYS_STATUS_OK
-
-IA_PREKEYS_UPLOAD_OK
-
-IA_PREKEYS_UPLOAD_FAIL (code)
-
-IA_BUNDLE_FETCH_OK
-
-IA_BUNDLE_FETCH_FAIL (code)
-
-IA_OTP_RESERVED (tylko fakt rezerwacji; bez otpId)
-
-IA_OTP_RESERVE_FAIL (code)
-
-3.2 Open (initiator)
-
-IA_OPEN_REQUESTED
-
-IA_OPEN_VALIDATED
-
-IA_OPEN_ACCEPTED (PENDING created / idempotent success)
-
-IA_OPEN_FAIL (code)
-
-IA_OPEN_IDEMPOTENT_HIT
-
-3.3 Accept (responder)
-
-IA_ACCEPT_REQUESTED
-
-IA_ACCEPT_VALIDATED
-
-IA_ACCEPT_COMMITTED (ACTIVE)
-
-IA_ACCEPT_FAIL (code)
-
-IA_ACCEPT_IDEMPOTENT_HIT
-
-3.4 State transitions (server authoritative)
-
-IA_STATE_PENDING_CREATED
-
-IA_STATE_ACTIVE
-
-IA_STATE_EXPIRED
-
-IA_STATE_REJECTED (jeśli istnieje)
-
-IA_STATE_CONFLICT (MUST map to C6P_STATE_CONFLICT)
-
-3.5 Security signals (MUST log as WARN)
-
-IA_SIG_SUSPICIOUS_REPLAY (duplicate offer but different payload)
-
-IA_SIG_DEVICE_MISMATCH
-
-IA_SIG_SPK_MISMATCH (stale bundle / rotation)
-
-IA_SIG_OTP_ANOMALY (invalid OTP state)
-
-4) Metrics (Prometheus-style)
-4.1 Counters (MUST)
-
-ia_open_total{result="ok|fail",code="…"}
-
-ia_accept_total{result="ok|fail",code="…"}
-
-ia_bundle_fetch_total{result="ok|fail",code="…"}
-
-ia_prekeys_upload_total{result="ok|fail",code="…"}
-
-ia_state_transition_total{to="PENDING|ACTIVE|EXPIRED|REJECTED|CONFLICT"}
-
-4.2 Latency histograms (MUST)
-
-ia_open_latency_ms_bucket
-
-ia_accept_latency_ms_bucket
-
-ia_bundle_fetch_latency_ms_bucket
-
-Buckets: 5,10,25,50,100,250,500,1000,2500,5000ms.
-
-4.3 Gauges (SHOULD)
-
-ia_pending_sessions (current PENDING count)
-
-ia_otp_available (from status; coarse)
-
-ia_otp_reservation_pressure (ratio)
-
-5) Minimal Metadata Strategy (User/Device exposure)
-
-Audytorzy często chcą “czy możemy zdiagnozować komu nie działa”. Robimy to tak:
-
-5.1 Pseudonymous actorTag (OPTIONAL, controlled)
-
-Jeśli musisz przypisać zdarzenie do konta w runtime, nie logujesz userId — logujesz:
-
-actorTag = base64url( HMAC-SHA256(server_observability_key_2, "ACT" || userId) )[0..16]
-
-deviceTag = base64url( HMAC-SHA256(server_observability_key_2, "DEV" || deviceId) )[0..16]
-
-MUST: inne klucze niż sessionTag key, rotowane.
-
-5.2 When allowed
-
-Tylko na środowiskach production z polityką privacy approved.
-
-W logach INFO tylko actorTag; pełne mapowanie offline.
-
-5.3 When forbidden
-
-W trybie high-privacy: w ogóle bez actorTag, tylko flowId/sessionTag.
-
-6) Tracing (OpenTelemetry)
-6.1 Spans (SHOULD)
-
-islandaccord.open
-
-islandaccord.accept
-
-islandaccord.bundle_fetch
-
-islandaccord.prekeys_upload
-
-6.2 Span attributes (MUST NOT leak)
+## 0. Principles (Non-Negotiable)
+
+### 0.1 Fail-Closed, But Observable
+Any handshake validation failure, invariant failure, or state machine violation MUST:
+- reject the operation (fail-closed)
+- emit a **structured** security/telemetry event with a canonical error code
+- avoid leaking secrets or sensitive correlation data
+
+### 0.2 No Secret Leakage (Hard Rule)
+Telemetry and logs MUST NOT include:
+- private keys, DH outputs (`DH1..DH4`), `IKM`, `PRK`, `root_key`, chain keys, message keys
+- plaintext, ciphertext, tags, derived nonces, derived AAD bytes
+- raw transcript bytes
+- raw base64 key blobs from offers/bundles (store fingerprints only if needed)
+- any “why signature failed” oracle detail beyond canonical error code + stage
 
 Allowed:
+- canonical error code (e.g., `C6P.HANDSHAKE.KEY_CONFIRMATION_FAILED`)
+- endpoint + stage + module + severity + retry policy
+- fixed-size public identifiers already visible at that stage:
+  - `session_id` (8 bytes on bytes level; wire hex16)
+  - `device_id` (16 bytes; wire hex32)
+- lengths/format errors (expected vs actual)
+- timestamps and coarse counters
+- opaque `traceId` / `requestId`
 
-flowId, sessionTag, result, code, route
-Forbidden:
+### 0.3 Stable Contracts
+Event names, field names, and canonical error codes are **stable contracts**.  
+Once shipped, they MUST NOT be repurposed.
 
-userId/deviceId/sessionId raw
+### 0.4 Minimal Metadata, Privacy-First
+Operators need enough signal to detect abuse and regressions without collecting personal data.  
+Telemetry MUST be metadata-minimal and SHOULD support privacy-preserving aggregation.
 
-keys, payloads, OTP/SPK ids
+---
 
-6.3 Sampling
+## 1. Canonical Identifiers & Sizes (Normative)
 
-Default: 1–5% traces
+These definitions are authoritative for observability payloads (must match Registry).
 
-100% sampling for WARN/ERROR flows (security signals) but still sanitized.
+- `C6PDeviceId`:
+  - canonical bytes: **16 bytes**
+  - wire encoding: **hex32 lowercase**
+- `C6PSessionId`:
+  - canonical bytes: **8 bytes**
+  - wire encoding: **hex16 lowercase**
+- `C6PKeyId` (SPK/OTP id):
+  - canonical bytes: **8 bytes**
+  - wire encoding: **hex16 lowercase**
+- `suite_id`: u8
+  - production default: `0x01` (ChaCha20-Poly1305)
 
-7) SLO / Alerting (Auditor-ready)
-7.1 SLOs (recommended)
+**Hard rule:** Any telemetry that includes IDs MUST encode them in the same canonical wire form (hex lowercase, fixed-length).
 
-open success rate ≥ 99.5% (rolling 7d)
+---
 
-accept success rate ≥ 99.5%
+## 2. Where Observability Lives (Normative)
 
-p95 open latency ≤ 250ms
+IslandAccord has three observation surfaces:
 
-p95 accept latency ≤ 250ms
+### 2.1 Server (Authoritative for state + OTP scarcity)
+Server MUST emit events for:
+- OTP reservation/expiry/consumption
+- session creation (`open()`), accept, reject/cancel/expire/abort
+- state conflicts, replays, rate limits, and authorization violations
+- wire validation failures
 
-bundle fetch p95 ≤ 200ms
+Server MUST NOT emit events that depend on verifying cryptographic correctness of the handshake beyond:
+- strict decoding/format checks
+- DB invariants / state transitions
 
-7.2 Alerts (MUST)
+### 2.2 Client (Authoritative for cryptographic acceptance)
+Clients SHOULD emit local events for:
+- SPK signature verification result
+- transcript recompute mismatch
+- initiator signature verification result
+- key confirmation verification result
+- local store errors (atomicity, corruption)
+- ratchet init success/fail (but never secrets)
 
-Spike C6P_STATE_CONFLICT > baseline
+### 2.3 Rust Core (Reference)
+Rust reference implementation SHOULD expose:
+- deterministic test vector checks
+- strict parser errors mapped to canonical error codes
+- internal invariant failures (`C6P.INVAR.*`)
 
-Spike C6P_PREKEY_SPK_MISMATCH (rotation storms / cache issues / abuse)
+---
 
-Spike C6P_RATE_LIMIT
+## 3. Canonical Event Naming (Normative)
 
-Drop in ia_otp_available below threshold
+Event names MUST be dot-separated and versioned:
 
-8) Audit Logs vs Operational Logs
-8.1 Operational logs (default)
+- Prefix: `c6p.ia.v1.*` for IslandAccord v1
+- Prefix: `c6p.crypto.v1.*` for cross-cutting crypto errors (optional)
 
-Short retention (7–30d)
+Examples:
+- `c6p.ia.v1.session.open`
+- `c6p.ia.v1.session.accept`
+- `c6p.ia.v1.otp.reserved`
+- `c6p.ia.v1.error`
+- `c6p.ia.v1.security.violation`
 
-Sanitized as per this document
+**Hard rule:** Event names MUST NOT be changed once used in production dashboards/alerts.
 
-8.2 Audit logs (optional, stricter control)
+---
 
-Separate sink (append-only)
+## 4. Structured Event Envelope (Normative)
 
-Includes: event, requestId, flowId, sessionTag, code, timestamp
+All telemetry records MUST conform to this envelope shape.
 
-No actorTag unless explicitly allowed
+### 4.1 Envelope Fields (Required)
+```json
+{
+  "event": "c6p.ia.v1.session.open",
+  "ts": "2026-01-03T14:59:12.123Z",
+  "build": "prod",
+  "component": "server",
+  "module": "handshake/open",
+  "stage": "validate",
+  "traceId": "t-5e8b4c2d0f6a",
+  "requestId": "r-9d0a3f",
+  "severity": "INFO"
+}
+```
 
-Retention 90–180d (policy)
 
-9) Client-side Observability (Swift/Rust)
-9.1 Client events (SHOULD)
 
-Client może logować lokalnie:
 
-IA_CLIENT_PHASE_CHANGE (starting → ensuringPrekeys → fetchingBundle → open → pending → active)
 
-IA_CLIENT_RETRY_SCHEDULED (backoff class)
 
-IA_CLIENT_ERROR (mapped code)
+Field rules:
 
-MUST NOT: plaintext, keys, raw identifiers.
-Client logs mogą zawierać: flowId (jeśli znane), requestId z odpowiedzi.
+event (string, required)
 
-9.2 Crash / bug reports
+ts (RFC3339, required)
 
-Sanitized payloads only
+build ∈ {prod, staging, test} (required)
 
-No raw deviceId/sessionId
+component ∈ {server, client, rust} (required)
 
-10) Operational Playbooks (Minimal)
-10.1 “Open failing”
+module (string, required): stable path-like identifier
 
-Check:
+stage (string, required): e.g. decode, validate, state, store, crypto_verify, deliver
 
-ia_open_total{result="fail"} by code
+traceId (string, required on server; SHOULD on clients)
 
-If C6P_PREKEY_*: look at ia_bundle_fetch_total, SPK rotation frequency
+requestId (string, required on server)
 
-If C6P_AUTH_*: token refresh failures upstream
+severity ∈ {INFO, WARN, ERROR, SECURITY} (required)
 
-If C6P_RATE_*: abuse or too strict limits
+4.2 Optional Common Fields (Allowed)
 
-10.2 “Accept failing”
+sessionId (hex16) if known
 
-Check:
+initiatorDeviceId (hex32) if known and authorized
 
-C6P_STATE_NOT_FOUND / C6P_STATE_EXPIRED: delivery delays, TTL too low
+responderDeviceId (hex32) if known and authorized
 
-C6P_PREKEY_OTP_*: reservation/consumption state bugs
+suiteId (u8) if present
 
-10.3 “Conflict detected”
+otpId (hex16) if present
 
-Treat as security signal
+http object (method, path, status)
 
-Increase sampling
+net object (transport: http/ws, client version)
 
-Trigger incident workflow
+expectedLength, actualLength (numbers)
 
-11) Compliance Checklist (MUST PASS)
+retryPolicy ∈ {NO_RETRY, RETRY_SAFE, RETRY_AFTER_SYNC, RETRY_AFTER_ROTATION}
 
- All IslandAccord endpoints return canonical error envelope.
+Hard rule: Never add arbitrary free-form debug dumps to production telemetry.
 
- All logs structured JSON + sanitized.
+5. Privacy-Preserving Identifiers (Normative)
+5.1 When to Hash Identifiers
 
- sessionTag implemented and used instead of sessionId.
+By default, sessionId may be logged (it is short-lived and protocol-scoped).
+deviceId MAY be logged in server internal logs only if your privacy policy permits and access is restricted.
 
- No raw keys / ids / OTP ids in logs.
+For analytics/dashboards and long-term retention, implementations SHOULD use hashed identifiers.
 
- Metrics present for open/accept/bundle/status/upload.
+5.2 Canonical Hashing Method (Recommended)
 
- Alerts defined for conflict, spk mismatch spikes, OTP depletion.
+To prevent cross-system correlation, use a server-secret keyed hash:
 
- Tracing sanitized; sampling configured.
+deviceId_hash = HMAC-SHA256(LOG_KEY, deviceId_bytes)
+
+sessionId_hash = HMAC-SHA256(LOG_KEY, sessionId_bytes)
+
+Output encoding:
+
+base64url (no padding) or hex lowercase (pick one and stay consistent across telemetry)
+
+Hard rule: Never use raw SHA-256 without a secret key for long-term identifiers (enables offline correlation).
+
+6. Canonical Error Event (Normative)
+
+All failures MUST emit exactly one canonical error event:
+
+6.1 c6p.ia.v1.error
+{
+  "event": "c6p.ia.v1.error",
+  "ts": "2026-01-03T14:59:12.123Z",
+  "build": "prod",
+  "component": "server",
+  "module": "handshake/open",
+  "stage": "decode",
+  "traceId": "t-5e8b4c2d0f6a",
+  "requestId": "r-9d0a3f",
+  "severity": "WARN",
+  "error": {
+    "code": "C6P.ENC.INVALID_B64URL",
+    "retryPolicy": "NO_RETRY",
+    "field": "handshakeOffer.initiatorIdentityDhPub",
+    "expectedLength": 32,
+    "actualLength": 31
+  },
+  "context": {
+    "sessionId": "0011223344556677",
+    "initiatorDeviceId": "0123456789abcdef0123456789abcdef",
+    "responderDeviceId": "fedcba9876543210fedcba9876543210",
+    "suiteId": 1
+  }
+}
+
+
+Rules:
+
+error.code MUST be one from docs/crypto/c6p-crypto-error-codes.md
+
+severity MUST match the registry entry for that code
+
+retryPolicy MUST match the registry entry for that code
+
+field SHOULD be included when meaningful
+
+length fields MUST be included when relevant
+
+Hard rule: Do not emit multiple error events for the same failing request path (avoid alert amplification).
+
+7. Canonical Security Violation Event (Normative)
+
+Some failures indicate active abuse or severe state corruption.
+
+7.1 c6p.ia.v1.security.violation
+
+Use this ONLY for severity=SECURITY errors and invariants like replay or OTP abuse.
+
+{
+  "event": "c6p.ia.v1.security.violation",
+  "ts": "2026-01-03T14:59:12.123Z",
+  "build": "prod",
+  "component": "server",
+  "module": "handshake/open",
+  "stage": "state",
+  "traceId": "t-5e8b4c2d0f6a",
+  "requestId": "r-9d0a3f",
+  "severity": "SECURITY",
+  "error": {
+    "code": "C6P.HANDSHAKE.REPLAYED_OFFER",
+    "retryPolicy": "NO_RETRY"
+  },
+  "context": {
+    "sessionId": "0011223344556677",
+    "initiatorDeviceId": "0123456789abcdef0123456789abcdef",
+    "responderDeviceId": "fedcba9876543210fedcba9876543210",
+    "suiteId": 1,
+    "reason": "duplicate_session_tuple"
+  }
+}
+
+
+Hard rule: Never include “this signature failed” vs “KC failed” differential hints in server responses.
+Server may log the canonical code internally, but HTTP responses MUST remain non-oracular.
+
+8. Required Server Events (Normative)
+
+Server MUST emit these events when the corresponding transition occurs.
+
+8.1 Session lifecycle
+8.1.1 c6p.ia.v1.session.open
+
+Emitted after open() passes validation and the DB transaction commits.
+
+Required fields:
+
+sessionId
+
+initiatorDeviceId (or hashed form)
+
+responderDeviceId (or hashed form)
+
+suiteId
+
+state = PENDING
+
+expiresAt
+
+optional otpId if referenced in offer
+
+Example:
+
+{
+  "event": "c6p.ia.v1.session.open",
+  "ts": "2026-01-03T15:02:11.002Z",
+  "build": "prod",
+  "component": "server",
+  "module": "handshake/open",
+  "stage": "store",
+  "traceId": "t-acde1",
+  "requestId": "r-acde1",
+  "severity": "INFO",
+  "context": {
+    "sessionId": "0011223344556677",
+    "initiatorDeviceId": "0123456789abcdef0123456789abcdef",
+    "responderDeviceId": "fedcba9876543210fedcba9876543210",
+    "suiteId": 1,
+    "state": "PENDING",
+    "expiresAt": "2026-01-10T15:02:11.002Z",
+    "otpId": "aabbccddeeff0011"
+  }
+}
+
+8.1.2 c6p.ia.v1.session.accept
+
+Emitted after accept() commits (session -> ACTIVE) and any OTP consumption is committed.
+
+Required fields:
+
+sessionId
+
+responderDeviceId
+
+state = ACTIVE
+
+otpConsumed boolean
+
+if otpConsumed=true, include otpId
+
+8.1.3 c6p.ia.v1.session.reject (if endpoint exists)
+
+Required fields:
+
+sessionId, responderDeviceId, state=REJECTED
+
+reasonCode (u8 or short string; non-sensitive)
+
+8.1.4 c6p.ia.v1.session.cancel (if endpoint exists)
+
+Required fields:
+
+sessionId, initiatorDeviceId, state=CANCELLED
+
+8.1.5 c6p.ia.v1.session.expire
+
+Emitted when the scheduler (or on-read enforcement) transitions PENDING -> EXPIRED.
+
+Required fields:
+
+sessionId, state=EXPIRED
+
+expiredAt
+
+8.1.6 c6p.ia.v1.session.abort
+
+Required fields:
+
+sessionId, state=ABORTED
+
+policyReason (non-sensitive)
+
+8.2 OTP lifecycle
+8.2.1 c6p.ia.v1.otp.reserved
+
+Emitted when bundle fetch reserves an OTP (AVAILABLE -> RESERVED).
+
+Required fields:
+
+responderDeviceId
+
+otpId
+
+expiresAt
+
+optional reservedForInitiatorDeviceId or reservationToken (if implemented)
+
+8.2.2 c6p.ia.v1.otp.pending_consumption
+
+Emitted when open() links OTP to a session (RESERVED -> PENDING_CONSUMPTION).
+
+Required fields:
+
+responderDeviceId
+
+otpId
+
+sessionId
+
+optional initiatorDeviceId (or hash)
+
+8.2.3 c6p.ia.v1.otp.consumed
+
+Emitted when accept consumes OTP (PENDING_CONSUMPTION -> CONSUMED).
+
+Required fields:
+
+responderDeviceId
+
+otpId
+
+sessionId
+
+consumedAt
+
+8.2.4 c6p.ia.v1.otp.expired
+
+Emitted when reservation TTL elapses without linking to a session (RESERVED -> EXPIRED).
+
+Required fields:
+
+responderDeviceId
+
+otpId
+
+expiredAt
+
+Hard rule: OTP events MUST NOT include OTP public key bytes.
+
+9. Client Cryptographic Acceptance Events (Recommended)
+
+Clients SHOULD emit local events to support debugging without server-side oracles.
+
+9.1 c6p.ia.v1.client.offer.verify
+
+Emitted when responder verifies offer.
+
+Fields:
+
+sessionId, initiatorDeviceId, responderDeviceId, suiteId
+
+result: ok | fail
+
+on failure: canonical error.code (e.g., C6P.KEYS.INVALID_SIGNATURE, C6P.KDF.TRANSCRIPT_HASH_MISMATCH, C6P.HANDSHAKE.KEY_CONFIRMATION_FAILED)
+
+Hard rule: Clients MUST NOT log DH outputs or derived keys.
+
+9.2 c6p.ia.v1.client.accept.verify
+
+Emitted when initiator verifies kc2.
+
+Fields:
+
+sessionId, responderDeviceId, result
+
+on failure: C6P.HANDSHAKE.KEY_CONFIRMATION_FAILED
+
+9.3 Store integrity
+
+Clients SHOULD emit:
+
+c6p.ia.v1.client.store.write_failed -> C6P.STORE.WRITE_FAILED
+
+c6p.ia.v1.client.store.atomicity_violation -> C6P.STORE.ATOMICITY_VIOLATION
+
+c6p.ia.v1.client.store.state_corrupt -> C6P.RATCHET.STATE_CORRUPT or C6P.KEYS.KEY_STATE_INVALID
+
+10. Metrics (Normative for Server, Recommended for Clients)
+10.1 Required server counters
+
+Server MUST expose counters:
+
+ia_open_total{result=ok|fail, code?}
+
+ia_accept_total{result=ok|fail, code?}
+
+ia_bundle_total{otp=reserved|none, result=ok|fail, code?}
+
+ia_session_state_total{state} (gauge)
+
+ia_otp_state_total{state} (gauge)
+
+10.2 Latency histograms
+
+Server SHOULD expose:
+
+ia_open_latency_ms
+
+ia_accept_latency_ms
+
+ia_bundle_latency_ms
+
+ia_db_tx_latency_ms{tx=open|accept|bundle}
+
+10.3 High-signal security rates
+
+Server SHOULD track rates:
+
+ia_security_violation_total{code}
+
+ia_replay_total
+
+ia_otp_abuse_total (e.g., invalid reservation binding attempts)
+
+ia_rate_limit_total{scope=device|peer|ip}
+
+Hard rule: Metrics labels MUST NOT include raw device IDs (high cardinality). Use hashed buckets or omit.
+
+11. Tracing (Normative for Server)
+11.1 Trace propagation
+
+Server MUST propagate:
+
+traceId across HTTP handlers, DB transactions, and WS delivery pipeline
+
+requestId per inbound request
+
+if WS: include deliveryId for each pushed payload
+
+11.2 Trace spans (recommended)
+
+Recommended spans:
+
+ia.bundle.validate
+
+ia.bundle.reserve_otp
+
+ia.open.validate
+
+ia.open.persist_session
+
+ia.open.link_otp
+
+ia.accept.validate
+
+ia.accept.persist_accept
+
+ia.accept.consume_otp
+
+ia.deliver.offer
+
+ia.deliver.accept
+
+12. Alerting Rules (Auditor-Facing)
+
+These are recommended alerts; implementations SHOULD adopt them.
+
+12.1 Critical security alerts
+
+spike in C6P.HANDSHAKE.REPLAYED_OFFER
+
+spike in C6P.KEYS.KEY_ALREADY_CONSUMED / C6P.KEYS.KEY_NOT_FOUND for OTP
+
+spike in C6P.AEAD.AUTH_FAILED (post-handshake channel failures; indicates tampering or desync)
+
+repeated C6P.STORE.ATOMICITY_VIOLATION (data corruption)
+
+12.2 Degradation alerts
+
+ia_open_latency_ms p95 increase beyond baseline
+
+ia_db_tx_latency_ms p95 increase
+
+high C6P.STORE.WRITE_FAILED rates
+
+12.3 Abuse/DoS signals
+
+high ia_open_total{result=fail, code=C6P.RATE_LIMIT...} rate (if mapped)
+
+high open attempts per initiatorDeviceId_hash / per target (privacy-preserving)
+
+13. Redaction & Retention (Normative)
+13.1 Redaction
+
+Before shipping logs externally or storing long-term:
+
+prefer hashed IDs (deviceId_hash, sessionId_hash)
+
+drop peerUserId unless strictly necessary
+
+drop any raw request payload copies
+
+13.2 Retention
+
+SECURITY events: retain longer (policy-defined), but still minimal fields
+
+general INFO/WARN: short retention recommended (e.g., 7–30 days)
+
+Hard rule: Never retain any secret material; never store raw offer/accept blobs in logs.
+
+14. Required Mapping to Canonical Error Codes (Normative)
+
+All internal errors MUST map to docs/crypto/c6p-crypto-error-codes.md.
+
+Examples (non-exhaustive):
+
+invalid hex/base64url/length -> C6P.ENC.*
+
+unknown suite/version/type/stream -> C6P.AAD.VERSION_MISMATCH or C6P.AEAD.UNSUPPORTED_SUITE (depending on stage)
+
+session tuple duplicate -> C6P.HANDSHAKE.REPLAYED_OFFER or C6P.WIRE.SESSION_ID_MISMATCH (policy)
+
+OTP not reserved / mismatch -> C6P.HANDSHAKE.OTP_MISSING or C6P.KEYS.KEY_NOT_FOUND (choose one and keep consistent)
+
+illegal transitions -> C6P.HANDSHAKE.STATE_VIOLATION
+
+store failures -> C6P.STORE.*
+
+Hard rule: Do not create new ad-hoc codes outside the registry.
+
+15. Compliance Checklist (Fail-Closed)
+
+Server MUST:
+
+ emit exactly one structured c6p.ia.v1.error on any failure
+
+ emit c6p.ia.v1.security.violation for SECURITY-severity cases
+
+ include traceId + requestId in all server events
+
+ never log secrets, nonces, keys, transcript bytes, or offer blobs
+
+ avoid high-cardinality metrics labels (no raw device IDs)
+
+ emit OTP lifecycle events (reserved/pending/consumed/expired)
+
+ emit session lifecycle events (open/accept/expire/abort, and optional reject/cancel)
+
+Clients SHOULD:
+
+ emit local verify results with canonical error codes
+
+ never log keys/DH/IKM/PRK/root/chain/mk/nonces/AAD bytes
+
+ gate any debug-only crypto traces behind explicit compile/runtime flags (off by default)
+
+Appendix A — Minimal “Operator Safe” Error Response (Server)
+
+Server HTTP error responses MUST remain non-oracular and minimal:
+
+{
+  "ok": false,
+  "errorCode": "C6P.HANDSHAKE.STATE_VIOLATION",
+  "retry": "NO_RETRY",
+  "requestId": "r-9d0a3f"
+}
+
+
+Rules:
+
+no stack traces
+
+no “KC failed” vs “signature failed” distinctions in server responses
+
+detailed cause MAY exist only in server-internal logs under access control, still without secrets
