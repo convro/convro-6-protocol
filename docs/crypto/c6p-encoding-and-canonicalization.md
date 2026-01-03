@@ -311,10 +311,11 @@ fn hex_decode_strict(s: &str, expected_len: usize) -> Result<Vec<u8>, EncErr> {
   // decode pairs...
   Ok(out)
 }
+```
 
+###  A.2 Strict base64url decode (no padding)
 
-A.2 Strict base64url decode (no padding)
-
+```rust
 fn b64url_decode_strict(s: &str, expected_bytes: Option<usize>) -> Result<Vec<u8>, EncErr> {
   if s.contains('=') { return Err(ENC_B64URL_PADDING_NOT_ALLOWED); }
   if s.chars().any(|c| c.is_whitespace()) { return Err(ENC_B64URL_INVALID_CHAR); }
@@ -324,8 +325,10 @@ fn b64url_decode_strict(s: &str, expected_bytes: Option<usize>) -> Result<Vec<u8
   if let Some(n) = expected_bytes { if bytes.len() != n { return Err(ENC_LEN_MISMATCH); } }
   Ok(bytes)
 }
+```
+### A.3 Counter from wire decimal string
 
-A.3 Counter from wire decimal string
+```rust
 fn parse_counter_u64(s: &str) -> Result<u64, EncErr> {
   if s.is_empty() { return Err(ENC_RANGE_INVALID); }
   if s.chars().any(|c| !c.is_ascii_digit()) { return Err(ENC_RANGE_INVALID); }
@@ -333,7 +336,7 @@ fn parse_counter_u64(s: &str) -> Result<u64, EncErr> {
   if v > u64::MAX as u128 { return Err(ENC_RANGE_INVALID); }
   Ok(v as u64)
 }
-
+```
 Appendix B — Canonical Length Quick Reference
 
 device_id_hex: 32 chars → 16 bytes
