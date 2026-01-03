@@ -475,7 +475,7 @@ no blobs (no raw offer/accept payloads), no keys
 
 
 9.3 State conflict (accept called twice with different kc2)
-```json
+
 
 {
   "ok": false,
@@ -486,11 +486,11 @@ no blobs (no raw offer/accept payloads), no keys
   "traceId": "t-0c0ffee"
 }
 
-```
+
 
 
 9.4 Store failure (atomicity)
-```json
+
 
 {
   "ok": false,
@@ -501,7 +501,7 @@ no blobs (no raw offer/accept payloads), no keys
   "traceId": "t-deadbeef"
 }
 
-```
+
 
 
 10. Required Test Coverage (Normative)
