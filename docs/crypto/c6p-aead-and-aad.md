@@ -1,24 +1,21 @@
 # C6P AEAD & AAD (v1)
 
 **Status:** Production / normative  
-**Scope:** AEAD suites, suite-key mapping, deterministic nonce contract, canonical AAD, envelope binding, misuse resistance, fail-closed rules.  
-**Depends on:**  
-- `docs/handshake/island-accord-crypto.md` (canonical session context + device-pair authority)  
-- `docs/crypto/c6p-key-schedule.md` (mk_material derivation + per-message suite key + per-message nonce derivation)  
-- `docs/crypto/c6p-crypto-registry.md` (algorithm IDs, suite IDs, labels)  
+**Scope:** AEAD suites, key/nonce usage rules, canonical AAD construction, envelope binding, and misuse resistance.  
+**Depends on:** `docs/crypto/c6p-key-schedule.md` (derives per-message keys and deterministic nonces).  
+**Aligned with:** `docs/handshake/*` (IslandAccord v1 session binding + device/session identifiers).  
+**Applies to:** DM payload encryption for C6P v1 (and the exact same construction is reused by future group/channel/control envelopes without changing AAD semantics).
 
-**Applies to:** DM envelopes (v1), and any encrypted payload type in C6P v1 (group/channel/control as they ship).
-
-This document is written to be **Signal-grade** in clarity: strict invariants, explicit byte layouts, and fail-closed behavior.
+This document is **normative**: implementations MUST follow it exactly. Any deviation MUST be rejected (fail-closed).
 
 ---
 
-## 0. Goals (Normative)
+## 0. Security Goals (Normative)
 
-1. **Misuse resistance via binding:** integrity MUST cover *protocol + session + device-pair + stream + type + counter + suite*.  
-2. **Deterministic nonce safety:** deterministic nonces are safe only if `(key, nonce)` reuse is cryptographically impossible and state rollback is fail-closed.  
-3. **Suite agility:** one canonical AAD format across suites; only suite-key length and nonce length vary by suite.  
-4. **Auditability:** every byte is specified; no implicit behavior; no “optional” fields in v1.
+1. **Strong binding**: ciphertext authenticity MUST cover *protocol, version, suite, message type, session binding, stream direction, counter*.
+2. **Deterministic nonce safety**: deterministic nonces are permitted ONLY because nonce derivation is injective over the full message context and message keys are per-counter.
+3. **Misuse resistance**: envelope relabeling, splicing across sessions/streams, downgrade and replay MUST be detected and rejected.
+4. **Audit-grade determinism**: AAD bytes are fully specified; no implicit fields; no “implementation-defined” behavior.
 
 ---
 
@@ -26,248 +23,273 @@ This document is written to be **Signal-grade** in clarity: strict invariants, e
 
 C6P v1 supports these suites:
 
-| suite_id | Name | Suite key bytes | Nonce bytes | Tag bytes | Production policy |
-|---:|---|---:|---:|---:|---|
-| 0x01 | ChaCha20-Poly1305 | 32 | 12 | 16 | **MUST** (baseline) |
-| 0x03 | XChaCha20-Poly1305 | 32 | 24 | 16 | MAY |
-| 0x02 | AEGIS-128L | 16 | 16 | 16 | MAY (only if audited/approved) |
+| suite_id | Name | Key bytes | Nonce bytes | Tag bytes |
+|---:|---|---:|---:|---:|
+| 0x01 | ChaCha20-Poly1305 | 32 | 12 | 16 |
+| 0x02 | XChaCha20-Poly1305 | 32 | 24 | 16 |
+| 0x03 | AEGIS-128L | 16 | 16 | 16 |
 
-**Rule:** Unknown `suite_id` MUST be rejected (fail-closed).  
-**Rule:** Tag length MUST be exactly **16 bytes** for all supported suites in v1.
+**Hard rule:** Unknown `suite_id` MUST be rejected.
 
----
-
-## 2. Plaintext / Ciphertext Boundary (Normative)
-
-C6P encrypts an arbitrary byte payload `P` using a per-message suite key and deterministic nonce.
-
-- The crypto layer treats `P` as bytes (UTF-8 text is an application concern).
-- Envelope metadata is **not encrypted**, but is authenticated via AAD.
-
-**Rule:** Any serialization (JSON/protobuf/etc.) MUST happen above this layer.
+**Hard rule:** All suites MUST output a 16-byte authentication tag and MUST be represented as `ciphertext || tag`.
 
 ---
 
-## 3. Key & Nonce Contract (Normative)
+## 2. What Is Encrypted (Normative)
 
-### 3.1 Per-message material
-For each message, the Key Schedule provides:
-- `mk_material` (32 bytes) — unique per `(session, stream, counter, message_type, suite_id)`  
-- `suite_key` — mapped from `mk_material` with suite-specific output length  
-- `nonce` — deterministic with suite-specific length
+The crypto layer encrypts a byte string `P` (plaintext). It does not know or care if `P` is UTF-8 text, protobuf, JSON, etc.
 
-All details of derivation belong to `c6p-key-schedule.md`, but this document imposes the following **hard contract**:
+**Hard rule:** All higher-level serialization MUST occur above this layer.
 
-**Hard rule:** For a given `(session_id, initiator_device_id, responder_device_id, stream_id, counter, message_type, suite_id)` the derived `(suite_key, nonce)` MUST be identical across implementations and languages.
-
-### 3.2 Suite-key mapping requirement (no implementation-defined behavior)
-If a suite uses fewer than 32 key bytes (e.g., AEGIS-128L = 16B), the mapping from `mk_material` MUST be defined by Key Schedule using explicit KDF labels and output sizes (NOT “truncate by convention”).
-
-**Hard rule:** `suite_key_len(suite_id)` MUST be:
-- 32 for 0x01, 0x03
-- 16 for 0x02
-
-### 3.3 Deterministic nonce requirement
-Nonce MUST be derived deterministically from the same context that AAD binds, with explicit domain separation (labels) defined in Key Schedule.
-
-**Hard rule:** `nonce_len(suite_id)` MUST be:
-- 12 for 0x01
-- 24 for 0x03
-- 16 for 0x02
+Wire-visible envelope fields are NOT encrypted. They are authenticated via AAD binding.
 
 ---
 
-## 4. Counter Uniqueness, Ordering, and Replay (Normative)
+## 3. Identifiers & Sizes (Normative)
 
-For a fixed tuple `(session_id, stream_id, message_type, suite_id)`:
+C6P v1 uses fixed-size identifiers aligned to IslandAccord:
 
-- `counter` MUST be unique.
-- Baseline DM: `counter` MUST be strictly increasing by 1.
-- If a skip-window exists, out-of-order counters MAY be accepted only if:
-  - they are within the configured window,
-  - each counter is accepted at most once (replay rejected),
-  - derived keys may be cached only within window bounds.
+- `session_id` = 4 bytes (`hex8` on the wire)
+- `device_id` = 16 bytes (`hex32` on the wire)
+- `counter` = 8 bytes unsigned (BE64)
+- `stream_id` = 1 byte (directional stream discriminator)
+- `message_type` = 1 byte
+- `suite_id` = 1 byte
+- `aad_flags` = 1 byte (v1 MUST be zero)
 
-**Hard rule:** Any detected replay or counter rollback MUST fail closed.
+**Hard rule:** Any size mismatch MUST be rejected before attempting AEAD.
 
 ---
 
-## 5. Canonical AAD (Additional Authenticated Data) (Normative)
+## 4. Key & Nonce Rules (Normative)
 
-AAD MUST bind ciphertext to:
-- protocol version
-- message type + suite
-- canonical session device-pair (initiator/responder)
-- session id
-- stream id
-- counter
-- flags (reserved for explicit future opt-ins)
+### 4.1 Per-message keying
+For each message `(session, stream, counter, type, suite)` the Key Schedule derives:
 
-### 5.1 Canonical session context (IslandAccord binding)
-AAD uses the **canonical device-pair** from the session context:
-- `initiator_device_id` = deviceId of the session initiator (IslandAccord)
-- `responder_device_id` = deviceId of the session responder (IslandAccord)
+- `mk_material` (fixed canonical output size from key schedule)
+- `suite_key` (exactly Key bytes for the suite_id)
+- `nonce` (exactly Nonce bytes for the suite_id)
 
-**Rule:** Implementations MUST NOT treat these fields as `(local, peer)`; they MUST be `(initiator, responder)` even on the responder device.
+This derivation is defined in `docs/crypto/c6p-key-schedule.md` and MUST be used verbatim.
 
-### 5.2 Types and sizes
-- `C6P_VERSION` = `0x01` (UInt8)
-- `message_type` = UInt8 (DM=0x01, GROUP=0x02, CHANNEL=0x03, CONTROL=0x10)
-- `stream_id` = UInt8 (I2R=0x01, R2I=0x02)
-- `suite_id` = UInt8
-- `aad_flags` = UInt8 (v1 MUST be 0)
-- `session_id` = 4 bytes (UInt32 big-endian)
-- `initiator_device_id` = 8 bytes (UInt64 big-endian)
-- `responder_device_id` = 8 bytes (UInt64 big-endian)
-- `counter` = 8 bytes (UInt64 big-endian)
+**Hard rule:** The AEAD key MUST be per-message (per-counter) — never a long-lived static AEAD key.
 
-### 5.3 AAD v1 layout (byte-exact)
+### 4.2 Deterministic nonce
+Nonce MUST be deterministically derived from the Key Schedule. Implementations MUST NOT randomize or replace it.
+
+**Hard rule:** Nonce uniqueness is guaranteed by design. If a receiver detects a reused `(stream_id, counter)` in the same session, it MUST reject as replay.
+
+### 4.3 Counter policy
+Baseline DM ratchet policy:
+
+- Sender counters MUST increase by exactly 1 per message per stream.
+- Receiver MUST reject duplicates and MUST apply the skip-window policy (if enabled) exactly as specified by the ratchet/state-machine docs.
+
+**Hard rule:** A message MUST NOT be accepted if its `counter` is already consumed for that `(session_id, stream_id)`.
+
+---
+
+## 5. Canonical Session Binding (Normative)
+
+To prevent cross-session splicing and to bind AEAD to the exact device pair, both peers compute:
+
+`session_binding = SHA-256( "C6P_BIND_V1" || session_id || initiator_device_id || responder_device_id )`
+
+Where:
+- `"C6P_BIND_V1"` is ASCII bytes (exactly 11 bytes)
+- `session_id` is 4 bytes
+- `device_id` is 16 bytes each
+- hash output is 32 bytes
+
+**Hard rule:** `session_binding` MUST be computed from canonical, locally trusted session state (not attacker-provided envelope fields).
+
+This does NOT add network metadata: it is computed locally but cryptographically binds the message to the correct session/device pair.
+
+---
+
+## 6. Canonical AAD Format (Normative)
+
+AAD is “Additional Authenticated Data” passed into AEAD. AAD MUST be constructed exactly as follows.
+
+### 6.1 Constants
+- `C6P_VERSION` = `0x01`
+- `aad_flags` for v1 MUST be `0x00`
+- `aad_label` = ASCII `"C6P_AAD_V1"` (10 bytes)
+
+### 6.2 Enumerations
+- `message_type: u8` (values registered in `docs/crypto/c6p-crypto-registry.md`)
+- `stream_id: u8` (direction discriminator; values registered in the registry)
+- `suite_id: u8` (see §1)
+
+### 6.3 AAD layout (byte-exact)
 AAD is the concatenation:
 
-- `"C6P_AAD_V1"` (ASCII bytes, **10 bytes**)
+`AAD =`
+- `aad_label` (ASCII `"C6P_AAD_V1"`, 10)
 - `U8(C6P_VERSION)` (1)
 - `U8(message_type)` (1)
 - `U8(stream_id)` (1)
 - `U8(suite_id)` (1)
-- `U8(aad_flags)` (1) — MUST be `0x00` in v1
-- `session_id` (4, BE)
-- `initiator_device_id` (8, BE)
-- `responder_device_id` (8, BE)
-- `counter` (8, BE)
+- `U8(aad_flags)` (1)  // MUST be 0x00 in v1
+- `session_id` (4)
+- `session_binding` (32)
+- `counter` (8)  // BE64
 
-**Total length (v1):** `10 + (1+1+1+1+1) + 4 + 8 + 8 + 8 = 43 bytes`.
+Total length (v1): `10 + 1+1+1+1+1 + 4 + 32 + 8 = 59 bytes`.
 
-### 5.4 Why both device IDs are included
-AAD binds the message to the session’s canonical device pair to prevent:
-- cross-session replay/splicing between different device pairs,
-- server-side routing mixups from bugs,
-- envelope relabeling across sessions that share `session_id` by coincidence (defense-in-depth).
+**Hard rule:** AAD MUST be 59 bytes exactly in v1.
 
-### 5.5 Flags policy
-- v1: `aad_flags MUST be 0x00`
-- future: flags require explicit opt-in; MUST NOT silently change semantics of existing messages.
+### 6.4 Why `session_binding` is in AAD
+This prevents:
+- server-side splicing between sessions
+- stream relabeling across device pairs
+- accidental acceptance of messages under the wrong session metadata
 
----
-
-## 6. Envelope Binding Rules (Normative)
-
-A DM envelope contains wire-visible fields (example):
-- `session_id_hex` (8 hex chars = 4 bytes)
-- `stream_id` (u8)
-- `counter` (u64)
-- `message_type` (u8)
-- `suite_id` (u8)
-- `sealed` (ciphertext || tag)
-
-**Rule:** The envelope fields used to build AAD MUST exactly match the values actually present in the envelope.
-On decrypt, any mismatch MUST be rejected (fail-closed).
+Because `session_binding` is derived from canonical session state, the attacker cannot “fix” the AAD without owning the session context.
 
 ---
 
 ## 7. Sealed Payload Format (Normative)
 
-### 7.1 `sealed` bytes
-`sealed` MUST be:
+C6P uses a suite-agnostic sealed layout:
 
 `sealed = ciphertext || tag`
 
 Where:
-- `len(ciphertext) == len(plaintext)`
-- `len(tag) == 16` bytes (all v1 suites)
+- `ciphertext.len == plaintext.len`
+- `tag.len == 16` for all supported suites
 
-**Rule:** Implementations MUST reject malformed sealed sizes (e.g., `sealed.len < 16`).
+**Hard rule:** If `sealed.len < 16`, reject.
 
-### 7.2 JSON transport encoding
-If `sealed` is transported in JSON:
-- it MUST be base64url without padding,
-- decoding MUST be strict.
+### 7.1 JSON transport encoding
+When `sealed` is transported in JSON, it MUST be base64url **without padding**.
+
+Decoding MUST be strict:
+- reject padding
+- reject non-canonical encodings
+- reject invalid characters
 
 ---
 
-## 8. Encrypt (Seal) Algorithm (Normative)
+## 8. Envelope Binding (Normative)
+
+A DM envelope contains wire-visible fields, at minimum:
+- `session_id` (hex8)
+- `message_type` (u8)
+- `stream_id` (u8)
+- `suite_id` (u8)
+- `counter` (u64)
+- `sealed` (b64u)
+
+**Hard rule:** During decryption, the AAD MUST be reconstructed from:
+- envelope fields (`session_id`, `message_type`, `stream_id`, `suite_id`, `counter`)
+- canonical session state (`session_binding` derived from known device IDs)
+
+If any envelope field mismatches the decrypt context → reject.
+
+---
+
+## 9. Encrypt (Normative)
 
 Inputs:
-- `plaintext` bytes
-- canonical session context: `(session_id, initiator_device_id, responder_device_id)`
-- envelope context: `(message_type, stream_id, suite_id, counter)`
-- `suite_key` + `nonce` derived from Key Schedule for this exact context
+- `plaintext: bytes`
+- `session_id: [4]`
+- `message_type: u8`
+- `stream_id: u8`
+- `suite_id: u8`
+- `counter: u64`
+- canonical session state provides `initiator_device_id`, `responder_device_id`
+- key schedule provides `suite_key`, `nonce` for this exact message context
 
 Steps:
-1. Construct `AAD` exactly per §5.
-2. Compute `(ciphertext, tag) = AEAD_Seal(key=suite_key, nonce=nonce, aad=AAD, plaintext=plaintext)`.
-3. Output envelope fields + `sealed = ciphertext || tag`.
+1. Compute `session_binding` (see §5).
+2. Construct AAD exactly per §6.
+3. AEAD seal:
+   - `(ciphertext, tag) = AEAD_Seal(key=suite_key, nonce=nonce, aad=AAD, plaintext=plaintext)`
+4. Output `sealed = ciphertext || tag`.
 
-**Rule:** Any AEAD failure MUST abort and MUST NOT output partial/corrupt data.
+**Hard rule:** Any AEAD failure MUST abort; never emit partial output.
 
 ---
 
-## 9. Decrypt (Open) Algorithm (Normative)
+## 10. Decrypt (Normative)
 
 Inputs:
 - envelope fields + `sealed`
-- session state providing canonical device-pair and counter policy
-- `suite_key` + `nonce` derived for `(session, stream, counter, type, suite)`
+- canonical session state
+- key schedule capable of deriving `suite_key`, `nonce` for the (stream, counter, suite, type)
 
 Steps:
-1. Validate envelope structural constraints:
-   - known `suite_id`, `message_type`, `stream_id`
+1. Structural validation (fail-closed):
+   - suite_id known
+   - message_type known
+   - stream_id known
    - `sealed.len >= 16`
-2. Rebuild `AAD` per §5 using envelope fields and the session’s canonical device IDs.
-3. Compute `plaintext = AEAD_Open(key=suite_key, nonce=nonce, aad=AAD, sealed=sealed)`.
-4. If open fails → reject, do NOT advance counters/ratchet.
-5. On success → advance counters/ratchet exactly per ratchet rules (or skip-window rules).
+2. Compute `session_binding` from canonical session state (see §5).
+3. Reconstruct AAD exactly per §6.
+4. AEAD open:
+   - `plaintext = AEAD_Open(key=suite_key, nonce=nonce, aad=AAD, sealed)`
+5. If open fails:
+   - reject
+   - do NOT advance counters/ratchet state
+6. On success:
+   - apply ratchet/counter progression exactly as specified by the DM state machine
+   - mark `(session_id, stream_id, counter)` as consumed to prevent replay
 
 ---
 
-## 10. Misuse Resistance & Downgrade Notes (Audit-Facing)
+## 11. Mandatory Misuse Controls (Normative)
 
-### 10.1 Deterministic nonces are safe here because:
-- suite_key is per-message (derived from ratchet + counter),
-- nonce is derived deterministically with domain separation and is unique under the schedule,
-- AAD binds the full context (device-pair + stream + counter + suite + type).
+### 11.1 Replay & duplicate rejection
+Receiver MUST maintain a consumed-counter set (or equivalent) consistent with its ratchet design.
 
-### 10.2 Counter rollback / state rollback
-Because deterministic nonce safety depends on uniqueness, implementations MUST:
-- persist state atomically (ratchet + counters),
-- treat detected rollback as `STATE_CORRUPT` and force session reset/re-handshake.
+**Hard rule:** Accepting the same `counter` twice in the same stream is forbidden.
 
-### 10.3 Downgrade resistance (suite)
-Because `suite_id` is included in:
-- Key Schedule derivations (suite_key + nonce),
-- AAD binding,
-an attacker cannot mutate suite without triggering authentication failure.
+### 11.2 Downgrade resistance
+`suite_id` and `message_type` are bound in AAD. Any tampering MUST fail AEAD.
+
+### 11.3 Context confusion
+`session_binding` binds all messages to the exact device pair and session_id. Cross-session splicing MUST fail.
 
 ---
 
-## 11. Compliance Checklist (Fail-Closed)
+## 12. Test Vectors (Normative Requirement)
 
-- [ ] AAD MUST be **43 bytes** exactly for v1.
-- [ ] `"C6P_AAD_V1"` MUST be 10 ASCII bytes.
-- [ ] `aad_flags MUST be 0x00` in v1.
-- [ ] Reject unknown `suite_id` / `stream_id` / `message_type`.
-- [ ] Reject `sealed.len < 16`; require tag length 16.
-- [ ] Do not advance session state on AEAD failure.
-- [ ] AAD device IDs MUST match the session’s canonical (initiator,responder) device pair (IslandAccord).
-- [ ] Nonce MUST come from Key Schedule; never randomize.
-- [ ] Ensure counter uniqueness; reject replays; rollback = fail closed.
+This repo MUST include deterministic test vectors for:
+1. `session_binding` computation.
+2. AAD byte layout (full 59 bytes hex output).
+3. Key schedule output (`suite_key`, `nonce`) for fixed transcript inputs.
+4. AEAD seal/open round-trip for each suite_id.
 
----
+Vector directory (normative path):
+- `docs/crypto/test-vectors/aead/`
+- `docs/crypto/test-vectors/aad/`
+- `docs/crypto/test-vectors/bind/`
 
-## Appendix A — Required Test Vectors
-
-This repo MUST include deterministic vectors covering:
-1) AAD byte layout given fixed IDs/counter (aad_hex).
-2) suite_key + nonce derived for fixed inputs.
-3) AEAD seal/open round-trip for each supported suite.
-
-Vector format (JSON):
-- `session_id_hex`, `initiator_device_hex`, `responder_device_hex`
-- `stream_id`, `message_type`, `suite_id`, `counter`
-- `mk_material_b64u`
-- `suite_key_b64u`
-- `nonce_b64u`
+Vector format MUST be canonical JSON with:
+- `session_id_hex`
+- `initiator_device_id_hex`
+- `responder_device_id_hex`
+- `message_type`
+- `stream_id`
+- `suite_id`
+- `counter`
+- `session_binding_hex`
 - `aad_hex`
+- `nonce_b64u`
+- `suite_key_b64u`
 - `plaintext_hex`
 - `sealed_b64u`
 
-Vectors are generated by the Rust reference implementation and verified by Swift clients.
+---
+
+## 13. Compliance Checklist (Fail-Closed)
+
+- [ ] AAD is exactly 59 bytes (v1).
+- [ ] `aad_flags` is exactly `0x00`.
+- [ ] `session_binding` computed from canonical session state, never from attacker-provided fields.
+- [ ] Reject unknown enums (`suite_id`, `message_type`, `stream_id`).
+- [ ] Reject malformed sizes (`session_id`, `device_id`, `sealed`).
+- [ ] Never advance ratchet/counters on AEAD failure.
+- [ ] Enforce replay/duplicate rejection per stream.
+
