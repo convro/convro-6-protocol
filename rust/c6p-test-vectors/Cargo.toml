@@ -13,6 +13,9 @@ path = "src/main.rs"
 [dependencies]
 c6p-crypto = { path = "../c6p-crypto" }
 
+# Cryptographic primitives
+chacha20poly1305.workspace = true
+
 # Serialization
 serde.workspace = true
 serde_json.workspace = true
@@ -26,3 +29,4 @@ clap = { version = "4.5", features = ["derive"] }
 
 # Utilities
 anyhow.workspace = true
+chrono = "0.4"

@@ -2,25 +2,53 @@
   "version": "1.0",
   "suite": "C6P_CRYPTO_V1",
   "module": "aead_xchacha20poly1305",
-  "generated_by": "rust-crypto-core (TO BE GENERATED)",
-  "generated_at": "TBD",
-  "description": "End-to-end AEAD vectors for XChaCha20-Poly1305 (suite_id=0x02)",
+  "generated_by": "rust-c6p-test-vectors v0.1.0",
+  "generated_at": "2026-01-04T23:51:06.814907833+00:00",
+  "description": "XChaCha20-Poly1305 AEAD encryption/decryption test vectors",
   "vectors": [
     {
-      "case_id": "AEAD_XCHACHA20_SEAL_001",
-      "description": "Seal with 24-byte nonce",
+      "case_id": "AEAD_XCHACHA20_001",
+      "description": "XChaCha20-Poly1305 encryption of simple plaintext",
       "inputs": {
-        "suite_key_b64u": "TODO (32 bytes)",
-        "nonce_b64u": "TODO (24 bytes)",
-        "aad_hex": "TODO (63 bytes)",
-        "plaintext_hex": "TODO"
+        "mk_material_b64u": "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI",
+        "session_binding_b64u": "ERERERERERERERERERERERERERERERERERERERERERE",
+        "session_id_hex": "0102030405060708",
+        "stream_id": 1,
+        "message_type": 1,
+        "counter": 0,
+        "plaintext_hex": "48656c6c6f2c2058436861436861323021",
+        "plaintext_len": 17,
+        "aad_hex": "010203040506070801010000000000000000000000000011",
+        "suite_id": 2,
+        "suite_name": "XChaCha20-Poly1305"
       },
       "outputs": {
-        "sealed_b64u": "TODO",
-        "ciphertext_hex": "TODO",
-        "tag_hex": "TODO (16 bytes)"
+        "nonce_hex": "9638d4ae86511e646efc8ecf50bf665b5ac9075090d75bbb",
+        "ciphertext_hex": "ee17878669bd664c00cd3448bc29e89660a79118a590e6d6165b20ee442659973b",
+        "ciphertext_len": 33
+      }
+    },
+    {
+      "case_id": "AEAD_XCHACHA20_002",
+      "description": "XChaCha20-Poly1305 encryption of empty plaintext",
+      "inputs": {
+        "mk_material_b64u": "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI",
+        "session_binding_b64u": "ERERERERERERERERERERERERERERERERERERERERERE",
+        "session_id_hex": "0102030405060708",
+        "stream_id": 1,
+        "message_type": 1,
+        "counter": 1,
+        "plaintext_hex": "",
+        "plaintext_len": 0,
+        "aad_hex": "010203040506070801010000000000000001000000000000",
+        "suite_id": 2,
+        "suite_name": "XChaCha20-Poly1305"
+      },
+      "outputs": {
+        "nonce_hex": "1af2723fb3e6f2f18c9d9a6d7d2216492b535664bd704bcb",
+        "ciphertext_hex": "70410b88f6e5050782cd0740f07d907e",
+        "ciphertext_len": 16
       }
     }
-  ],
-  "negative_vectors": []
+  ]
 }
