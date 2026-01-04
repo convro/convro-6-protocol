@@ -1,0 +1,35 @@
+{
+  "version": "1.0",
+  "suite": "C6P_IDENTITY_V1",
+  "module": "fingerprints",
+  "generated_by": "rust-c6p-identity (TO BE GENERATED)",
+  "generated_at": "TBD",
+  "description": "Canonical fingerprint computation",
+  "vectors": [
+    {
+      "case_id": "FP_CANONICAL_001",
+      "description": "Canonical fingerprint from IK_sig public key",
+      "inputs": {
+        "ik_sig_pub_b64u": "TODO"
+      },
+      "intermediate": {
+        "hash_input_hex": "TODO (label || pub_key)",
+        "sha256_output_b64u": "TODO"
+      },
+      "outputs": {
+        "fingerprint_b64u": "TODO (43 chars, base64url, no padding)",
+        "fingerprint_display": "TODO (hyphen-separated blocks)"
+      }
+    },
+    {
+      "case_id": "FP_SHORT_001",
+      "description": "Short fingerprint (8 bytes)",
+      "inputs": {
+        "ik_sig_pub_b64u": "TODO"
+      },
+      "outputs": {
+        "short_fingerprint_hex": "TODO (16 chars hex, 8 bytes)"
+      }
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "version": "1.0",
+  "suite": "C6P_CRYPTO_V1",
+  "module": "aad_construction",
+  "generated_by": "rust-crypto-core (TO BE GENERATED)",
+  "generated_at": "TBD",
+  "description": "63-byte AAD construction vectors and session_binding computation",
+  "vectors": [
+    {
+      "case_id": "AAD_DM_I2R_001",
+      "description": "AAD for DM i2r, counter 0, suite 0x01",
+      "inputs": {
+        "c6p_version": 1,
+        "message_type": 1,
+        "stream_id": 1,
+        "suite_id": 1,
+        "aad_flags": 0,
+        "session_id_hex": "0011223344556677",
+        "session_binding_b64u": "TODO (32 bytes)",
+        "counter": "0"
+      },
+      "outputs": {
+        "aad_hex": "TODO (63 bytes hex)",
+        "aad_b64u": "TODO (63 bytes base64url)"
+      }
+    },
+    {
+      "case_id": "AAD_SESSION_BINDING_001",
+      "description": "Session binding computation",
+      "inputs": {
+        "session_id_hex": "0011223344556677",
+        "initiator_device_id_hex": "0123456789abcdef0123456789abcdef",
+        "responder_device_id_hex": "fedcba9876543210fedcba9876543210"
+      },
+      "outputs": {
+        "session_binding_b64u": "TODO (32 bytes SHA-256)"
+      }
+    },
+    {
+      "case_id": "AAD_DM_R2I_001",
+      "description": "AAD for DM r2i, counter 5, suite 0x01",
+      "inputs": {
+        "c6p_version": 1,
+        "message_type": 1,
+        "stream_id": 2,
+        "suite_id": 1,
+        "aad_flags": 0,
+        "session_id_hex": "0011223344556677",
+        "session_binding_b64u": "TODO",
+        "counter": "5"
+      },
+      "outputs": {
+        "aad_hex": "TODO (63 bytes)",
+        "aad_b64u": "TODO"
+      }
+    },
+    {
+      "case_id": "AAD_GROUP_001",
+      "description": "AAD for group message (message_type=0x02)",
+      "inputs": {
+        "c6p_version": 1,
+        "message_type": 2,
+        "stream_id": 1,
+        "suite_id": 1,
+        "aad_flags": 0,
+        "session_id_hex": "aabbccddeeff0011",
+        "session_binding_b64u": "TODO",
+        "counter": "0"
+      },
+      "outputs": {
+        "aad_hex": "TODO",
+        "aad_b64u": "TODO"
+      }
+    }
+  ],
+  "negative_vectors": [
+    {
+      "case_id": "AAD_NEG_001",
+      "description": "Invalid aad_flags (non-zero in v1)",
+      "inputs": {
+        "aad_flags": 1
+      },
+      "expected_error": "C6P.AAD.INVALID_LAYOUT"
+    }
+  ]
+}

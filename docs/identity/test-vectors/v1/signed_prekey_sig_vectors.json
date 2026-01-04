@@ -1,0 +1,49 @@
+{
+  "version": "1.0",
+  "suite": "C6P_IDENTITY_V1",
+  "module": "signed_prekey_signature",
+  "generated_by": "rust-c6p-identity (TO BE GENERATED)",
+  "generated_at": "TBD",
+  "description": "SPK signature creation and verification",
+  "vectors": [
+    {
+      "case_id": "SPK_SIG_001",
+      "description": "Sign SPK with IK_sig",
+      "inputs": {
+        "ik_sig_priv_b64u": "TODO (64 bytes Ed25519 private)",
+        "spk_id_hex": "0011223344556677",
+        "spk_pub_b64u": "TODO (32 bytes X25519 public)"
+      },
+      "intermediate": {
+        "message_to_sign_hex": "TODO (label || spk_id || spk_pub)",
+        "label": "C6P_PREKEY_V1"
+      },
+      "outputs": {
+        "spk_sig_b64u": "TODO (64 bytes Ed25519 signature)"
+      }
+    },
+    {
+      "case_id": "SPK_SIG_VERIFY_001",
+      "description": "Verify SPK signature",
+      "inputs": {
+        "ik_sig_pub_b64u": "TODO",
+        "spk_id_hex": "0011223344556677",
+        "spk_pub_b64u": "TODO",
+        "spk_sig_b64u": "TODO (from SPK_SIG_001)"
+      },
+      "outputs": {
+        "verification_result": "ok"
+      }
+    }
+  ],
+  "negative_vectors": [
+    {
+      "case_id": "SPK_SIG_NEG_001",
+      "description": "Invalid SPK signature (1 byte flipped)",
+      "inputs": {
+        "spk_sig_b64u": "TODO (tampered)"
+      },
+      "expected_error": "C6P.HANDSHAKE.SPK_SIGNATURE_INVALID"
+    }
+  ]
+}

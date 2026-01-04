@@ -1,0 +1,104 @@
+{
+  "version": "1.0",
+  "suite": "C6P_CRYPTO_V1",
+  "module": "key_schedule",
+  "generated_by": "rust-crypto-core (TO BE GENERATED)",
+  "generated_at": "TBD",
+  "description": "Canonical test vectors for C6P v1 key schedule (root, chain, message, KC derivations)",
+  "vectors": [
+    {
+      "case_id": "KEY_SCHEDULE_ROOT_001",
+      "description": "Root derivation without OTP (3DH only)",
+      "inputs": {
+        "ikm_hex": "TODO",
+        "transcript_hash_b64u": "TODO",
+        "session_id_hex": "TODO",
+        "initiator_device_id_hex": "TODO",
+        "responder_device_id_hex": "TODO"
+      },
+      "outputs": {
+        "root_key_b64u": "TODO",
+        "kc_key_b64u": "TODO"
+      }
+    },
+    {
+      "case_id": "KEY_SCHEDULE_ROOT_002",
+      "description": "Root derivation with OTP (4DH)",
+      "inputs": {
+        "ikm_hex": "TODO (128 bytes)",
+        "transcript_hash_b64u": "TODO",
+        "session_id_hex": "TODO",
+        "initiator_device_id_hex": "TODO",
+        "responder_device_id_hex": "TODO"
+      },
+      "outputs": {
+        "root_key_b64u": "TODO",
+        "kc_key_b64u": "TODO"
+      }
+    },
+    {
+      "case_id": "KEY_SCHEDULE_CHAIN_001",
+      "description": "Initial chain keys (i2r, r2i) for suite 0x01",
+      "inputs": {
+        "root_key_b64u": "TODO",
+        "transcript_hash_b64u": "TODO",
+        "session_id_hex": "TODO",
+        "initiator_device_id_hex": "TODO",
+        "responder_device_id_hex": "TODO",
+        "suite_id": 1,
+        "message_type": 1
+      },
+      "outputs": {
+        "chain_key_i2r_b64u": "TODO",
+        "chain_key_r2i_b64u": "TODO"
+      }
+    },
+    {
+      "case_id": "KEY_SCHEDULE_MSG_001",
+      "description": "Per-message derivation (counter=0, i2r, dm, suite=0x01)",
+      "inputs": {
+        "chain_key_b64u": "TODO",
+        "counter": "0",
+        "stream_id": 1,
+        "message_type": 1,
+        "suite_id": 1,
+        "session_id_hex": "TODO",
+        "initiator_device_id_hex": "TODO",
+        "responder_device_id_hex": "TODO",
+        "transcript_hash_b64u": "TODO"
+      },
+      "outputs": {
+        "mk_material_b64u": "TODO",
+        "suite_key_b64u": "TODO (32 bytes for ChaCha20-Poly1305)",
+        "next_chain_key_b64u": "TODO"
+      }
+    },
+    {
+      "case_id": "KEY_SCHEDULE_KC_001",
+      "description": "Key confirmation tags (KC1, KC2)",
+      "inputs": {
+        "kc_key_b64u": "TODO",
+        "transcript_hash_b64u": "TODO",
+        "session_id_hex": "TODO",
+        "initiator_device_id_hex": "TODO",
+        "responder_device_id_hex": "TODO",
+        "suite_id": 1
+      },
+      "outputs": {
+        "kc1_b64u": "TODO (32 bytes HMAC)",
+        "kc2_b64u": "TODO (32 bytes HMAC)"
+      }
+    }
+  ],
+  "negative_vectors": [
+    {
+      "case_id": "KEY_SCHEDULE_NEG_001",
+      "description": "Invalid IKM length (95 bytes instead of 96/128)",
+      "inputs": {
+        "ikm_hex": "TODO (95 bytes)",
+        "transcript_hash_b64u": "TODO"
+      },
+      "expected_error": "C6P.ENC.LENGTH_MISMATCH"
+    }
+  ]
+}

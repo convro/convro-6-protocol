@@ -1,0 +1,104 @@
+{
+  "version": "1.0",
+  "suite": "C6P_CRYPTO_V1",
+  "module": "aead_chacha20poly1305",
+  "generated_by": "rust-crypto-core (TO BE GENERATED)",
+  "generated_at": "TBD",
+  "description": "End-to-end AEAD vectors for ChaCha20-Poly1305 (suite_id=0x01)",
+  "vectors": [
+    {
+      "case_id": "AEAD_CHACHA20_SEAL_001",
+      "description": "Seal empty plaintext",
+      "inputs": {
+        "suite_key_b64u": "TODO (32 bytes)",
+        "nonce_b64u": "TODO (12 bytes)",
+        "aad_hex": "TODO (63 bytes)",
+        "plaintext_hex": ""
+      },
+      "outputs": {
+        "sealed_b64u": "TODO (16 bytes tag only)",
+        "ciphertext_hex": "",
+        "tag_hex": "TODO (16 bytes)"
+      }
+    },
+    {
+      "case_id": "AEAD_CHACHA20_SEAL_002",
+      "description": "Seal short plaintext (16 bytes)",
+      "inputs": {
+        "suite_key_b64u": "TODO",
+        "nonce_b64u": "TODO",
+        "aad_hex": "TODO",
+        "plaintext_hex": "TODO (16 bytes)"
+      },
+      "outputs": {
+        "sealed_b64u": "TODO (32 bytes: 16 ciphertext + 16 tag)",
+        "ciphertext_hex": "TODO (16 bytes)",
+        "tag_hex": "TODO (16 bytes)"
+      }
+    },
+    {
+      "case_id": "AEAD_CHACHA20_SEAL_003",
+      "description": "Seal 1KB plaintext",
+      "inputs": {
+        "suite_key_b64u": "TODO",
+        "nonce_b64u": "TODO",
+        "aad_hex": "TODO",
+        "plaintext_hex": "TODO (1024 bytes)"
+      },
+      "outputs": {
+        "sealed_b64u": "TODO (1040 bytes: 1024 + 16)",
+        "ciphertext_hex": "TODO (1024 bytes)",
+        "tag_hex": "TODO (16 bytes)"
+      }
+    },
+    {
+      "case_id": "AEAD_CHACHA20_OPEN_001",
+      "description": "Open valid sealed message",
+      "inputs": {
+        "suite_key_b64u": "TODO (same as SEAL_001)",
+        "nonce_b64u": "TODO (same as SEAL_001)",
+        "aad_hex": "TODO (same as SEAL_001)",
+        "sealed_b64u": "TODO (from SEAL_001)"
+      },
+      "outputs": {
+        "plaintext_hex": "",
+        "result": "ok"
+      }
+    }
+  ],
+  "negative_vectors": [
+    {
+      "case_id": "AEAD_CHACHA20_NEG_001",
+      "description": "Auth failure - tampered ciphertext",
+      "inputs": {
+        "suite_key_b64u": "TODO",
+        "nonce_b64u": "TODO",
+        "aad_hex": "TODO",
+        "sealed_b64u": "TODO (1 bit flipped in ciphertext)"
+      },
+      "expected_error": "C6P.AEAD.AUTH_FAILED"
+    },
+    {
+      "case_id": "AEAD_CHACHA20_NEG_002",
+      "description": "Auth failure - tampered AAD",
+      "inputs": {
+        "suite_key_b64u": "TODO",
+        "nonce_b64u": "TODO",
+        "aad_hex": "TODO (1 byte changed)",
+        "sealed_b64u": "TODO (valid)"
+      },
+      "expected_error": "C6P.AEAD.AUTH_FAILED"
+    },
+    {
+      "case_id": "AEAD_CHACHA20_NEG_003",
+      "description": "Auth failure - wrong key",
+      "inputs": {
+        "suite_key_b64u": "TODO (different key)",
+        "nonce_b64u": "TODO",
+        "aad_hex": "TODO",
+        "sealed_b64u": "TODO (valid)"
+      },
+      "expected_error": "C6P.AEAD.AUTH_FAILED"
+    }
+  ]
+}

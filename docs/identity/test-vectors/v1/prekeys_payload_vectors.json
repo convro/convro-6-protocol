@@ -1,0 +1,29 @@
+{
+  "version": "1.0",
+  "suite": "C6P_IDENTITY_V1",
+  "module": "prekeys_payload",
+  "generated_by": "rust-c6p-identity (TO BE GENERATED)",
+  "generated_at": "TBD",
+  "description": "Complete prekey upload payload construction",
+  "vectors": [
+    {
+      "case_id": "PREKEY_PAYLOAD_001",
+      "description": "Full prekey upload with SPK + OTPs",
+      "inputs": {
+        "ik_sig_pub_b64u": "TODO",
+        "ik_dh_pub_b64u": "TODO",
+        "spk": {
+          "spk_id_hex": "TODO",
+          "spk_pub_b64u": "TODO",
+          "spk_sig_b64u": "TODO"
+        },
+        "otps": [
+          { "otp_id_hex": "TODO", "otp_pub_b64u": "TODO" }
+        ]
+      },
+      "outputs": {
+        "upload_payload_json": "TODO (complete JSON request body)"
+      }
+    }
+  ]
+}

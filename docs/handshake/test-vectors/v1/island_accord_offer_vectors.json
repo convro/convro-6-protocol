@@ -1,0 +1,87 @@
+{
+  "version": "1.0",
+  "suite": "ISLAND_ACCORD_V1",
+  "module": "offer_construction",
+  "generated_by": "rust-c6p-handshake (TO BE GENERATED)",
+  "generated_at": "TBD",
+  "description": "Complete IslandAccord v1 offer construction and validation",
+  "vectors": [
+    {
+      "case_id": "OFFER_COMPLETE_3DH_001",
+      "description": "Full offer without OTP (3DH only)",
+      "inputs": {
+        "bundle": {
+          "responder_device_id_hex": "TODO",
+          "identity_pub_ed25519_b64u": "TODO",
+          "identity_pub_x25519_b64u": "TODO",
+          "spk_id_hex": "TODO",
+          "spk_pub_b64u": "TODO",
+          "spk_sig_b64u": "TODO"
+        },
+        "initiator_identity_dh_priv_b64u": "TODO",
+        "initiator_identity_sig_priv_b64u": "TODO",
+        "initiator_ephemeral_dh_priv_b64u": "TODO (freshly generated)",
+        "session_id_hex": "TODO",
+        "initiator_device_id_hex": "TODO",
+        "suite_id": 1
+      },
+      "intermediate": {
+        "transcript_bytes_hex": "TODO",
+        "transcript_hash_b64u": "TODO",
+        "dh1_b64u": "TODO",
+        "dh2_b64u": "TODO",
+        "dh3_b64u": "TODO",
+        "ikm_hex": "TODO (96 bytes)"
+      },
+      "outputs": {
+        "offer": {
+          "version": 1,
+          "suite_id": 1,
+          "session_id_hex": "TODO",
+          "initiator_device_id_hex": "TODO",
+          "responder_device_id_hex": "TODO",
+          "initiator_identity_dh_pub_b64u": "TODO",
+          "initiator_identity_sig_pub_b64u": "TODO",
+          "initiator_ephemeral_dh_pub_b64u": "TODO",
+          "used_spk_id_hex": "TODO",
+          "used_spk_pub_b64u": "TODO",
+          "used_otp_id_hex": null,
+          "transcript_hash_b64u": "TODO",
+          "kc1_b64u": "TODO",
+          "offer_signature_b64u": "TODO"
+        }
+      }
+    },
+    {
+      "case_id": "OFFER_COMPLETE_4DH_001",
+      "description": "Full offer with OTP (4DH)",
+      "inputs": {
+        "bundle": {
+          "responder_device_id_hex": "TODO",
+          "identity_pub_ed25519_b64u": "TODO",
+          "identity_pub_x25519_b64u": "TODO",
+          "spk_id_hex": "TODO",
+          "spk_pub_b64u": "TODO",
+          "spk_sig_b64u": "TODO",
+          "otp_id_hex": "TODO",
+          "otp_pub_b64u": "TODO"
+        },
+        "initiator_identity_dh_priv_b64u": "TODO",
+        "initiator_identity_sig_priv_b64u": "TODO",
+        "initiator_ephemeral_dh_priv_b64u": "TODO",
+        "session_id_hex": "TODO",
+        "initiator_device_id_hex": "TODO",
+        "suite_id": 1
+      },
+      "intermediate": {
+        "dh4_b64u": "TODO",
+        "ikm_hex": "TODO (128 bytes)"
+      },
+      "outputs": {
+        "offer": {
+          "used_otp_id_hex": "TODO"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "version": "1.0",
+  "suite": "C6P_CRYPTO_V1",
+  "module": "aead_xchacha20poly1305",
+  "generated_by": "rust-crypto-core (TO BE GENERATED)",
+  "generated_at": "TBD",
+  "description": "End-to-end AEAD vectors for XChaCha20-Poly1305 (suite_id=0x02)",
+  "vectors": [
+    {
+      "case_id": "AEAD_XCHACHA20_SEAL_001",
+      "description": "Seal with 24-byte nonce",
+      "inputs": {
+        "suite_key_b64u": "TODO (32 bytes)",
+        "nonce_b64u": "TODO (24 bytes)",
+        "aad_hex": "TODO (63 bytes)",
+        "plaintext_hex": "TODO"
+      },
+      "outputs": {
+        "sealed_b64u": "TODO",
+        "ciphertext_hex": "TODO",
+        "tag_hex": "TODO (16 bytes)"
+      }
+    }
+  ],
+  "negative_vectors": []
+}
