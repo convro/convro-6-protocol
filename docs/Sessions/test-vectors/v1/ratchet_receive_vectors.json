@@ -1,0 +1,116 @@
+{
+  "version": "1.0",
+  "suite": "C6P_SESSIONS_V1",
+  "module": "ratchet_receive",
+  "generated_by": "rust-c6p-sessions (TO BE GENERATED)",
+  "generated_at": "TBD",
+  "description": "Ratchet receive flow: in-order, out-of-order, consumed set management",
+  "vectors": [
+    {
+      "case_id": "RECV_001",
+      "description": "First in-order receive (counter=0)",
+      "inputs": {
+        "session_id_hex": "0011223344556677",
+        "stream_id": 1,
+        "initial_chain_key_b64u": "TODO",
+        "recv_expected": 0,
+        "consumed": [],
+        "envelope": {
+          "counter": 0,
+          "ciphertext_b64u": "TODO",
+          "aad_hex": "TODO"
+        },
+        "suite_id": 1
+      },
+      "intermediate": {
+        "derived_chain_key_b64u": "TODO (same as initial for counter=0)",
+        "mk_material_b64u": "TODO",
+        "suite_key_b64u": "TODO",
+        "nonce_hex": "TODO"
+      },
+      "outputs": {
+        "plaintext_b64u": "TODO",
+        "new_recv_expected": 1,
+        "new_consumed": [0],
+        "out_of_order": false
+      }
+    },
+    {
+      "case_id": "RECV_002",
+      "description": "Out-of-order receive (counter=2 before counter=1)",
+      "inputs": {
+        "session_id_hex": "0011223344556677",
+        "stream_id": 1,
+        "initial_chain_key_b64u": "TODO (from RECV_001)",
+        "recv_expected": 1,
+        "consumed": [0],
+        "envelope": {
+          "counter": 2,
+          "ciphertext_b64u": "TODO",
+          "aad_hex": "TODO"
+        },
+        "suite_id": 1
+      },
+      "intermediate": {
+        "derived_chain_key_at_2_b64u": "TODO (skip-forward from recv_expected=1)",
+        "skip_distance": 1
+      },
+      "outputs": {
+        "plaintext_b64u": "TODO",
+        "new_recv_expected": 1,
+        "new_consumed": [0, 2],
+        "out_of_order": true
+      }
+    },
+    {
+      "case_id": "RECV_003",
+      "description": "Fill gap (counter=1 after receiving 0,2)",
+      "inputs": {
+        "session_id_hex": "0011223344556677",
+        "stream_id": 1,
+        "initial_chain_key_b64u": "TODO",
+        "recv_expected": 1,
+        "consumed": [0, 2],
+        "envelope": {
+          "counter": 1,
+          "ciphertext_b64u": "TODO",
+          "aad_hex": "TODO"
+        },
+        "suite_id": 1
+      },
+      "outputs": {
+        "plaintext_b64u": "TODO",
+        "new_recv_expected": 3,
+        "new_consumed": [0, 1, 2],
+        "out_of_order": false
+      }
+    },
+    {
+      "case_id": "RECV_004",
+      "description": "Skip-forward receive (counter=100, recv_expected=0)",
+      "inputs": {
+        "session_id_hex": "0011223344556677",
+        "stream_id": 1,
+        "initial_chain_key_b64u": "TODO",
+        "recv_expected": 0,
+        "consumed": [],
+        "envelope": {
+          "counter": 100,
+          "ciphertext_b64u": "TODO",
+          "aad_hex": "TODO"
+        },
+        "suite_id": 1
+      },
+      "intermediate": {
+        "skip_iterations": 100,
+        "derived_chain_key_at_100_b64u": "TODO"
+      },
+      "outputs": {
+        "plaintext_b64u": "TODO",
+        "new_recv_expected": 0,
+        "new_consumed": [100],
+        "out_of_order": true
+      }
+    }
+  ]
+}

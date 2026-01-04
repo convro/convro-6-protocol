@@ -1,0 +1,127 @@
+{
+  "version": "1.0",
+  "suite": "C6P_SESSIONS_V1",
+  "module": "session_persistence",
+  "generated_by": "rust-c6p-sessions (TO BE GENERATED)",
+  "generated_at": "TBD",
+  "description": "Session state save/load, encryption at rest, crash recovery",
+  "vectors": [
+    {
+      "case_id": "PERSIST_001",
+      "description": "Serialize fresh session state",
+      "inputs": {
+        "session": {
+          "session_id_hex": "0011223344556677",
+          "initiator_device_id_hex": "TODO (32 chars, 16 bytes)",
+          "responder_device_id_hex": "TODO",
+          "root_key_b64u": "TODO",
+          "session_binding_b64u": "TODO",
+          "suite_id": 1,
+          "created_at": 1672531200,
+          "last_activity": 1672531200,
+          "state": "ACTIVE",
+          "state_version": 1,
+          "i2r_state": {
+            "stream_id": 1,
+            "chain_key_b64u": "TODO",
+            "send_counter": 0,
+            "recv_expected": 0,
+            "consumed": []
+          },
+          "r2i_state": {
+            "stream_id": 2,
+            "chain_key_b64u": "TODO",
+            "send_counter": 0,
+            "recv_expected": 0,
+            "consumed": []
+          }
+        }
+      },
+      "intermediate": {
+        "plaintext_json": "TODO (canonical JSON serialization)",
+        "master_key_b64u": "TODO (32 bytes from Keychain/KeyStore)",
+        "nonce_hex": "TODO (12 bytes random)",
+        "aad": "C6P_SESSION_STORAGE_V1"
+      },
+      "outputs": {
+        "encrypted_blob_b64u": "TODO (nonce || ciphertext || tag)",
+        "blob_size_bytes": "TODO"
+      }
+    },
+    {
+      "case_id": "PERSIST_002",
+      "description": "Load and decrypt session state",
+      "inputs": {
+        "encrypted_blob_b64u": "TODO (from PERSIST_001)",
+        "master_key_b64u": "TODO (same as PERSIST_001)"
+      },
+      "outputs": {
+        "session": {
+          "session_id_hex": "0011223344556677",
+          "state": "ACTIVE",
+          "i2r_state": {
+            "send_counter": 0,
+            "recv_expected": 0
+          }
+        }
+      }
+    },
+    {
+      "case_id": "PERSIST_003",
+      "description": "Crash recovery (mid-send)",
+      "inputs": {
+        "pre_crash_state": {
+          "send_counter": 42,
+          "chain_key_b64u": "TODO"
+        },
+        "crash_scenario": "Send started (counter incremented) but persist failed"
+      },
+      "outputs": {
+        "recovered_state": {
+          "send_counter": 42,
+          "chain_key_b64u": "TODO (unchanged)",
+          "reason": "Atomic persist failed, state rolled back"
+        }
+      }
+    },
+    {
+      "case_id": "PERSIST_004",
+      "description": "State after messages (non-empty consumed set)",
+      "inputs": {
+        "session": {
+          "session_id_hex": "0011223344556677",
+          "i2r_state": {
+            "stream_id": 1,
+            "chain_key_b64u": "TODO",
+            "send_counter": 10,
+            "recv_expected": 8,
+            "consumed": [0, 1, 2, 3, 4, 5, 6, 9]
+          }
+        }
+      },
+      "outputs": {
+        "encrypted_blob_b64u": "TODO",
+        "deserializes_to_same_state": true
+      }
+    }
+  ],
+  "negative_vectors": [
+    {
+      "case_id": "PERSIST_NEG_001",
+      "description": "Decryption with wrong master key",
+      "inputs": {
+        "encrypted_blob_b64u": "TODO (from PERSIST_001)",
+        "master_key_b64u": "TODO (different key)"
+      },
+      "expected_error": "C6P.SESSION.STORAGE_DECRYPTION_FAILED"
+    },
+    {
+      "case_id": "PERSIST_NEG_002",
+      "description": "Corrupted blob (invalid JSON after decrypt)",
+      "inputs": {
+        "encrypted_blob_b64u": "TODO (tampered after encryption)"
+      },
+      "expected_error": "C6P.SESSION.STORAGE_CORRUPTION"
+    }
+  ]
+}
