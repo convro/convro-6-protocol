@@ -4,6 +4,13 @@
 **Scope:** Per-stream ratchet state transitions, counter management, key derivation flow
 **Applies to:** All C6P v1 DM sessions
 
+**Depends on (normative):**
+- `docs/crypto/c6p-key-schedule.md` — Canonical KDF labels, per-message and chain key derivation (§6)
+- `docs/crypto/c6p-aead-and-aad.md` — AAD construction, session binding
+- `docs/crypto/c6p-nonce-policy.md` — Deterministic nonce derivation
+- `docs/crypto/c6p-replay-and-skip-window.md` — Replay detection, skip-window semantics
+- `docs/Sessions/sessions-error-codes.md` — Canonical error codes
+
 ---
 
 ## 0. Purpose
@@ -14,6 +21,8 @@ This document defines the **state machine** for the DM (Direct Message) symmetri
 - Counter advancement rules
 - Chain key update protocol
 - Error recovery and rollback semantics
+
+**CRITICAL:** All cryptographic derivations (message keys, chain keys, nonces) MUST use exact specifications from `c6p-key-schedule.md`. This document describes the state machine logic only; it does NOT redefine KDF labels or procedures.
 
 ---
 
@@ -57,23 +66,28 @@ The `consumed` set tracks received message counters to prevent replay attacks:
 
 ```
 1. START
-2. Load current state: (CK, send_counter)
-3. Derive per-message material:
-   - mk_material = HKDF-Expand(CK, "C6P_MESSAGE_KEY_V1" || counter, 80 bytes)
-   - suite_key = mk_material[0..32]
-   - nonce = derive_nonce(mk_material[32..64], counter, suite_id)
-4. Construct AAD (63 bytes):
+2. Load current state: (CK, send_counter, CTX, transcript_hash, STREAM_CTX)
+3. Derive per-message material (using c6p-key-schedule.md §6):
+   - salt_msg = SHA256("C6P_MSG_V1" || CTX || transcript_hash || STREAM_CTX || BE64(counter))
+   - prk_msg = HKDF-Extract(salt=salt_msg, ikm=CK)
+   - mk_material = HKDF-Expand(prk_msg, info="C6P_MSG_V1" || U8(0x01) || STREAM_CTX, L=32)
+   - suite_key = map_to_suite_key(mk_material, suite_id) // see c6p-key-schedule.md §7
+   - nonce = derive_nonce(mk_material, counter, suite_id, session_binding) // see c6p-key-schedule.md §8
+4. Construct AAD (63 bytes) - see c6p-aead-and-aad.md:
    - AAD = version || suite_id || session_binding || stream_id || counter || payload_type
 5. Encrypt payload:
    - ciphertext = AEAD.Seal(suite_key, nonce, plaintext, AAD)
-6. Advance chain key:
-   - CK_next = HKDF-Expand(CK, "C6P_CHAIN_NEXT_V1" || counter, 32 bytes)
+6. Advance chain key (using same prk_msg):
+   - CK_next = HKDF-Expand(prk_msg, info="C6P_CHAIN_V1" || U8(0x01) || STREAM_CTX || BE64(counter), L=32)
 7. Persist atomically:
    - send_counter_next = send_counter + 1
    - CK = CK_next
 8. Build wire envelope with counter, ciphertext, AAD components
 9. DONE (send envelope)
 ```
+
+**CRITICAL:** Steps 3 and 6 MUST use exact derivations from `docs/crypto/c6p-key-schedule.md` §6.
+Domain separation labels are normative: `C6P_MSG_V1` and `C6P_CHAIN_V1` (NOT custom labels).
 
 **Failure modes:**
 - **Encryption failure**: Abort, do not advance state
@@ -111,10 +125,12 @@ The `consumed` set tracks received message counters to prevent replay attacks:
    - If counter == recv_expected: use current CK
    - If counter > recv_expected: derive forward (see §3.2)
    - If counter < recv_expected: derive from cached/stored CK (skip-backward)
-5. Derive per-message material (same as send):
-   - mk_material = HKDF-Expand(CK_at_counter, "C6P_MESSAGE_KEY_V1" || counter, 80 bytes)
-   - suite_key = mk_material[0..32]
-   - nonce = derive_nonce(mk_material[32..64], counter, suite_id)
+5. Derive per-message material (using c6p-key-schedule.md §6, same as send):
+   - salt_msg = SHA256("C6P_MSG_V1" || CTX || transcript_hash || STREAM_CTX || BE64(counter))
+   - prk_msg = HKDF-Extract(salt=salt_msg, ikm=CK_at_counter)
+   - mk_material = HKDF-Expand(prk_msg, info="C6P_MSG_V1" || U8(0x01) || STREAM_CTX, L=32)
+   - suite_key = map_to_suite_key(mk_material, suite_id)
+   - nonce = derive_nonce(mk_material, counter, suite_id, session_binding)
 6. Reconstruct canonical AAD (63 bytes)
 7. Decrypt:
    - plaintext = AEAD.Open(suite_key, nonce, ciphertext, AAD)
@@ -134,17 +150,20 @@ The `consumed` set tracks received message counters to prevent replay attacks:
 
 ### 3.2 Skip-Forward Derivation
 
-When `counter > recv_expected`, derive intermediate chain keys:
+When `counter > recv_expected`, derive intermediate chain keys using the normative C6P key schedule:
 
 ```
 CK_at_counter = CK_current
-for i in recv_expected..(counter + 1) {
-    if i == counter {
-        break
-    }
-    CK_at_counter = HKDF-Expand(CK_at_counter, "C6P_CHAIN_NEXT_V1" || i, 32 bytes)
+for i in recv_expected..counter {
+    // Derive next chain key using c6p-key-schedule.md §6.4
+    salt_msg = SHA256("C6P_MSG_V1" || CTX || transcript_hash || STREAM_CTX || BE64(i))
+    prk_msg = HKDF-Extract(salt=salt_msg, ikm=CK_at_counter)
+    CK_at_counter = HKDF-Expand(prk_msg, info="C6P_CHAIN_V1" || U8(0x01) || STREAM_CTX || BE64(i), L=32)
 }
+// CK_at_counter is now the chain key for the target counter
 ```
+
+**CRITICAL:** Use exact labels `C6P_MSG_V1` and `C6P_CHAIN_V1` from key schedule (NOT custom labels).
 
 **Optimization:** Cache intermediate `CK` values for recent counters to avoid re-derivation.
 

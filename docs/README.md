@@ -1,0 +1,287 @@
+# C6P (Convro 6 Protocol) Documentation
+
+**Version:** 1.0
+**Status:** PRODUCTION / NORMATIVE
+**Protocol:** Audit-grade end-to-end encrypted messaging protocol
+
+---
+
+## Overview
+
+C6P (Convro 6 Protocol) is a production-ready, audit-grade protocol for end-to-end encrypted messaging. It provides:
+
+- **Authenticated prekey handshake** (IslandAccord v1)
+- **Per-message forward secrecy** (symmetric double-ratchet)
+- **Deterministic nonces** (no randomness in AEAD nonces)
+- **Replay resistance** (consumed counter sets, skip-window bounded)
+- **Device-based identities** (Ed25519 signatures, X25519 DH)
+- **Fail-closed design** (all validation failures abort immediately)
+
+---
+
+## Documentation Structure
+
+### 1. Crypto Module (`docs/crypto/`)
+
+Core cryptographic specifications for C6P v1.
+
+| File | Description |
+|------|-------------|
+| **README.md** | Crypto module overview |
+| **c6p-crypto-registry.md** | Canonical identifiers, suite IDs, wire-stable values |
+| **c6p-key-schedule.md** | **[NORMATIVE]** Root/chain/message key derivation, domain separation labels |
+| **c6p-nonce-policy.md** | Deterministic nonce derivation (safety analysis) |
+| **c6p-aead-and-aad.md** | 63-byte AAD construction, session binding |
+| **c6p-encoding-and-canonicalization.md** | Strict encoding rules (hex lowercase, base64url no padding) |
+| **c6p-error-codes.md** | Canonical error taxonomy |
+| **c6p-replay-and-skip-window.md** | Replay rejection, skip-window (2048 messages) |
+| **test-vectors/** | Crypto test vectors (JSON placeholders for Rust generator) |
+
+**Dependencies:** All other modules depend on `c6p-key-schedule.md` for KDF labels and procedures.
+
+---
+
+### 2. Handshake Module (`docs/handshake/`)
+
+IslandAccord v1 authenticated prekey handshake.
+
+| File | Description |
+|------|-------------|
+| **island-accord-crypto.md** | **[NORMATIVE]** Handshake cryptography (3DH+OTP, signatures, KC) |
+| **island-accord-wire.md** | HTTP/WebSocket wire protocol, JSON schemas |
+| **island-accord-state-machine.md** | Server state machine, OTP lifecycle, routing |
+| **island-accord-test-matrix.md** | Comprehensive test scenarios (positive + negative) |
+| **island-accord-error-codes.md** | Handshake-specific error codes |
+| **island-accord-observability.md** | Telemetry without secret leakage |
+| **test-vectors/** | Handshake test vectors (offer, KC, DH computations) |
+
+**Key Features:**
+- 3DH + optional 4DH (with OTP)
+- SPK signatures (Ed25519, rotation policy)
+- Bidirectional key confirmation (KC1/KC2)
+- Transcript binding (downgrade resistance)
+
+---
+
+### 3. Identity Module (`docs/identity/`)
+
+Device identities, key rotation, prekey lifecycle, platform security.
+
+| File | Description |
+|------|-------------|
+| **identity-registry.md** | Device ID derivation, fingerprint format, key types |
+| **device-identity.md** | Identity generation, multi-device support, registration |
+| **key-rotation-policy.md** | Rotation triggers, migration windows, state transitions |
+| **prekeys-lifecycle.md** | SPK/OTP lifecycle, reservation TTL, upload protocol |
+| **key-storage-and-hardening.md** | **[CRITICAL]** Keychain/KeyStore integration, zeroization, biometric locks |
+| **identity-error-codes.md** | Identity-specific errors (rotation, revocation, corruption) |
+| **identity-test-matrix.md** | Test scenarios (generation, rotation, prekeys, storage) |
+| **identity-observability.md** | Events, metrics, privacy (hash device IDs in logs) |
+| **test-vectors/** | Identity test vectors (device IDs, fingerprints, SPK signatures) |
+
+**Platform Guidance:**
+- iOS: Keychain with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`
+- Android: AndroidKeyStore with `setUserAuthenticationRequired(true)`
+- Server: PBKDF2 (min 100k iterations) + HSM for production
+
+---
+
+### 4. Sessions Module (`docs/Sessions/`)
+
+Session model, DM ratchet, message encryption, lifecycle management.
+
+| File | Description |
+|------|-------------|
+| **sessions-overview.md** | Session types, DM ratchet architecture, lifecycle states |
+| **dm-ratchet-state-machine.md** | **[NORMATIVE]** Per-stream send/receive flows, counter management |
+| **session-storage-contract.md** | Persistent storage (encryption at rest, atomicity, crash safety) |
+| **concurrency-and-ordering.md** | Multi-threaded send/receive, out-of-order handling, locks |
+| **sessions-error-codes.md** | Session errors (lifecycle, ratchet, storage conflicts) |
+| **sessions-test-matrix.md** | Test scenarios (send/receive, concurrency, security) |
+| **sessions-observability.md** | Events, metrics, logging, alerting (no secret leakage) |
+| **test-vectors/** | Ratchet test vectors (send, receive, skip-window, persistence) |
+
+**Key Features:**
+- Directional streams (i2r, r2i)
+- Skip-window: 2048 messages (bounded out-of-order acceptance)
+- Atomic state persistence (counter + chain key + consumed set)
+- Forward secrecy (per-message keys deleted after use)
+
+---
+
+### 5. Threat Model (`docs/threat-model/`)
+
+Security analysis, attack surface, mitigations, residual risks.
+
+| File | Description |
+|------|-------------|
+| **threat-model-v1.md** | **[CRITICAL]** Comprehensive threat analysis for C6P v1 |
+
+**Covered Threats:**
+- Passive eavesdropping (network attacker)
+- Man-in-the-middle (malicious server, SPK substitution)
+- Replay attacks (message duplication)
+- Downgrade attacks (protocol version, suite downgrade)
+- Key compromise (IK, root key, chain key)
+- Metadata leakage (traffic analysis, session linkability)
+- Implementation vulnerabilities (timing attacks, memory safety, RNG)
+
+**Residual Risks:**
+- Endpoint security (compromised OS/device)
+- Social engineering (fake fingerprint acceptance)
+- Quantum adversaries (harvest-now-decrypt-later)
+
+---
+
+## Quick Start
+
+### For Implementers
+
+1. **Read core crypto specs:**
+   - `crypto/c6p-key-schedule.md` (KDF labels, procedures)
+   - `crypto/c6p-nonce-policy.md` (deterministic nonce safety)
+   - `crypto/c6p-aead-and-aad.md` (AAD construction)
+
+2. **Implement handshake:**
+   - `handshake/island-accord-crypto.md` (3DH+OTP, signatures, KC)
+   - `handshake/island-accord-wire.md` (JSON schemas, endpoints)
+
+3. **Implement ratchet:**
+   - `Sessions/dm-ratchet-state-machine.md` (send/receive flows)
+   - `Sessions/session-storage-contract.md` (persistence requirements)
+
+4. **Validate with test vectors:**
+   - Generate vectors using Rust reference implementation
+   - All implementations MUST pass identical test vectors
+
+5. **Review threat model:**
+   - `threat-model/threat-model-v1.md` (security properties, mitigations)
+
+---
+
+## Compliance Checklist
+
+Before deploying C6P v1 to production:
+
+- [ ] All KDF labels match `c6p-key-schedule.md` exactly (fail on mismatch)
+- [ ] Nonces are deterministic (no randomness per `c6p-nonce-policy.md`)
+- [ ] Replay detection enforced (consumed counter sets)
+- [ ] Skip-window bounded (2048 messages for DM)
+- [ ] SPK signatures verified (handshake)
+- [ ] Key confirmation enforced (KC1/KC2 before session ACTIVE)
+- [ ] Keys stored in platform secure storage (Keychain/KeyStore)
+- [ ] State persistence is atomic (no partial updates)
+- [ ] Constant-time crypto (no timing leaks)
+- [ ] Zeroization on key deletion (best-effort)
+- [ ] Test vectors pass (cross-implementation validation)
+- [ ] External cryptographic audit completed
+
+---
+
+## Test Vectors
+
+All test vectors are deterministic JSON schemas with "TODO" placeholders.
+
+**Generation:**
+```bash
+cd rust/c6p-crypto
+cargo run --bin generate-test-vectors -- --output ../../docs/crypto/test-vectors/v1/
+```
+
+**Validation:**
+All implementations (Rust, Swift, Kotlin) MUST produce identical outputs for identical inputs.
+
+---
+
+## Error Handling
+
+C6P uses **fail-closed** error handling:
+- Any validation failure → abort immediately
+- No "best effort" decryption
+- No partial state updates
+
+**Canonical error codes:**
+- Namespace: `C6P.<MODULE>.<SPECIFIC_ERROR>`
+- Examples: `C6P.HANDSHAKE.SPK_SIGNATURE_INVALID`, `C6P.RATCHET.REPLAY_DETECTED`
+
+See module-specific error code docs for complete taxonomy.
+
+---
+
+## Security Properties
+
+### Confidentiality
+- End-to-end encryption (AEAD with per-message keys)
+- Server never learns message content or session keys
+
+### Authenticity
+- Ed25519 signatures (handshake initiator, SPK binding)
+- Key confirmation (KC1/KC2 mutual authentication)
+
+### Integrity
+- AEAD tags (ChaCha20-Poly1305, XChaCha20-Poly1305, AEGIS-128L)
+- AAD binds version, suite, session, stream, counter
+
+### Forward Secrecy
+- Per-message keys derived from chain key
+- Chain key updated after each message (ratchet step)
+- Compromise of current state does NOT reveal past messages
+
+### Replay Resistance
+- Counter uniqueness enforced per (session, stream)
+- Consumed set prevents duplicate messages
+- Skip-window bounded (2048 messages)
+
+### Downgrade Resistance
+- Protocol version bound in AAD
+- Suite ID bound in AAD (fixed at handshake)
+- Transcript hash binds all handshake inputs
+
+---
+
+## Platform Support
+
+| Platform | Language | Keystore | Status |
+|----------|----------|----------|--------|
+| iOS | Swift | Keychain (Secure Enclave) | Planned |
+| Android | Kotlin | AndroidKeyStore (TEE/StrongBox) | Planned |
+| Server | Rust | SQLite/PostgreSQL + optional HSM | Planned |
+| Desktop | Rust | OS keyring + file encryption | Planned |
+
+---
+
+## References
+
+- **RFC 5869:** HMAC-based Extract-and-Expand Key Derivation Function (HKDF)
+- **RFC 8439:** ChaCha20 and Poly1305 for IETF Protocols
+- **RFC 8748:** draft-irtf-cfrg-xchacha (XChaCha20-Poly1305)
+- **AEGIS-128L:** CAESAR competition finalist
+- **Ed25519:** EdDSA signature scheme
+- **X25519:** Elliptic curve Diffie-Hellman (ECDH)
+
+---
+
+## Contributing
+
+When adding new documentation:
+1. Follow normative style (fail-closed, explicit dependencies, compliance checklists)
+2. Cross-reference related specs in header "Depends on" section
+3. Add test scenarios to relevant `*-test-matrix.md` file
+4. Update test vectors (regenerate with Rust reference implementation)
+5. Update this README if adding new modules
+
+---
+
+## License
+
+TBD
+
+---
+
+## Version History
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0 | TBD | Initial C6P v1 normative specification |
+
+---
