@@ -1,0 +1,204 @@
+name: Rust CI/CD
+
+on:
+  push:
+    branches: [ main, develop, claude/* ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # Build and test all workspace crates
+  build-and-test:
+    name: Build & Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        rust: [stable, 1.75.0]  # MSRV: Rust 1.75.0
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust ${{ matrix.rust }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: rust/target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build all crates
+        working-directory: rust
+        run: cargo build --workspace --verbose
+
+      - name: Run tests (c6p-crypto)
+        working-directory: rust
+        run: cargo test --package c6p-crypto --verbose
+
+      - name: Run tests (c6p-handshake)
+        working-directory: rust
+        run: cargo test --package c6p-handshake --verbose
+
+      - name: Run tests (c6p-identity)
+        working-directory: rust
+        run: cargo test --package c6p-identity --verbose
+
+      - name: Run tests (c6p-sessions)
+        working-directory: rust
+        run: cargo test --package c6p-sessions --verbose
+
+      - name: Build test vector generator
+        working-directory: rust
+        run: cargo build --bin c6p-gen-vectors --release
+
+  # Code quality checks
+  clippy:
+    name: Clippy (Linting)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Run Clippy
+        working-directory: rust
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  # Code formatting check
+  rustfmt:
+    name: Rustfmt (Code Format)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        working-directory: rust
+        run: cargo fmt --all -- --check
+
+  # Test vector validation
+  validate-vectors:
+    name: Validate Test Vectors
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build test vector generator
+        working-directory: rust
+        run: cargo build --bin c6p-gen-vectors --release
+
+      - name: Generate crypto test vectors
+        working-directory: rust
+        run: cargo run --bin c6p-gen-vectors --release -- --output ../docs --module crypto --force
+
+      - name: Verify crypto vectors exist
+        run: |
+          ls -lh docs/crypto/test-vectors/v1/
+          [ -f docs/crypto/test-vectors/v1/key_schedule_vectors.json ] || exit 1
+          [ -f docs/crypto/test-vectors/v1/nonce_vectors.json ] || exit 1
+          [ -f docs/crypto/test-vectors/v1/aad_vectors.json ] || exit 1
+          [ -f docs/crypto/test-vectors/v1/aead_vectors_chacha20poly1305.json ] || exit 1
+          [ -f docs/crypto/test-vectors/v1/aead_vectors_xchacha20poly1305.json ] || exit 1
+
+      - name: Validate JSON format
+        run: |
+          jq empty docs/crypto/test-vectors/v1/*.json || exit 1
+
+  # Security audit
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Run security audit
+        working-directory: rust
+        run: cargo audit
+
+  # Documentation build
+  docs:
+    name: Documentation Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build documentation
+        working-directory: rust
+        run: cargo doc --workspace --no-deps --document-private-items
+
+  # Coverage report (optional)
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
+
+      - name: Generate coverage
+        working-directory: rust
+        run: cargo llvm-cov --workspace --lcov --output-path lcov.info
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: rust/lcov.info
+          fail_ci_if_error: false
