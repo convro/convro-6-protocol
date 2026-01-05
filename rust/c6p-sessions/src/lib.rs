@@ -45,5 +45,5 @@ pub mod error;
 pub use types::*;
 pub use ratchet::*;
 pub use replay::*;
+pub use state::*;
 pub use error::*;
-// Note: state module is not yet implemented, so we don't re-export it
