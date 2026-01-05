@@ -157,6 +157,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "hkdf",
+ "hmac",
  "rand",
  "serde",
  "serde_json",
