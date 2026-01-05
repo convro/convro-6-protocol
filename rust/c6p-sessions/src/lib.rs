@@ -40,10 +40,12 @@ pub mod types;
 pub mod ratchet;
 pub mod replay;
 pub mod state;
+pub mod aead;
 pub mod error;
 
 pub use types::*;
 pub use ratchet::*;
 pub use replay::*;
 pub use state::*;
+pub use aead::*;
 pub use error::*;

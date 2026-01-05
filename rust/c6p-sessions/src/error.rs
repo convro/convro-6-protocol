@@ -13,6 +13,10 @@ pub enum SessionError {
     #[error("Counter exhausted: reached 2^64-1")]
     CounterExhausted,
 
+    /// Message encryption failed
+    #[error("Message encryption failed: {0}")]
+    EncryptionFailed(String),
+
     /// Message decryption failed
     #[error("Message decryption failed: {0}")]
     DecryptionFailed(String),
