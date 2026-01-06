@@ -1,0 +1,43 @@
+{
+  "version": "1.0",
+  "module": "prekey_bundle",
+  "generated_by": "rust-c6p-test-vectors v0.1.0",
+  "generated_at": "2026-01-06T17:48:45.448867843+00:00",
+  "description": "Prekey bundle JSON payloads (3DH and 4DH)",
+  "vectors": [
+    {
+      "case_id": "PREKEY_001",
+      "description": "Timon's 3DH prekey bundle (no OTP)",
+      "inputs": {
+        "device_id_hex": "0ae849e9eb653b7a1f83fc7d4010ab6e",
+        "ed25519_pub_b64u": "iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w",
+        "x25519_pub_b64u": "e06Qm75__kTEZaIgA31gjuNYl9Me-XLwf3SJLLD3PxM",
+        "spk_id_hex": "0102030405060708",
+        "spk_pub_b64u": "e06Qm75__kTEZaIgA31gjuNYl9Me-XLwf3SJLLD3PxM",
+        "spk_sig_b64u": "k23M68f4IHukfkdoWObIj1TEDXupTwqJ5N9bs69UIMdDhsQfdGFkG-i3GazNfGk0wsR9WkyHVLF5yMnvbLYIBw"
+      },
+      "outputs": {
+        "prekey_bundle_json": "{\"deviceId\":\"0ae849e9eb653b7a1f83fc7d4010ab6e\",\"identityPubEd25519\":\"iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w\",\"identityPubX25519\":\"e06Qm75__kTEZaIgA31gjuNYl9Me-XLwf3SJLLD3PxM\",\"spkId\":\"0102030405060708\",\"spkPub\":\"e06Qm75__kTEZaIgA31gjuNYl9Me-XLwf3SJLLD3PxM\",\"spkSig\":\"k23M68f4IHukfkdoWObIj1TEDXupTwqJ5N9bs69UIMdDhsQfdGFkG-i3GazNfGk0wsR9WkyHVLF5yMnvbLYIBw\"}",
+        "bundle_type": "3DH"
+      }
+    },
+    {
+      "case_id": "PREKEY_002",
+      "description": "Peter's 4DH prekey bundle (with OTP)",
+      "inputs": {
+        "device_id_hex": "3bb82f36319fe27d6fd7586461b446a8",
+        "ed25519_pub_b64u": "gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q",
+        "x25519_pub_b64u": "D6poTtKIZ7l_Smot7l34zpdOdrcBjj8iocTPJnhXDyA",
+        "spk_id_hex": "1122334455667788",
+        "spk_pub_b64u": "D6poTtKIZ7l_Smot7l34zpdOdrcBjj8iocTPJnhXDyA",
+        "spk_sig_b64u": "Vzc6ZEV-GGa_JEfm35_OortAQm3Mxyx_MQ7Otj9JJp1cM21yFWf8DwFWKGIr3l4--ksVm_a0OzmViqf4T5M3Cw",
+        "otp_id_hex": "aabbccddeeff0011",
+        "otp_pub_b64u": "ew1H2TQn-DERYHgcfHM_2J-IlwrvSQ2KoO4ZpMuKGxQ"
+      },
+      "outputs": {
+        "prekey_bundle_json": "{\"deviceId\":\"3bb82f36319fe27d6fd7586461b446a8\",\"identityPubEd25519\":\"gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q\",\"identityPubX25519\":\"D6poTtKIZ7l_Smot7l34zpdOdrcBjj8iocTPJnhXDyA\",\"spkId\":\"1122334455667788\",\"spkPub\":\"D6poTtKIZ7l_Smot7l34zpdOdrcBjj8iocTPJnhXDyA\",\"spkSig\":\"Vzc6ZEV-GGa_JEfm35_OortAQm3Mxyx_MQ7Otj9JJp1cM21yFWf8DwFWKGIr3l4--ksVm_a0OzmViqf4T5M3Cw\",\"otpId\":\"aabbccddeeff0011\",\"otpPub\":\"ew1H2TQn-DERYHgcfHM_2J-IlwrvSQ2KoO4ZpMuKGxQ\"}",
+        "bundle_type": "4DH"
+      }
+    }
+  ]
+}

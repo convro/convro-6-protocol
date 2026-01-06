@@ -12,9 +12,15 @@ path = "src/main.rs"
 
 [dependencies]
 c6p-crypto = { path = "../c6p-crypto" }
+c6p-identity = { path = "../c6p-identity" }
+c6p-handshake = { path = "../c6p-handshake" }
+c6p-sessions = { path = "../c6p-sessions" }
 
 # Cryptographic primitives
 chacha20poly1305.workspace = true
+ed25519-dalek.workspace = true
+x25519-dalek.workspace = true
+rand.workspace = true
 
 # Serialization
 serde.workspace = true

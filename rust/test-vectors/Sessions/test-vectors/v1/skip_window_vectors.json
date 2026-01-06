@@ -1,0 +1,97 @@
+{
+  "version": "1.0",
+  "module": "skip_window",
+  "generated_by": "rust-c6p-test-vectors v0.1.0",
+  "generated_at": "2026-01-06T17:48:45.453684393+00:00",
+  "description": "Out-of-order message handling and replay detection",
+  "vectors": [
+    {
+      "case_id": "SKIP_001",
+      "description": "Sequential in-order delivery (counters 0-4)",
+      "inputs": {
+        "initial_recv_expected": 0,
+        "message_sequence": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ],
+        "description_sequence": "Sequential: 0,1,2,3,4"
+      },
+      "outputs": {
+        "final_recv_expected": 5,
+        "bitmap_stats": "0/2048 bits set",
+        "accepted_counters": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ],
+        "rejected_counters": []
+      }
+    },
+    {
+      "case_id": "SKIP_002",
+      "description": "Out-of-order delivery with gaps (0,2,1,5,3,4,6)",
+      "inputs": {
+        "initial_recv_expected": 0,
+        "message_sequence": [
+          0,
+          2,
+          1,
+          5,
+          3,
+          4,
+          6
+        ],
+        "description_sequence": "Out-of-order: 0,2,1,5,3,4,6"
+      },
+      "outputs": {
+        "final_recv_expected": 7,
+        "bitmap_stats": "0/2048 bits set",
+        "accepted_counters": [
+          0,
+          2,
+          1,
+          5,
+          3,
+          4,
+          6
+        ],
+        "rejected_counters": []
+      }
+    },
+    {
+      "case_id": "SKIP_003",
+      "description": "Replay detection (counters 0,1,2,1,2,3 - duplicates rejected)",
+      "inputs": {
+        "initial_recv_expected": 0,
+        "message_sequence": [
+          0,
+          1,
+          2,
+          1,
+          2,
+          3
+        ],
+        "description_sequence": "With replays: 0,1,2,1,2,3"
+      },
+      "outputs": {
+        "final_recv_expected": 4,
+        "bitmap_stats": "0/2048 bits set",
+        "accepted_counters": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "rejected_counters": [
+          1,
+          2
+        ]
+      }
+    }
+  ]
+}

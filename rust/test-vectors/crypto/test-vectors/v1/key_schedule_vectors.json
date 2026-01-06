@@ -1,0 +1,48 @@
+{
+  "version": "1.0",
+  "suite": "C6P_CRYPTO_V1",
+  "module": "key_schedule",
+  "generated_by": "rust-c6p-test-vectors v0.1.0",
+  "generated_at": "2026-01-06T17:48:45.358400155+00:00",
+  "description": "Root key and chain key derivation test vectors",
+  "vectors": [
+    {
+      "case_id": "ROOT_001",
+      "description": "3DH root derivation (no OTP, 96-byte IKM)",
+      "inputs": {
+        "ikm_hex": "424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242",
+        "ikm_len": 96,
+        "transcript_hash_b64u": "ERERERERERERERERERERERERERERERERERERERERERE",
+        "session_id_hex": "0102030405060708",
+        "initiator_device_id_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "responder_device_id_hex": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "suite_id": 1
+      },
+      "outputs": {
+        "root_key_b64u": "7wEMmsrS2D8eWkkFLe3Mn965gxo5J__KBT5pMH0R6XA",
+        "kc_key_b64u": "7xk0r3E5jqScKjm5FTuyBYaG9NBv8TaOKY_v_NaX-ok",
+        "ck_i2r_b64u": "EN4o1ixf6TmAE1woyfHK7GcHDgNAwy_OvQd5d42bJtk",
+        "ck_r2i_b64u": "NbYyZZ2LkIsoeu2vLh533zLTjKUoPpzk5597WTRAzAY"
+      }
+    },
+    {
+      "case_id": "ROOT_002",
+      "description": "4DH root derivation (with OTP, 128-byte IKM)",
+      "inputs": {
+        "ikm_hex": "8888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888",
+        "ikm_len": 128,
+        "transcript_hash_b64u": "IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI",
+        "session_id_hex": "1122334455667788",
+        "initiator_device_id_hex": "cccccccccccccccccccccccccccccccc",
+        "responder_device_id_hex": "dddddddddddddddddddddddddddddddd",
+        "suite_id": 1
+      },
+      "outputs": {
+        "root_key_b64u": "h6s_AeLMYCgNNtUkSixyPd7JY4ErYlMpnaPE3ju7dP0",
+        "kc_key_b64u": "ibyaYTwZJW8ng2zIL80VmJZNdjpdiDDSJ0sxd2qrUyQ",
+        "ck_i2r_b64u": "3DX-UWgJ2Onia3hQTf-wOUbVeeCPrBrUZZDjLBlkrwI",
+        "ck_r2i_b64u": "wOsBXiaSzHGjJiOEP-3TcuqjTdiJfZVfhrunfdqAydw"
+      }
+    }
+  ]
+}

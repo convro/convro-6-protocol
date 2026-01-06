@@ -1,0 +1,65 @@
+{
+  "version": "1.0",
+  "module": "ratchet_send",
+  "generated_by": "rust-c6p-test-vectors v0.1.0",
+  "generated_at": "2026-01-06T17:48:45.450766059+00:00",
+  "description": "Message encryption with symmetric ratcheting (Timon sends)",
+  "vectors": [
+    {
+      "case_id": "SEND_001",
+      "description": "Basic send: Timon → Peter (counter=0)",
+      "inputs": {
+        "initial_chain_key_b64u": "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI",
+        "plaintext_b64u": "SGVsbG8gZnJvbSBUaW1vbiE",
+        "session_id_hex": "0102030405060708",
+        "timon_device_id_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "peter_device_id_hex": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "stream_id": 1,
+        "message_type": 1,
+        "suite_id": 1,
+        "counter": 0
+      },
+      "crypto_steps": {
+        "mk_material_b64u": "YOV_oM_ANBi5yc-9MGp19X83IZA6v5H1WAwoXVSJWgI",
+        "suite_key_b64u": "YOV_oM_ANBi5yc-9MGp19X83IZA6v5H1WAwoXVSJWgI",
+        "nonce_material_b64u": "YOV_oM_ANBi5yc-9MGp19X83IZA6v5H1WAwoXVSJWgI",
+        "nonce_hex": "16d57608bd99ffb4102bf294",
+        "aad_hex": "4336505f4141445f56310101010100010203040506070811111111111111111111111111111111111111111111111111111111111111110000000000000000"
+      },
+      "outputs": {
+        "ciphertext_b64u": "_1Rnr50-vGQPqSvZVnHUMrDizZFuOGncMWYxjR2NJtgA",
+        "ciphertext_len": 33,
+        "next_chain_key_b64u": "vfDyLwi44jm4Vv-IIialD1w-p-ahe-4aNHL9W8ggR34",
+        "counter_used": 0
+      }
+    },
+    {
+      "case_id": "SEND_002",
+      "description": "Sequential sends: Timon sends 3 messages (counters 0,1,2)",
+      "inputs": {
+        "initial_chain_key_b64u": "iIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIg",
+        "plaintext_b64u": "[TWVzc2FnZSAx,TWVzc2FnZSAy,TWVzc2FnZSAz]",
+        "session_id_hex": "1122334455667788",
+        "timon_device_id_hex": "cccccccccccccccccccccccccccccccc",
+        "peter_device_id_hex": "dddddddddddddddddddddddddddddddd",
+        "stream_id": 1,
+        "message_type": 1,
+        "suite_id": 1,
+        "counter": 0
+      },
+      "crypto_steps": {
+        "mk_material_b64u": "See individual messages",
+        "suite_key_b64u": "See individual messages",
+        "nonce_material_b64u": "See individual messages",
+        "nonce_hex": "See individual messages",
+        "aad_hex": "See individual messages"
+      },
+      "outputs": {
+        "ciphertext_b64u": "[qrVz6fnR5GfsHQGsT--yGoIIhi6kkTYqSA,zyRdASHc_gjfeNm4TkZ9lINIOR4c5WJEIA,fzP-K_MfxZhDG1BqhvpgALeTnWtVtRb4VQ]",
+        "ciphertext_len": 75,
+        "next_chain_key_b64u": "UnzRVWnP4s-SAHeUR3HU6xFxm43tVBAc6Yp1yrgCSpg",
+        "counter_used": 2
+      }
+    }
+  ]
+}

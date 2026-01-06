@@ -1,0 +1,23 @@
+{
+  "version": "1.0",
+  "module": "negative_tests",
+  "generated_by": "rust-c6p-test-vectors v0.1.0",
+  "generated_at": "2026-01-06T17:48:45.422860472+00:00",
+  "description": "Negative test cases (invalid signatures, tampered data)",
+  "vectors": [
+    {
+      "case_id": "NEG_001",
+      "description": "Invalid SPK signature (tampered)",
+      "test_type": "invalid_spk_signature",
+      "inputs": {
+        "device_id_hex": "3bb82f36319fe27d6fd7586461b446a8",
+        "ed_pub_b64u": "gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q",
+        "spk_id_hex": "0102030405060708",
+        "spk_pub_b64u": "WdkiVHNFHv_-azbbyu_b97GJXeYghFCaf1tYvwHQZBg",
+        "spk_sig_b64u": "3UtjLLy360yWZGHfvjNrmfnlDopIuqpGFmAZ-6EUU6ZZcWIPrqDwmdC89lkfvToDaNP1uWiRLDZNLABKG7XhCA",
+        "x_pub_b64u": "D6poTtKIZ7l_Smot7l34zpdOdrcBjj8iocTPJnhXDyA"
+      },
+      "expected_error": "InvalidBundleSignature"
+    }
+  ]
+}
