@@ -30,3 +30,7 @@ clap = { version = "4.5", features = ["derive"] }
 # Utilities
 anyhow.workspace = true
 chrono = "0.4"
+
+[dev-dependencies]
+c6p-handshake = { path = "../c6p-handshake" }
+c6p-sessions = { path = "../c6p-sessions" }
