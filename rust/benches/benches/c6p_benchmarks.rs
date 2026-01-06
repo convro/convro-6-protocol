@@ -53,27 +53,27 @@ fn create_prekey_bundle() -> (
     c6p_handshake::X25519PrivateKey,
     c6p_handshake::X25519PublicKey,
 ) {
-    let (bob_ed_priv, bob_ed_pub, bob_x_priv, bob_x_pub) = create_test_keys();
-    let (_, _, bob_spk_priv, bob_spk_pub) = create_test_keys();
+    let (peter_ed_priv, peter_ed_pub, peter_x_priv, peter_x_pub) = create_test_keys();
+    let (_, _, peter_spk_priv, peter_spk_pub) = create_test_keys();
 
     let spk_id = c6p_handshake::SpkId([0x01; 8]);
     let mut spk_msg = Vec::new();
     spk_msg.extend_from_slice(b"C6P_PREKEY_V1");
     spk_msg.extend_from_slice(&spk_id.0);
-    spk_msg.extend_from_slice(&bob_spk_pub.0);
-    let spk_sig = c6p_handshake::ed25519_sign(&bob_ed_priv, &spk_msg).unwrap();
+    spk_msg.extend_from_slice(&peter_spk_pub.0);
+    let spk_sig = c6p_handshake::ed25519_sign(&peter_ed_priv, &spk_msg).unwrap();
 
     let bundle = PrekeyBundle::new(
         c6p_handshake::DeviceId([0xBB; 16]),
-        bob_ed_pub,
-        bob_x_pub,
+        peter_ed_pub,
+        peter_x_pub,
         spk_id,
-        bob_spk_pub,
+        peter_spk_pub,
         spk_sig,
         None,
     );
 
-    (bundle, bob_ed_priv, bob_ed_pub, bob_x_priv, bob_x_pub, bob_spk_priv, bob_spk_pub)
+    (bundle, peter_ed_priv, peter_ed_pub, peter_x_priv, peter_x_pub, peter_spk_priv, peter_spk_pub)
 }
 
 // ============================================================================
@@ -179,21 +179,21 @@ fn bench_handshake(c: &mut Criterion) {
 
     // Offer construction
     group.bench_function("offer_construction", |b| {
-        let (bundle, _bob_ed_priv, _bob_ed_pub, _bob_x_priv, _bob_x_pub, _bob_spk_priv, _bob_spk_pub) = create_prekey_bundle();
-        let (alice_ed_priv, alice_ed_pub, alice_x_priv, alice_x_pub) = create_test_keys();
-        let (_, _, alice_eph_priv, alice_eph_pub) = create_test_keys();
+        let (bundle, _peter_ed_priv, _peter_ed_pub, _peter_x_priv, _peter_x_pub, _peter_spk_priv, _peter_spk_pub) = create_prekey_bundle();
+        let (timon_ed_priv, timon_ed_pub, timon_x_priv, timon_x_pub) = create_test_keys();
+        let (_, _, timon_eph_priv, timon_eph_pub) = create_test_keys();
 
         b.iter(|| {
             Offer::construct(
                 black_box(&bundle),
                 c6p_handshake::SessionId([0x11; 8]),
                 c6p_handshake::DeviceId([0xAA; 16]),
-                &alice_x_priv,
-                &alice_x_pub,
-                &alice_ed_priv,
-                &alice_ed_pub,
-                &alice_eph_priv,
-                &alice_eph_pub,
+                &timon_x_priv,
+                &timon_x_pub,
+                &timon_ed_priv,
+                &timon_ed_pub,
+                &timon_eph_priv,
+                &timon_eph_pub,
                 SUITE_CHACHA20_POLY1305 as u16,
             )
         })
@@ -201,20 +201,20 @@ fn bench_handshake(c: &mut Criterion) {
 
     // Accept construction (includes offer validation)
     group.bench_function("accept_construction", |b| {
-        let (bundle, _bob_ed_priv, bob_ed_pub, bob_x_priv, bob_x_pub, bob_spk_priv, _bob_spk_pub) = create_prekey_bundle();
-        let (alice_ed_priv, alice_ed_pub, alice_x_priv, alice_x_pub) = create_test_keys();
-        let (_, _, alice_eph_priv, alice_eph_pub) = create_test_keys();
+        let (bundle, _peter_ed_priv, peter_ed_pub, peter_x_priv, peter_x_pub, peter_spk_priv, _peter_spk_pub) = create_prekey_bundle();
+        let (timon_ed_priv, timon_ed_pub, timon_x_priv, timon_x_pub) = create_test_keys();
+        let (_, _, timon_eph_priv, timon_eph_pub) = create_test_keys();
 
         let (offer, _) = Offer::construct(
             &bundle,
             c6p_handshake::SessionId([0x11; 8]),
             c6p_handshake::DeviceId([0xAA; 16]),
-            &alice_x_priv,
-            &alice_x_pub,
-            &alice_ed_priv,
-            &alice_ed_pub,
-            &alice_eph_priv,
-            &alice_eph_pub,
+            &timon_x_priv,
+            &timon_x_pub,
+            &timon_ed_priv,
+            &timon_ed_pub,
+            &timon_eph_priv,
+            &timon_eph_pub,
             SUITE_CHACHA20_POLY1305 as u16,
         )
         .unwrap();
@@ -223,11 +223,11 @@ fn bench_handshake(c: &mut Criterion) {
             Accept::construct(
                 black_box(&offer),
                 c6p_handshake::DeviceId([0xBB; 16]),
-                &bob_x_priv,
-                &bob_x_pub,
-                &bob_ed_pub,
+                &peter_x_priv,
+                &peter_x_pub,
+                &peter_ed_pub,
                 c6p_handshake::SpkId([0x01; 8]),
-                &bob_spk_priv,
+                &peter_spk_priv,
                 &bundle.spk_pub,
                 None,
             )
@@ -317,33 +317,33 @@ fn bench_end_to_end(c: &mut Criterion) {
     group.bench_function("full_handshake_plus_message", |b| {
         b.iter(|| {
             // Setup
-            let (bundle, _bob_ed_priv, bob_ed_pub, bob_x_priv, bob_x_pub, bob_spk_priv, _bob_spk_pub) = create_prekey_bundle();
-            let (alice_ed_priv, alice_ed_pub, alice_x_priv, alice_x_pub) = create_test_keys();
-            let (_, _, alice_eph_priv, alice_eph_pub) = create_test_keys();
+            let (bundle, _peter_ed_priv, peter_ed_pub, peter_x_priv, peter_x_pub, peter_spk_priv, _peter_spk_pub) = create_prekey_bundle();
+            let (timon_ed_priv, timon_ed_pub, timon_x_priv, timon_x_pub) = create_test_keys();
+            let (_, _, timon_eph_priv, timon_eph_pub) = create_test_keys();
 
             // Handshake
-            let (offer, alice_output) = Offer::construct(
+            let (offer, timon_output) = Offer::construct(
                 &bundle,
                 c6p_handshake::SessionId([0x11; 8]),
                 c6p_handshake::DeviceId([0xAA; 16]),
-                &alice_x_priv,
-                &alice_x_pub,
-                &alice_ed_priv,
-                &alice_ed_pub,
-                &alice_eph_priv,
-                &alice_eph_pub,
+                &timon_x_priv,
+                &timon_x_pub,
+                &timon_ed_priv,
+                &timon_ed_pub,
+                &timon_eph_priv,
+                &timon_eph_pub,
                 SUITE_CHACHA20_POLY1305 as u16,
             )
             .unwrap();
 
-            let (_accept, _bob_output) = Accept::construct(
+            let (_accept, _peter_output) = Accept::construct(
                 &offer,
                 c6p_handshake::DeviceId([0xBB; 16]),
-                &bob_x_priv,
-                &bob_x_pub,
-                &bob_ed_pub,
+                &peter_x_priv,
+                &peter_x_pub,
+                &peter_ed_pub,
                 c6p_handshake::SpkId([0x01; 8]),
-                &bob_spk_priv,
+                &peter_spk_priv,
                 &bundle.spk_pub,
                 None,
             )
@@ -352,7 +352,7 @@ fn bench_end_to_end(c: &mut Criterion) {
             // First message
             let mut sender = StreamState::new(
                 StreamDirection::I2R,
-                ChainKey::from_bytes(alice_output.send_chain_key),
+                ChainKey::from_bytes(timon_output.send_chain_key),
             );
 
             let session_ctx = SessionContext {

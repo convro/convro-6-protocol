@@ -168,9 +168,9 @@ fn deliver_in_order(buffer: &mut OrderedBuffer, counter: u64, plaintext: Plainte
 **NO guarantees:** Messages on `i2r` and `r2i` are independent.
 
 **Example:**
-- Alice sends msg1 on `i2r` (counter=10)
-- Bob sends msg2 on `r2i` (counter=20)
-- Alice may receive msg2 before sending msg1 (no causality enforcement)
+- Timon sends msg1 on `i2r` (counter=10)
+- Peter sends msg2 on `r2i` (counter=20)
+- Timon may receive msg2 before sending msg1 (no causality enforcement)
 
 **Application layer:** Use explicit sequence numbers or vector clocks if cross-stream causality needed.
 
