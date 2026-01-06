@@ -51,6 +51,7 @@ pub mod offer;
 pub mod accept;
 pub mod error;
 pub mod crypto;
+pub mod wire;
 
 pub use types::*;
 pub use bundle::*;
@@ -58,3 +59,4 @@ pub use offer::*;
 pub use accept::*;
 pub use error::*;
 pub use crypto::*;
+pub use wire::*;
