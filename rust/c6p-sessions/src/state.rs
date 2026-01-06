@@ -306,6 +306,136 @@ impl StreamState {
     pub fn skip_window_stats(&self) -> crate::replay::SkipWindowStats {
         self.skip_window.stats()
     }
+
+    // ========================================================================
+    // High-Level API (Encrypt/Decrypt Integration)
+    // ========================================================================
+
+    /// Encrypt and send a message (high-level API)
+    ///
+    /// This is a convenience method that combines:
+    /// 1. `advance_send()` - Derive message key and advance ratchet
+    /// 2. `encrypt_message()` - Encrypt with AEAD
+    ///
+    /// # Arguments
+    ///
+    /// * `plaintext` - Message plaintext
+    /// * `ctx` - Session context
+    /// * `transcript_hash` - Transcript hash from handshake
+    /// * `stream_ctx` - Stream context
+    ///
+    /// # Returns
+    ///
+    /// * `Ok((counter, sealed))` - Counter and encrypted message (ciphertext || tag)
+    /// * `Err(SessionError)` - On encryption or state advancement failure
+    ///
+    /// # Side Effects
+    ///
+    /// - Advances send_counter by 1
+    /// - Advances chain_key to next state
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let (counter, sealed) = sender.encrypt_and_send(
+    ///     b"Hello, C6P!",
+    ///     &ctx,
+    ///     &transcript_hash,
+    ///     &stream_ctx,
+    /// )?;
+    /// // Send (counter, sealed) over the wire
+    /// ```
+    pub fn encrypt_and_send(
+        &mut self,
+        plaintext: &[u8],
+        ctx: &SessionContext,
+        transcript_hash: &TranscriptHash,
+        stream_ctx: &StreamContext,
+    ) -> Result<(Counter, Vec<u8>)> {
+        // Step 1: Advance send state (derive mk_material, advance chain_key)
+        let SendOutput {
+            counter,
+            mk_material,
+        } = self.advance_send(ctx, transcript_hash, stream_ctx)?;
+
+        // Step 2: Encrypt message with AEAD
+        let sealed = crate::aead::encrypt_message(
+            plaintext,
+            &mk_material,
+            counter.value(),
+            ctx,
+            transcript_hash,
+            stream_ctx,
+        )?;
+
+        Ok((counter, sealed))
+    }
+
+    /// Receive and decrypt a message (high-level API)
+    ///
+    /// This is a convenience method that combines:
+    /// 1. `prepare_receive()` - Validate counter and derive message key
+    /// 2. `decrypt_message()` - Decrypt with AEAD
+    /// 3. `mark_received()` - Update consumed set and advance recv_expected
+    ///
+    /// # Arguments
+    ///
+    /// * `counter` - Message counter from envelope
+    /// * `sealed` - Encrypted message (ciphertext || tag)
+    /// * `ctx` - Session context
+    /// * `transcript_hash` - Transcript hash from handshake
+    /// * `stream_ctx` - Stream context
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(plaintext)` - Decrypted message
+    /// * `Err(SessionError)` - On decryption failure, replay detection, or validation failure
+    ///
+    /// # Hard Rules
+    ///
+    /// - On decryption failure: state is NOT advanced (fail-closed)
+    /// - On success: counter marked as consumed, recv_expected may advance
+    /// - Replay attack: Err(SessionError::ReplayDetected)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // Receive (counter, sealed) from wire
+    /// let plaintext = receiver.receive_and_decrypt(
+    ///     counter,
+    ///     &sealed,
+    ///     &ctx,
+    ///     &transcript_hash,
+    ///     &stream_ctx,
+    /// )?;
+    /// ```
+    pub fn receive_and_decrypt(
+        &mut self,
+        counter: Counter,
+        sealed: &[u8],
+        ctx: &SessionContext,
+        transcript_hash: &TranscriptHash,
+        stream_ctx: &StreamContext,
+    ) -> Result<Vec<u8>> {
+        // Step 1: Validate counter and derive message key
+        let ReceiveOutput { mk_material } =
+            self.prepare_receive(counter, ctx, transcript_hash, stream_ctx)?;
+
+        // Step 2: Decrypt message with AEAD (authentication happens here)
+        let plaintext = crate::aead::decrypt_message(
+            sealed,
+            &mk_material,
+            counter.value(),
+            ctx,
+            transcript_hash,
+            stream_ctx,
+        )?;
+
+        // Step 3: Mark counter as consumed (only after successful decryption)
+        self.mark_received(counter, ctx, transcript_hash, stream_ctx)?;
+
+        Ok(plaintext)
+    }
 }
 
 /// Output from advance_send operation
@@ -565,5 +695,259 @@ mod tests {
         let stats = state.skip_window_stats();
         assert_eq!(stats.recv_expected, Counter::new(1));
         assert!(stats.consumed_count >= 1); // At least counter 5 is in window
+    }
+
+    // ========================================================================
+    // High-Level API Tests (Encrypt/Decrypt Integration)
+    // ========================================================================
+
+    #[test]
+    fn test_high_level_encrypt_and_send() {
+        let (ctx, transcript_hash, stream_ctx) = create_test_context();
+        let chain_key = ChainKey::from_bytes([0x42; 32]);
+        let mut sender = StreamState::new(StreamDirection::I2R, chain_key);
+
+        let plaintext = b"Hello, C6P!";
+
+        // Encrypt and send message 0
+        let (counter, sealed) = sender
+            .encrypt_and_send(plaintext, &ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+
+        assert_eq!(counter, Counter::new(0));
+        assert_eq!(sealed.len(), plaintext.len() + 16); // plaintext + tag
+        assert_eq!(sender.send_counter(), Counter::new(1)); // Advanced
+    }
+
+    #[test]
+    fn test_high_level_receive_and_decrypt() {
+        let (ctx, transcript_hash, stream_ctx) = create_test_context();
+        let chain_key = ChainKey::from_bytes([0x42; 32]);
+        let mut receiver = StreamState::new(StreamDirection::I2R, chain_key);
+
+        let plaintext = b"Hello, C6P!";
+
+        // First, manually create a sealed message
+        let output = receiver.advance_send(&ctx, &transcript_hash, &stream_ctx).unwrap();
+        let sealed = crate::aead::encrypt_message(
+            plaintext,
+            &output.mk_material,
+            output.counter.value(),
+            &ctx,
+            &transcript_hash,
+            &stream_ctx,
+        )
+        .unwrap();
+
+        // Reset receiver state
+        let mut receiver = StreamState::new(StreamDirection::I2R, ChainKey::from_bytes([0x42; 32]));
+
+        // Receive and decrypt
+        let decrypted = receiver
+            .receive_and_decrypt(Counter::new(0), &sealed, &ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+
+        assert_eq!(decrypted, plaintext);
+        assert_eq!(receiver.recv_expected(), Counter::new(1)); // Advanced
+    }
+
+    #[test]
+    fn test_high_level_full_round_trip() {
+        let (ctx, transcript_hash, stream_ctx) = create_test_context();
+        let chain_key = ChainKey::from_bytes([0x99; 32]);
+
+        let mut sender = StreamState::new(StreamDirection::I2R, chain_key.clone());
+        let mut receiver = StreamState::new(StreamDirection::I2R, chain_key);
+
+        let plaintext = b"Full integration test!";
+
+        // Sender encrypts
+        let (counter, sealed) = sender
+            .encrypt_and_send(plaintext, &ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+
+        // Receiver decrypts
+        let decrypted = receiver
+            .receive_and_decrypt(counter, &sealed, &ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+
+        assert_eq!(decrypted, plaintext);
+        assert_eq!(sender.send_counter(), Counter::new(1));
+        assert_eq!(receiver.recv_expected(), Counter::new(1));
+    }
+
+    #[test]
+    fn test_high_level_multiple_messages() {
+        let (ctx, transcript_hash, stream_ctx) = create_test_context();
+        let chain_key = ChainKey::from_bytes([0x77; 32]);
+
+        let mut sender = StreamState::new(StreamDirection::I2R, chain_key.clone());
+        let mut receiver = StreamState::new(StreamDirection::I2R, chain_key);
+
+        // Send and receive 5 messages
+        for i in 0..5 {
+            let plaintext = format!("Message {}", i);
+
+            // Send
+            let (counter, sealed) = sender
+                .encrypt_and_send(plaintext.as_bytes(), &ctx, &transcript_hash, &stream_ctx)
+                .unwrap();
+
+            assert_eq!(counter, Counter::new(i));
+
+            // Receive
+            let decrypted = receiver
+                .receive_and_decrypt(counter, &sealed, &ctx, &transcript_hash, &stream_ctx)
+                .unwrap();
+
+            assert_eq!(decrypted, plaintext.as_bytes());
+        }
+
+        assert_eq!(sender.send_counter(), Counter::new(5));
+        assert_eq!(receiver.recv_expected(), Counter::new(5));
+    }
+
+    #[test]
+    fn test_high_level_out_of_order_delivery() {
+        let (ctx, transcript_hash, stream_ctx) = create_test_context();
+        let chain_key = ChainKey::from_bytes([0x88; 32]);
+
+        let mut sender = StreamState::new(StreamDirection::I2R, chain_key.clone());
+        let mut receiver = StreamState::new(StreamDirection::I2R, chain_key);
+
+        // Send 3 messages
+        let (counter_0, sealed_0) = sender
+            .encrypt_and_send(b"Message 0", &ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+        let (counter_1, sealed_1) = sender
+            .encrypt_and_send(b"Message 1", &ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+        let (counter_2, sealed_2) = sender
+            .encrypt_and_send(b"Message 2", &ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+
+        // Receive out of order: 2, 0, 1
+        let decrypted_2 = receiver
+            .receive_and_decrypt(counter_2, &sealed_2, &ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+        assert_eq!(decrypted_2, b"Message 2");
+        assert_eq!(receiver.recv_expected(), Counter::new(0)); // Not advanced yet
+
+        let decrypted_0 = receiver
+            .receive_and_decrypt(counter_0, &sealed_0, &ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+        assert_eq!(decrypted_0, b"Message 0");
+        assert_eq!(receiver.recv_expected(), Counter::new(1)); // Advanced to 1
+
+        let decrypted_1 = receiver
+            .receive_and_decrypt(counter_1, &sealed_1, &ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+        assert_eq!(decrypted_1, b"Message 1");
+        assert_eq!(receiver.recv_expected(), Counter::new(3)); // Advanced to 3 (all consumed)
+    }
+
+    #[test]
+    fn test_high_level_replay_detection() {
+        let (ctx, transcript_hash, stream_ctx) = create_test_context();
+        let chain_key = ChainKey::from_bytes([0x55; 32]);
+
+        let mut sender = StreamState::new(StreamDirection::I2R, chain_key.clone());
+        let mut receiver = StreamState::new(StreamDirection::I2R, chain_key);
+
+        // Send message
+        let (counter, sealed) = sender
+            .encrypt_and_send(b"Original", &ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+
+        // Receive once (OK)
+        let decrypted = receiver
+            .receive_and_decrypt(counter, &sealed, &ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+        assert_eq!(decrypted, b"Original");
+
+        // Try to receive again (replay attack - should fail)
+        let result = receiver.receive_and_decrypt(counter, &sealed, &ctx, &transcript_hash, &stream_ctx);
+
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), SessionError::ReplayDetected(0)));
+    }
+
+    #[test]
+    fn test_high_level_decrypt_failure_no_state_change() {
+        let (ctx, transcript_hash, stream_ctx) = create_test_context();
+        let chain_key = ChainKey::from_bytes([0x66; 32]);
+
+        let mut sender = StreamState::new(StreamDirection::I2R, chain_key.clone());
+        let mut receiver = StreamState::new(StreamDirection::I2R, chain_key);
+
+        // Send message
+        let (counter, mut sealed) = sender
+            .encrypt_and_send(b"Tamper test", &ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+
+        // Tamper with ciphertext
+        sealed[0] ^= 0x01;
+
+        let recv_expected_before = receiver.recv_expected();
+
+        // Try to decrypt (should fail)
+        let result = receiver.receive_and_decrypt(counter, &sealed, &ctx, &transcript_hash, &stream_ctx);
+
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), SessionError::DecryptionFailed(_)));
+
+        // Verify state was NOT advanced (fail-closed)
+        assert_eq!(receiver.recv_expected(), recv_expected_before);
+    }
+
+    #[test]
+    fn test_high_level_empty_message() {
+        let (ctx, transcript_hash, stream_ctx) = create_test_context();
+        let chain_key = ChainKey::from_bytes([0x33; 32]);
+
+        let mut sender = StreamState::new(StreamDirection::I2R, chain_key.clone());
+        let mut receiver = StreamState::new(StreamDirection::I2R, chain_key);
+
+        let plaintext = b"";
+
+        // Send empty message
+        let (counter, sealed) = sender
+            .encrypt_and_send(plaintext, &ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+
+        assert_eq!(sealed.len(), 16); // Just the tag
+
+        // Receive empty message
+        let decrypted = receiver
+            .receive_and_decrypt(counter, &sealed, &ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_high_level_large_message() {
+        let (ctx, transcript_hash, stream_ctx) = create_test_context();
+        let chain_key = ChainKey::from_bytes([0x44; 32]);
+
+        let mut sender = StreamState::new(StreamDirection::I2R, chain_key.clone());
+        let mut receiver = StreamState::new(StreamDirection::I2R, chain_key);
+
+        // 10KB message
+        let plaintext = vec![0x42u8; 10 * 1024];
+
+        // Send
+        let (counter, sealed) = sender
+            .encrypt_and_send(&plaintext, &ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+
+        assert_eq!(sealed.len(), plaintext.len() + 16);
+
+        // Receive
+        let decrypted = receiver
+            .receive_and_decrypt(counter, &sealed, &ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+
+        assert_eq!(decrypted, plaintext);
     }
 }
