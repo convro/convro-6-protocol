@@ -148,6 +148,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "c6p-examples"
+version = "0.1.0"
+dependencies = [
+ "c6p-crypto",
+ "c6p-handshake",
+ "c6p-sessions",
+ "ed25519-dalek",
+ "hex",
+ "rand",
+ "x25519-dalek",
+]
+
+[[package]]
 name = "c6p-handshake"
 version = "0.1.0"
 dependencies = [

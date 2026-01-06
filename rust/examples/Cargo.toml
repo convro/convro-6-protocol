@@ -1,0 +1,16 @@
+[package]
+name = "c6p-examples"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+c6p-crypto = { path = "../c6p-crypto" }
+c6p-handshake = { path = "../c6p-handshake" }
+c6p-sessions = { path = "../c6p-sessions" }
+
+hex.workspace = true
+rand.workspace = true
+ed25519-dalek.workspace = true
+x25519-dalek.workspace = true
