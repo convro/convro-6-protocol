@@ -4,6 +4,7 @@ members = [
     "c6p-crypto", "c6p-handshake", "c6p-identity", "c6p-sessions",
     "c6p-test-vectors",
     "examples",
+    "benches",
 ]
 
 [workspace.package]

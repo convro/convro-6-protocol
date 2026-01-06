@@ -1,0 +1,24 @@
+[package]
+name = "c6p-benches"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+publish = false
+
+[[bench]]
+name = "c6p_benchmarks"
+harness = false
+
+[dependencies]
+c6p-crypto = { path = "../c6p-crypto" }
+c6p-handshake = { path = "../c6p-handshake" }
+c6p-identity = { path = "../c6p-identity" }
+c6p-sessions = { path = "../c6p-sessions" }
+
+criterion.workspace = true
+rand.workspace = true
+ed25519-dalek.workspace = true
+x25519-dalek.workspace = true
+
+[lib]
+path = "lib.rs"

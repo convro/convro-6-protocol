@@ -126,6 +126,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5dd9dc738b7a8311c7ade152424974d8115f2cdad61e8dab8dac9f2362298510"
 
 [[package]]
+name = "c6p-benches"
+version = "0.1.0"
+dependencies = [
+ "c6p-crypto",
+ "c6p-handshake",
+ "c6p-identity",
+ "c6p-sessions",
+ "criterion",
+ "ed25519-dalek",
+ "rand",
+ "x25519-dalek",
+]
+
+[[package]]
 name = "c6p-crypto"
 version = "0.1.0"
 dependencies = [
