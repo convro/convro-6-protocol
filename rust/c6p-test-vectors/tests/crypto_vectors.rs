@@ -11,6 +11,7 @@ use std::path::PathBuf;
 // ============================================================================
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct KeyScheduleVectors {
     version: String,
     suite: String,
@@ -54,13 +55,15 @@ fn test_key_schedule_vectors() {
         .unwrap()
         .join("docs/crypto/test-vectors/v1/key_schedule_vectors.json");
 
-    let json = fs::read_to_string(&vectors_path)
-        .expect("Failed to read key_schedule_vectors.json");
+    let json = fs::read_to_string(&vectors_path).expect("Failed to read key_schedule_vectors.json");
 
     let test_vectors: KeyScheduleVectors =
         serde_json::from_str(&json).expect("Failed to parse JSON");
 
-    println!("\n🔐 Validating Key Schedule Vectors ({})", test_vectors.suite);
+    println!(
+        "\n🔐 Validating Key Schedule Vectors ({})",
+        test_vectors.suite
+    );
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
     for vector in &test_vectors.vectors {
@@ -71,22 +74,27 @@ fn test_key_schedule_vectors() {
         assert_eq!(ikm.len(), vector.inputs.ikm_len, "IKM length mismatch");
 
         let transcript_hash_bytes = base64_url_decode(&vector.inputs.transcript_hash_b64u);
-        assert_eq!(transcript_hash_bytes.len(), 32, "Transcript hash must be 32 bytes");
+        assert_eq!(
+            transcript_hash_bytes.len(),
+            32,
+            "Transcript hash must be 32 bytes"
+        );
         let mut transcript_hash = [0u8; 32];
         transcript_hash.copy_from_slice(&transcript_hash_bytes);
         let transcript_hash = c6p_crypto::TranscriptHash(transcript_hash);
 
-        let session_id_bytes = hex::decode(&vector.inputs.session_id_hex).expect("Invalid session ID");
+        let session_id_bytes =
+            hex::decode(&vector.inputs.session_id_hex).expect("Invalid session ID");
         let mut session_id = [0u8; 8];
         session_id.copy_from_slice(&session_id_bytes);
 
-        let init_dev_id_bytes =
-            hex::decode(&vector.inputs.initiator_device_id_hex).expect("Invalid initiator device ID");
+        let init_dev_id_bytes = hex::decode(&vector.inputs.initiator_device_id_hex)
+            .expect("Invalid initiator device ID");
         let mut init_dev_id = [0u8; 16];
         init_dev_id.copy_from_slice(&init_dev_id_bytes);
 
-        let resp_dev_id_bytes =
-            hex::decode(&vector.inputs.responder_device_id_hex).expect("Invalid responder device ID");
+        let resp_dev_id_bytes = hex::decode(&vector.inputs.responder_device_id_hex)
+            .expect("Invalid responder device ID");
         let mut resp_dev_id = [0u8; 16];
         resp_dev_id.copy_from_slice(&resp_dev_id_bytes);
 
@@ -98,11 +106,7 @@ fn test_key_schedule_vectors() {
         };
 
         // Call the actual implementation
-        let (root_key, kc_key) = c6p_crypto::derive_root_and_kc(
-            &ikm,
-            &transcript_hash,
-            &ctx,
-        );
+        let (root_key, kc_key) = c6p_crypto::derive_root_and_kc(&ikm, &transcript_hash, &ctx);
 
         let stream_ctx_i2r = c6p_crypto::StreamContext {
             stream_id: 0x01, // I2R
@@ -137,27 +141,31 @@ fn test_key_schedule_vectors() {
         let expected_ck_r2i = base64_url_decode(&vector.outputs.ck_r2i_b64u);
 
         assert_eq!(
-            &root_key.0[..], expected_root.as_slice(),
+            &root_key.0[..],
+            expected_root.as_slice(),
             "{}: Root key mismatch\n  Got: {}\n  Expected: {}",
             vector.case_id,
-            hex::encode(&root_key.0),
-            hex::encode(&expected_root)
+            hex::encode(root_key.0),
+            hex::encode(&expected_root[..])
         );
 
         assert_eq!(
-            &kc_key.0[..], expected_kc.as_slice(),
+            &kc_key.0[..],
+            expected_kc.as_slice(),
             "{}: KC key mismatch",
             vector.case_id
         );
 
         assert_eq!(
-            &ck_i2r.0[..], expected_ck_i2r.as_slice(),
+            &ck_i2r.0[..],
+            expected_ck_i2r.as_slice(),
             "{}: I2R chain key mismatch",
             vector.case_id
         );
 
         assert_eq!(
-            &ck_r2i.0[..], expected_ck_r2i.as_slice(),
+            &ck_r2i.0[..],
+            expected_ck_r2i.as_slice(),
             "{}: R2I chain key mismatch",
             vector.case_id
         );
@@ -166,7 +174,10 @@ fn test_key_schedule_vectors() {
     }
 
     println!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("✅ All {} key schedule vectors validated successfully!\n", test_vectors.vectors.len());
+    println!(
+        "✅ All {} key schedule vectors validated successfully!\n",
+        test_vectors.vectors.len()
+    );
 }
 
 // ============================================================================
@@ -174,6 +185,7 @@ fn test_key_schedule_vectors() {
 // ============================================================================
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct AadVectors {
     version: String,
     suite: String,
@@ -190,6 +202,7 @@ struct AadVector {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct AadInputs {
     session_id_hex: String,
     session_binding_b64u: String,
@@ -217,20 +230,22 @@ fn test_aad_construction_vectors() {
         .unwrap()
         .join("docs/crypto/test-vectors/v1/aad_vectors.json");
 
-    let json = fs::read_to_string(&vectors_path)
-        .expect("Failed to read aad_vectors.json");
+    let json = fs::read_to_string(&vectors_path).expect("Failed to read aad_vectors.json");
 
-    let test_vectors: AadVectors =
-        serde_json::from_str(&json).expect("Failed to parse JSON");
+    let test_vectors: AadVectors = serde_json::from_str(&json).expect("Failed to parse JSON");
 
-    println!("\n🔐 Validating AAD Construction Vectors ({})", test_vectors.suite);
+    println!(
+        "\n🔐 Validating AAD Construction Vectors ({})",
+        test_vectors.suite
+    );
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
     for vector in &test_vectors.vectors {
         println!("\n📋 {}: {}", vector.case_id, vector.description);
 
         // Decode inputs
-        let session_id_bytes = hex::decode(&vector.inputs.session_id_hex).expect("Invalid session ID");
+        let session_id_bytes =
+            hex::decode(&vector.inputs.session_id_hex).expect("Invalid session ID");
         let mut session_id = [0u8; 8];
         session_id.copy_from_slice(&session_id_bytes);
 
@@ -256,24 +271,29 @@ fn test_aad_construction_vectors() {
         let expected_aad = hex::decode(&vector.outputs.aad_hex).expect("Invalid expected AAD hex");
 
         assert_eq!(
-            aad.len(), vector.outputs.aad_len,
+            aad.len(),
+            vector.outputs.aad_len,
             "{}: AAD length mismatch",
             vector.case_id
         );
 
         assert_eq!(
-            &aad[..], expected_aad.as_slice(),
+            &aad[..],
+            expected_aad.as_slice(),
             "{}: AAD mismatch\n  Got: {}\n  Expected: {}",
             vector.case_id,
-            hex::encode(&aad),
-            hex::encode(&expected_aad)
+            hex::encode(aad),
+            hex::encode(&expected_aad[..])
         );
 
         println!("   ✅ PASS - AAD matches ({}  bytes)", aad.len());
     }
 
     println!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("✅ All {} AAD construction vectors validated successfully!\n", test_vectors.vectors.len());
+    println!(
+        "✅ All {} AAD construction vectors validated successfully!\n",
+        test_vectors.vectors.len()
+    );
 }
 
 // ============================================================================

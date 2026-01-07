@@ -44,10 +44,7 @@ fn main() -> Result<()> {
 
     // Ensure output directory exists
     if !args.output.exists() {
-        anyhow::bail!(
-            "Output directory does not exist: {}",
-            args.output.display()
-        );
+        anyhow::bail!("Output directory does not exist: {}", args.output.display());
     }
 
     // Generate vectors based on module selection
@@ -65,7 +62,10 @@ fn main() -> Result<()> {
         Some("identity") => generate_identity_vectors(&args)?,
         Some("sessions") => generate_sessions_vectors(&args)?,
         Some(module) => {
-            anyhow::bail!("Unknown module: {}. Valid modules: crypto, handshake, identity, sessions", module);
+            anyhow::bail!(
+                "Unknown module: {}. Valid modules: crypto, handshake, identity, sessions",
+                module
+            );
         }
     }
 

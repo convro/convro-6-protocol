@@ -3,11 +3,11 @@
 //! Implements DH operations, signature verification, and transcript computation.
 //! All implementations are normative and MUST match island-accord-crypto.md.
 
-use crate::types::*;
 use crate::error::{HandshakeError, Result};
-use c6p_crypto::{SessionId, DeviceId, TranscriptHash};
-use sha2::{Digest, Sha256};
+use crate::types::*;
+use c6p_crypto::{DeviceId, SessionId, TranscriptHash};
 use hmac::{Hmac, Mac};
+use sha2::{Digest, Sha256};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -115,10 +115,7 @@ pub fn ed25519_verify(
 ///
 /// # Returns
 /// * Ed25519 signature (64 bytes)
-pub fn ed25519_sign(
-    private_key: &Ed25519PrivateKey,
-    message: &[u8],
-) -> Result<Ed25519Signature> {
+pub fn ed25519_sign(private_key: &Ed25519PrivateKey, message: &[u8]) -> Result<Ed25519Signature> {
     use ed25519_dalek::{Signature, Signer, SigningKey};
 
     let signing_key = SigningKey::from_bytes(&private_key.0);
@@ -180,6 +177,7 @@ pub fn verify_spk_signature(
 /// 15) spkSig (64)
 /// 16) otpFlag (1 byte: 0x01 if OTP used, 0x00 otherwise)
 /// 17) if otpFlag == 0x01: otpId_bytes(8) || otpPub(32)
+#[allow(clippy::too_many_arguments)]
 pub fn build_transcript(
     suite_id: u16,
     session_id: &SessionId,
@@ -245,7 +243,7 @@ pub fn build_transcript(
     // 16) OTP flag
     if let Some((otp_id, otp_pub)) = otp {
         transcript.push(0x01); // OTP present
-        // 17) OTP ID
+                               // 17) OTP ID
         transcript.extend_from_slice(&otp_id.0);
         // 17) OTP public key
         transcript.extend_from_slice(&otp_pub.0);
@@ -296,12 +294,12 @@ pub fn compute_offer_signature_input(
     let mut hasher = Sha256::new();
 
     hasher.update(LABEL_OFFER_SIG);
-    hasher.update(&transcript_hash.0);
-    hasher.update(&[C6P_VERSION]);
-    hasher.update(&[suite_id as u8]);
-    hasher.update(&session_id.0);
-    hasher.update(&initiator_device_id.0);
-    hasher.update(&responder_device_id.0);
+    hasher.update(transcript_hash.0);
+    hasher.update([C6P_VERSION]);
+    hasher.update([suite_id as u8]);
+    hasher.update(session_id.0);
+    hasher.update(initiator_device_id.0);
+    hasher.update(responder_device_id.0);
 
     hasher.finalize().into()
 }
@@ -379,14 +377,14 @@ pub fn compute_kc_payload(
     let mut hasher = Sha256::new();
 
     hasher.update(LABEL_KC);
-    hasher.update(&[C6P_VERSION]);
+    hasher.update([C6P_VERSION]);
     // CTX
-    hasher.update(&session_id.0);
-    hasher.update(&initiator_device_id.0);
-    hasher.update(&responder_device_id.0);
+    hasher.update(session_id.0);
+    hasher.update(initiator_device_id.0);
+    hasher.update(responder_device_id.0);
     // transcript_hash
-    hasher.update(&transcript_hash.0);
-    hasher.update(&[suite_id as u8]);
+    hasher.update(transcript_hash.0);
+    hasher.update([suite_id as u8]);
 
     hasher.finalize().into()
 }
@@ -459,7 +457,12 @@ pub fn compute_kc2(
 /// Length:
 /// - without OTP: 96 bytes (3 × 32)
 /// - with OTP: 128 bytes (4 × 32)
-pub fn construct_ikm(dh1: &DhSecret, dh2: &DhSecret, dh3: &DhSecret, dh4: Option<&DhSecret>) -> Vec<u8> {
+pub fn construct_ikm(
+    dh1: &DhSecret,
+    dh2: &DhSecret,
+    dh3: &DhSecret,
+    dh4: Option<&DhSecret>,
+) -> Vec<u8> {
     let mut ikm = Vec::with_capacity(if dh4.is_some() { 128 } else { 96 });
 
     ikm.extend_from_slice(&dh1.0);
@@ -481,26 +484,23 @@ mod tests {
     fn test_x25519_dh() {
         // Test with known values from RFC 7748
         let scalar = X25519PrivateKey([
-            0xa5, 0x46, 0xe3, 0x6b, 0xf0, 0x52, 0x7c, 0x9d,
-            0x3b, 0x16, 0x15, 0x4b, 0x82, 0x46, 0x5e, 0xdd,
-            0x62, 0x14, 0x4c, 0x0a, 0xc1, 0xfc, 0x5a, 0x18,
-            0x50, 0x6a, 0x22, 0x44, 0xba, 0x44, 0x9a, 0xc4,
+            0xa5, 0x46, 0xe3, 0x6b, 0xf0, 0x52, 0x7c, 0x9d, 0x3b, 0x16, 0x15, 0x4b, 0x82, 0x46,
+            0x5e, 0xdd, 0x62, 0x14, 0x4c, 0x0a, 0xc1, 0xfc, 0x5a, 0x18, 0x50, 0x6a, 0x22, 0x44,
+            0xba, 0x44, 0x9a, 0xc4,
         ]);
 
         let point = X25519PublicKey([
-            0xe6, 0xdb, 0x68, 0x67, 0x58, 0x30, 0x30, 0xdb,
-            0x35, 0x94, 0xc1, 0xa4, 0x24, 0xb1, 0x5f, 0x7c,
-            0x72, 0x66, 0x24, 0xec, 0x26, 0xb3, 0x35, 0x3b,
-            0x10, 0xa9, 0x03, 0xa6, 0xd0, 0xab, 0x1c, 0x4c,
+            0xe6, 0xdb, 0x68, 0x67, 0x58, 0x30, 0x30, 0xdb, 0x35, 0x94, 0xc1, 0xa4, 0x24, 0xb1,
+            0x5f, 0x7c, 0x72, 0x66, 0x24, 0xec, 0x26, 0xb3, 0x35, 0x3b, 0x10, 0xa9, 0x03, 0xa6,
+            0xd0, 0xab, 0x1c, 0x4c,
         ]);
 
         let shared = x25519_dh(&scalar, &point);
 
         let expected = [
-            0xc3, 0xda, 0x55, 0x37, 0x9d, 0xe9, 0xc6, 0x90,
-            0x8e, 0x94, 0xea, 0x4d, 0xf2, 0x8d, 0x08, 0x4f,
-            0x32, 0xec, 0xcf, 0x03, 0x49, 0x1c, 0x71, 0xf7,
-            0x54, 0xb4, 0x07, 0x55, 0x77, 0xa2, 0x85, 0x52,
+            0xc3, 0xda, 0x55, 0x37, 0x9d, 0xe9, 0xc6, 0x90, 0x8e, 0x94, 0xea, 0x4d, 0xf2, 0x8d,
+            0x08, 0x4f, 0x32, 0xec, 0xcf, 0x03, 0x49, 0x1c, 0x71, 0xf7, 0x54, 0xb4, 0x07, 0x55,
+            0x77, 0xa2, 0x85, 0x52,
         ];
 
         assert_eq!(shared.0, expected);

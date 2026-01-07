@@ -327,7 +327,8 @@ mod tests {
             stream_id: STREAM_R2I,
             ..stream_ctx
         };
-        let chain_key_r2i = derive_initial_chain_key(&root_key, &transcript_hash, &ctx, &stream_ctx_r2i);
+        let chain_key_r2i =
+            derive_initial_chain_key(&root_key, &transcript_hash, &ctx, &stream_ctx_r2i);
         assert_ne!(chain_key.0, chain_key_r2i.0);
     }
 
@@ -347,25 +348,15 @@ mod tests {
             suite_id: SUITE_CHACHA20_POLY1305,
         };
 
-        let (mk_material, next_chain_key) = derive_per_message(
-            &chain_key,
-            counter,
-            &ctx,
-            &transcript_hash,
-            &stream_ctx,
-        );
+        let (mk_material, next_chain_key) =
+            derive_per_message(&chain_key, counter, &ctx, &transcript_hash, &stream_ctx);
 
         assert_eq!(mk_material.0.len(), MK_MATERIAL_LEN);
         assert_eq!(next_chain_key.0.len(), CHAIN_KEY_LEN);
 
         // Next counter with same chain key should produce different mk_material
-        let (mk_material2, _) = derive_per_message(
-            &chain_key,
-            counter + 1,
-            &ctx,
-            &transcript_hash,
-            &stream_ctx,
-        );
+        let (mk_material2, _) =
+            derive_per_message(&chain_key, counter + 1, &ctx, &transcript_hash, &stream_ctx);
         assert_ne!(mk_material.0, mk_material2.0);
 
         // Ratchet step: using next_chain_key with next counter

@@ -22,9 +22,9 @@ fn test_sessions_aead_roundtrip() {
         };
 
         let stream_ctx = StreamContext {
-            stream_id: 0x01, // I2R
+            stream_id: 0x01,    // I2R
             message_type: 0x01, // DM
-            suite_id: 1, // ChaCha20-Poly1305
+            suite_id: 1,        // ChaCha20-Poly1305
         };
 
         let transcript_hash = c6p_crypto::TranscriptHash([0x42; 32]);
@@ -38,17 +38,16 @@ fn test_sessions_aead_roundtrip() {
 
         // Encrypt
         let (counter, ciphertext) = sender
-            .encrypt_and_send(
-                plaintext,
-                &session_ctx,
-                &transcript_hash,
-                &stream_ctx,
-            )
+            .encrypt_and_send(plaintext, &session_ctx, &transcript_hash, &stream_ctx)
             .expect("Encryption failed");
 
         assert_eq!(counter.value(), 0, "First counter should be 0");
-        println!("   ✅ Encrypted: {} bytes → {} bytes (counter={})",
-                 plaintext.len(), ciphertext.len(), counter.value());
+        println!(
+            "   ✅ Encrypted: {} bytes → {} bytes (counter={})",
+            plaintext.len(),
+            ciphertext.len(),
+            counter.value()
+        );
 
         // Decrypt
         let decrypted = receiver
@@ -67,10 +66,16 @@ fn test_sessions_aead_roundtrip() {
         // Log test vector details
         println!("\n   Test Vector Details:");
         println!("   - Session ID: {}", hex::encode(session_ctx.session_id.0));
-        println!("   - Initial Chain Key: {}", hex::encode(&chain_key_copy.0[..8]));
+        println!(
+            "   - Initial Chain Key: {}",
+            hex::encode(&chain_key_copy.0[..8])
+        );
         println!("   - Plaintext: {} bytes", plaintext.len());
-        println!("   - Ciphertext: {} bytes (+{} tag)",
-                 ciphertext.len() - 16, 16);
+        println!(
+            "   - Ciphertext: {} bytes (+{} tag)",
+            ciphertext.len() - 16,
+            16
+        );
     }
 
     // Test vector 2: Sequential messages (counter advancement)
@@ -95,16 +100,11 @@ fn test_sessions_aead_roundtrip() {
         let mut sender = StreamState::new(StreamDirection::I2R, chain_key.clone());
         let mut receiver = StreamState::new(StreamDirection::I2R, chain_key);
 
-        let messages = vec!["First", "Second", "Third"];
+        let messages = ["First", "Second", "Third"];
 
         for (i, msg) in messages.iter().enumerate() {
             let (counter, ciphertext) = sender
-                .encrypt_and_send(
-                    msg.as_bytes(),
-                    &session_ctx,
-                    &transcript_hash,
-                    &stream_ctx,
-                )
+                .encrypt_and_send(msg.as_bytes(), &session_ctx, &transcript_hash, &stream_ctx)
                 .unwrap();
 
             assert_eq!(counter.value(), i as u64, "Counter mismatch");
@@ -120,7 +120,12 @@ fn test_sessions_aead_roundtrip() {
                 .unwrap();
 
             assert_eq!(&decrypted, msg.as_bytes(), "Decryption mismatch");
-            println!("   ✅ Message {}: counter={}, \"{}\"", i, counter.value(), msg);
+            println!(
+                "   ✅ Message {}: counter={}, \"{}\"",
+                i,
+                counter.value(),
+                msg
+            );
         }
 
         println!("   ✅ All sequential messages validated");
@@ -149,12 +154,7 @@ fn test_sessions_aead_roundtrip() {
         let mut receiver = StreamState::new(StreamDirection::I2R, chain_key);
 
         let (counter, mut ciphertext) = sender
-            .encrypt_and_send(
-                b"Secret",
-                &session_ctx,
-                &transcript_hash,
-                &stream_ctx,
-            )
+            .encrypt_and_send(b"Secret", &session_ctx, &transcript_hash, &stream_ctx)
             .unwrap();
 
         // Tamper with ciphertext
@@ -195,12 +195,7 @@ fn test_sessions_aead_roundtrip() {
         let mut receiver = StreamState::new(StreamDirection::I2R, chain_key);
 
         let (counter, ciphertext) = sender
-            .encrypt_and_send(
-                b"Once",
-                &session_ctx,
-                &transcript_hash,
-                &stream_ctx,
-            )
+            .encrypt_and_send(b"Once", &session_ctx, &transcript_hash, &stream_ctx)
             .unwrap();
 
         // First delivery: should succeed
@@ -256,24 +251,40 @@ fn test_sessions_aead_roundtrip() {
         let mut receiver = StreamState::new(StreamDirection::I2R, chain_key);
 
         // Send 3 messages
-        let (c0, ct0) = sender.encrypt_and_send(b"Zero", &session_ctx, &transcript_hash, &stream_ctx).unwrap();
-        let (c1, ct1) = sender.encrypt_and_send(b"One", &session_ctx, &transcript_hash, &stream_ctx).unwrap();
-        let (c2, ct2) = sender.encrypt_and_send(b"Two", &session_ctx, &transcript_hash, &stream_ctx).unwrap();
+        let (c0, ct0) = sender
+            .encrypt_and_send(b"Zero", &session_ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+        let (c1, ct1) = sender
+            .encrypt_and_send(b"One", &session_ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+        let (c2, ct2) = sender
+            .encrypt_and_send(b"Two", &session_ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
 
         // Receive out of order: 2, 0, 1
-        let d2 = receiver.receive_and_decrypt(c2, &ct2, &session_ctx, &transcript_hash, &stream_ctx).unwrap();
+        let d2 = receiver
+            .receive_and_decrypt(c2, &ct2, &session_ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
         assert_eq!(&d2, b"Two");
         println!("   ✅ Received counter 2 first");
 
-        let d0 = receiver.receive_and_decrypt(c0, &ct0, &session_ctx, &transcript_hash, &stream_ctx).unwrap();
+        let d0 = receiver
+            .receive_and_decrypt(c0, &ct0, &session_ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
         assert_eq!(&d0, b"Zero");
         println!("   ✅ Received counter 0 (skip-window)");
 
-        let d1 = receiver.receive_and_decrypt(c1, &ct1, &session_ctx, &transcript_hash, &stream_ctx).unwrap();
+        let d1 = receiver
+            .receive_and_decrypt(c1, &ct1, &session_ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
         assert_eq!(&d1, b"One");
         println!("   ✅ Received counter 1 (in order)");
 
-        assert_eq!(receiver.recv_expected().value(), 3, "recv_expected should advance to 3");
+        assert_eq!(
+            receiver.recv_expected().value(),
+            3,
+            "recv_expected should advance to 3"
+        );
         println!("   ✅ Out-of-order delivery handled correctly");
     }
 

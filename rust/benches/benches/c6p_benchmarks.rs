@@ -73,7 +73,15 @@ fn create_prekey_bundle() -> (
         None,
     );
 
-    (bundle, peter_ed_priv, peter_ed_pub, peter_x_priv, peter_x_pub, peter_spk_priv, peter_spk_pub)
+    (
+        bundle,
+        peter_ed_priv,
+        peter_ed_pub,
+        peter_x_priv,
+        peter_x_pub,
+        peter_spk_priv,
+        peter_spk_pub,
+    )
 }
 
 // ============================================================================
@@ -123,7 +131,11 @@ fn bench_crypto(c: &mut Criterion) {
         };
 
         b.iter(|| {
-            derive_root_and_kc(black_box(&ikm), black_box(&transcript_hash), black_box(&ctx))
+            derive_root_and_kc(
+                black_box(&ikm),
+                black_box(&transcript_hash),
+                black_box(&ctx),
+            )
         })
     });
 
@@ -138,7 +150,11 @@ fn bench_crypto(c: &mut Criterion) {
         };
 
         b.iter(|| {
-            derive_root_and_kc(black_box(&ikm), black_box(&transcript_hash), black_box(&ctx))
+            derive_root_and_kc(
+                black_box(&ikm),
+                black_box(&transcript_hash),
+                black_box(&ctx),
+            )
         })
     });
 
@@ -179,7 +195,15 @@ fn bench_handshake(c: &mut Criterion) {
 
     // Offer construction
     group.bench_function("offer_construction", |b| {
-        let (bundle, _peter_ed_priv, _peter_ed_pub, _peter_x_priv, _peter_x_pub, _peter_spk_priv, _peter_spk_pub) = create_prekey_bundle();
+        let (
+            bundle,
+            _peter_ed_priv,
+            _peter_ed_pub,
+            _peter_x_priv,
+            _peter_x_pub,
+            _peter_spk_priv,
+            _peter_spk_pub,
+        ) = create_prekey_bundle();
         let (timon_ed_priv, timon_ed_pub, timon_x_priv, timon_x_pub) = create_test_keys();
         let (_, _, timon_eph_priv, timon_eph_pub) = create_test_keys();
 
@@ -194,14 +218,22 @@ fn bench_handshake(c: &mut Criterion) {
                 &timon_ed_pub,
                 &timon_eph_priv,
                 &timon_eph_pub,
-                SUITE_CHACHA20_POLY1305 as u16,
+                SUITE_CHACHA20_POLY1305,
             )
         })
     });
 
     // Accept construction (includes offer validation)
     group.bench_function("accept_construction", |b| {
-        let (bundle, _peter_ed_priv, peter_ed_pub, peter_x_priv, peter_x_pub, peter_spk_priv, _peter_spk_pub) = create_prekey_bundle();
+        let (
+            bundle,
+            _peter_ed_priv,
+            peter_ed_pub,
+            peter_x_priv,
+            peter_x_pub,
+            peter_spk_priv,
+            _peter_spk_pub,
+        ) = create_prekey_bundle();
         let (timon_ed_priv, timon_ed_pub, timon_x_priv, timon_x_pub) = create_test_keys();
         let (_, _, timon_eph_priv, timon_eph_pub) = create_test_keys();
 
@@ -215,7 +247,7 @@ fn bench_handshake(c: &mut Criterion) {
             &timon_ed_pub,
             &timon_eph_priv,
             &timon_eph_pub,
-            SUITE_CHACHA20_POLY1305 as u16,
+            SUITE_CHACHA20_POLY1305,
         )
         .unwrap();
 
@@ -262,8 +294,7 @@ fn bench_sessions(c: &mut Criterion) {
     for size in [64, 256, 1024, 4096, 16384].iter() {
         group.throughput(Throughput::Bytes(*size as u64));
         group.bench_with_input(BenchmarkId::new("encrypt", size), size, |b, &size| {
-            let mut sender =
-                StreamState::new(StreamDirection::I2R, ChainKey([0x11; 32]));
+            let mut sender = StreamState::new(StreamDirection::I2R, ChainKey([0x11; 32]));
             let plaintext = vec![0x42u8; size];
 
             b.iter(|| {
@@ -281,10 +312,8 @@ fn bench_sessions(c: &mut Criterion) {
     for size in [64, 256, 1024, 4096, 16384].iter() {
         group.throughput(Throughput::Bytes(*size as u64));
         group.bench_with_input(BenchmarkId::new("decrypt", size), size, |b, &size| {
-            let mut sender =
-                StreamState::new(StreamDirection::I2R, ChainKey([0x11; 32]));
-            let mut receiver =
-                StreamState::new(StreamDirection::I2R, ChainKey([0x11; 32]));
+            let mut sender = StreamState::new(StreamDirection::I2R, ChainKey([0x11; 32]));
+            let mut receiver = StreamState::new(StreamDirection::I2R, ChainKey([0x11; 32]));
             let plaintext = vec![0x42u8; size];
 
             let (counter, ciphertext) = sender
@@ -317,7 +346,15 @@ fn bench_end_to_end(c: &mut Criterion) {
     group.bench_function("full_handshake_plus_message", |b| {
         b.iter(|| {
             // Setup
-            let (bundle, _peter_ed_priv, peter_ed_pub, peter_x_priv, peter_x_pub, peter_spk_priv, _peter_spk_pub) = create_prekey_bundle();
+            let (
+                bundle,
+                _peter_ed_priv,
+                peter_ed_pub,
+                peter_x_priv,
+                peter_x_pub,
+                peter_spk_priv,
+                _peter_spk_pub,
+            ) = create_prekey_bundle();
             let (timon_ed_priv, timon_ed_pub, timon_x_priv, timon_x_pub) = create_test_keys();
             let (_, _, timon_eph_priv, timon_eph_pub) = create_test_keys();
 
@@ -332,7 +369,7 @@ fn bench_end_to_end(c: &mut Criterion) {
                 &timon_ed_pub,
                 &timon_eph_priv,
                 &timon_eph_pub,
-                SUITE_CHACHA20_POLY1305 as u16,
+                SUITE_CHACHA20_POLY1305,
             )
             .unwrap();
 

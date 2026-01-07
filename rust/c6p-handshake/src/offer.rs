@@ -9,11 +9,11 @@
 //! - KC1 computation
 //! - Offer signature
 
-use crate::types::*;
-use crate::error::Result;
 use crate::bundle::PrekeyBundle;
 use crate::crypto::*;
-use c6p_crypto::{derive_root_and_kc, derive_initial_chain_key, SessionContext, StreamContext};
+use crate::error::Result;
+use crate::types::*;
+use c6p_crypto::{derive_initial_chain_key, derive_root_and_kc, SessionContext, StreamContext};
 
 /// IslandAccord offer (from initiator to responder)
 ///
@@ -142,11 +142,9 @@ impl Offer {
         let dh3 = x25519_dh(initiator_ek_priv, &bundle.spk_pub);
 
         // DH4 (optional, only if OTP present)
-        let dh4 = if let Some(otp_pub) = bundle.otp_pub {
-            Some(x25519_dh(initiator_ek_priv, &otp_pub))
-        } else {
-            None
-        };
+        let dh4 = bundle
+            .otp_pub
+            .map(|otp_pub| x25519_dh(initiator_ek_priv, &otp_pub));
 
         // Step 3: Construct IKM (island-accord-crypto.md §5.3)
         let ikm = construct_ikm(&dh1, &dh2, &dh3, dh4.as_ref());
@@ -190,12 +188,8 @@ impl Offer {
             suite_id,
         };
 
-        let send_chain_key = derive_initial_chain_key(
-            &root_key,
-            &transcript_hash,
-            &ctx,
-            &stream_ctx_i2r,
-        );
+        let send_chain_key =
+            derive_initial_chain_key(&root_key, &transcript_hash, &ctx, &stream_ctx_i2r);
 
         // Stream R2I (responder → initiator)
         let stream_ctx_r2i = StreamContext {
@@ -204,12 +198,8 @@ impl Offer {
             suite_id,
         };
 
-        let recv_chain_key = derive_initial_chain_key(
-            &root_key,
-            &transcript_hash,
-            &ctx,
-            &stream_ctx_r2i,
-        );
+        let recv_chain_key =
+            derive_initial_chain_key(&root_key, &transcript_hash, &ctx, &stream_ctx_r2i);
 
         // Step 7: Compute session binding (for nonce derivation)
         let session_binding = c6p_crypto::compute_session_binding(&ctx);
@@ -298,7 +288,10 @@ mod tests {
         let mut x_priv_bytes = [0u8; 32];
         rng.fill_bytes(&mut x_priv_bytes);
         let x_priv = X25519PrivateKey::from_bytes(x_priv_bytes);
-        let x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(x_priv_bytes, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            x_priv_bytes,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
 
         (ed_priv, ed_pub, x_priv, x_pub)
     }

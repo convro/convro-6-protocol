@@ -3,9 +3,9 @@
 //! CRITICAL: SPK signature MUST be verified BEFORE any DH operations (fail-closed)
 //! Normative reference: island-accord-crypto.md §3
 
-use crate::types::*;
-use crate::error::{HandshakeError, Result};
 use crate::crypto::verify_spk_signature;
+use crate::error::{HandshakeError, Result};
+use crate::types::*;
 
 /// Prekey bundle (responder's published prekeys)
 ///
@@ -158,7 +158,8 @@ mod tests {
         // Derive public key from private key
         use ed25519_dalek::SigningKey;
         let signing_key = SigningKey::from_bytes(&identity_priv_ed25519.0);
-        let identity_pub_ed25519 = Ed25519PublicKey::from_bytes(signing_key.verifying_key().to_bytes());
+        let identity_pub_ed25519 =
+            Ed25519PublicKey::from_bytes(signing_key.verifying_key().to_bytes());
 
         let identity_pub_x25519 = X25519PublicKey::from_bytes([0x11; 32]);
         let responder_device_id = DeviceId([0xAA; 16]);
@@ -243,6 +244,9 @@ mod tests {
         // Should fail validation
         let result = bundle.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), HandshakeError::InvalidBundle(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            HandshakeError::InvalidBundle(_)
+        ));
     }
 }

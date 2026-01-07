@@ -155,7 +155,10 @@ fn main() {
     );
 
     println!("✅ Handshake complete! Both parties share:");
-    println!("   - Root key: {}", hex::encode(&timon_output.root_key[..8]));
+    println!(
+        "   - Root key: {}",
+        hex::encode(&timon_output.root_key[..8])
+    );
     println!(
         "   - Session binding: {}",
         hex::encode(&timon_output.session_binding[..8])
@@ -175,8 +178,8 @@ fn main() {
     };
 
     let stream_ctx = StreamContext {
-        stream_id: 0x01,           // I2R (Timon → Peter)
-        message_type: 0x01,        // DM
+        stream_id: 0x01,    // I2R (Timon → Peter)
+        message_type: 0x01, // DM
         suite_id: SUITE_CHACHA20_POLY1305,
     };
 
@@ -200,7 +203,7 @@ fn main() {
     println!("💬 STEP 4: Encrypted Message Exchange");
     println!("{}", "-".repeat(60));
 
-    let messages = vec![
+    let messages = [
         "Hello Peter! 👋",
         "This is Timon speaking.",
         "C6P is working perfectly! 🎉",
@@ -312,10 +315,7 @@ fn main() {
         )
         .unwrap();
     assert_eq!(dec_5, msg_5.as_bytes());
-    println!(
-        "   ✅ Decrypted: \"{}\"",
-        String::from_utf8_lossy(&dec_5)
-    );
+    println!("   ✅ Decrypted: \"{}\"", String::from_utf8_lossy(&dec_5));
     println!(
         "   📊 recv_expected = {} (not advanced yet)",
         peter_state.recv_expected().value()
@@ -334,10 +334,7 @@ fn main() {
         )
         .unwrap();
     assert_eq!(dec_3, msg_3.as_bytes());
-    println!(
-        "   ✅ Decrypted: \"{}\"",
-        String::from_utf8_lossy(&dec_3)
-    );
+    println!("   ✅ Decrypted: \"{}\"", String::from_utf8_lossy(&dec_3));
     println!(
         "   📊 recv_expected = {} (advanced!)",
         peter_state.recv_expected().value()
@@ -356,10 +353,7 @@ fn main() {
         )
         .unwrap();
     assert_eq!(dec_4, msg_4.as_bytes());
-    println!(
-        "   ✅ Decrypted: \"{}\"",
-        String::from_utf8_lossy(&dec_4)
-    );
+    println!("   ✅ Decrypted: \"{}\"", String::from_utf8_lossy(&dec_4));
     println!(
         "   📊 recv_expected = {} (all consumed!)",
         peter_state.recv_expected().value()
@@ -401,12 +395,7 @@ fn main() {
 
     // Timon sends one more message
     let (counter_6, mut sealed_6) = timon_state
-        .encrypt_and_send(
-            b"Tamper test",
-            &session_ctx,
-            &transcript_hash,
-            &stream_ctx,
-        )
+        .encrypt_and_send(b"Tamper test", &session_ctx, &transcript_hash, &stream_ctx)
         .unwrap();
 
     println!("🚨 Attacker tampers with ciphertext...");

@@ -78,7 +78,7 @@ impl DeviceId {
     /// assert_eq!(device_id.to_hex().len(), 32);
     /// ```
     pub fn to_hex(&self) -> String {
-        hex::encode(&self.0)
+        hex::encode(self.0)
     }
 
     /// Parse from hex (accepts hex32 lowercase or uppercase)
@@ -100,9 +100,8 @@ impl DeviceId {
     /// assert_eq!(device_id.as_bytes(), &[0xAA; 16]);
     /// ```
     pub fn from_hex(hex_str: &str) -> Result<Self> {
-        let bytes = hex::decode(hex_str).map_err(|e| {
-            IdentityError::EncodingError(format!("Invalid hex: {}", e))
-        })?;
+        let bytes = hex::decode(hex_str)
+            .map_err(|e| IdentityError::EncodingError(format!("Invalid hex: {}", e)))?;
 
         if bytes.len() != 16 {
             return Err(IdentityError::InvalidDeviceId(format!(
@@ -137,8 +136,8 @@ mod tests {
         // Test vector: deterministic Ed25519 public key
         let public_key = [0x42; 32];
 
-        let device_id = DeviceId::from_ed25519_public_key(&public_key)
-            .expect("Device ID derivation failed");
+        let device_id =
+            DeviceId::from_ed25519_public_key(&public_key).expect("Device ID derivation failed");
 
         // Verify length
         assert_eq!(device_id.as_bytes().len(), 16);

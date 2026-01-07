@@ -4,12 +4,12 @@
 //! Covers ratcheting, out-of-order delivery, replay detection, and negative tests.
 
 use anyhow::Result;
-use c6p_crypto::{SessionContext, SessionId, DeviceId, StreamContext, TranscriptHash};
-use c6p_crypto::{STREAM_I2R, STREAM_R2I, MSG_TYPE_DM, SUITE_CHACHA20_POLY1305};
-use c6p_crypto::{SessionBinding, derive_nonce, MkMaterial};
+use c6p_crypto::{derive_nonce, MkMaterial, SessionBinding};
+use c6p_crypto::{DeviceId, SessionContext, SessionId, StreamContext, TranscriptHash};
+use c6p_crypto::{MSG_TYPE_DM, STREAM_I2R, STREAM_R2I, SUITE_CHACHA20_POLY1305};
 use c6p_sessions::{
-    ChainKey, StreamState, StreamDirection, SkipWindow, Counter,
-    ratchet_step, map_to_suite_key, construct_aad,
+    construct_aad, map_to_suite_key, ratchet_step, ChainKey, Counter, SkipWindow, StreamDirection,
+    StreamState,
 };
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -100,7 +100,13 @@ fn generate_ratchet_send_vectors() -> Result<Vec<RatchetSendVector>> {
             sender.encrypt_and_send(plaintext, &session_ctx, &transcript_hash, &stream_ctx)?;
 
         // Get crypto steps (we'll derive them manually for the vector)
-        let output = ratchet_step(&initial_ck, counter, &session_ctx, &transcript_hash, &stream_ctx);
+        let output = ratchet_step(
+            &initial_ck,
+            counter,
+            &session_ctx,
+            &transcript_hash,
+            &stream_ctx,
+        );
         let mk_material = output.mk_material;
         let next_ck = output.next_chain_key;
         let suite_key = map_to_suite_key(&mk_material, stream_ctx.suite_id);
@@ -127,9 +133,9 @@ fn generate_ratchet_send_vectors() -> Result<Vec<RatchetSendVector>> {
             inputs: RatchetSendInputs {
                 initial_chain_key_b64u: base64_url(&initial_ck.0),
                 plaintext_b64u: base64_url(plaintext),
-                session_id_hex: hex::encode(&session_ctx.session_id.0),
-                timon_device_id_hex: hex::encode(&session_ctx.initiator_device_id.0),
-                peter_device_id_hex: hex::encode(&session_ctx.responder_device_id.0),
+                session_id_hex: hex::encode(session_ctx.session_id.0),
+                timon_device_id_hex: hex::encode(session_ctx.initiator_device_id.0),
+                peter_device_id_hex: hex::encode(session_ctx.responder_device_id.0),
                 stream_id: stream_ctx.stream_id,
                 message_type: stream_ctx.message_type,
                 suite_id: stream_ctx.suite_id,
@@ -139,8 +145,8 @@ fn generate_ratchet_send_vectors() -> Result<Vec<RatchetSendVector>> {
                 mk_material_b64u: base64_url(mk_material.as_bytes()),
                 suite_key_b64u: base64_url(&suite_key),
                 nonce_material_b64u: base64_url(mk_material.as_bytes()), // Same for this suite
-                nonce_hex: hex::encode(&nonce),
-                aad_hex: hex::encode(&aad),
+                nonce_hex: hex::encode(nonce),
+                aad_hex: hex::encode(aad),
             },
             outputs: RatchetSendOutputs {
                 ciphertext_b64u: base64_url(&ciphertext),
@@ -176,9 +182,9 @@ fn generate_ratchet_send_vectors() -> Result<Vec<RatchetSendVector>> {
         let plaintext2 = b"Message 2";
         let plaintext3 = b"Message 3";
 
-        let (counter1, ciphertext1) =
+        let (_counter1, ciphertext1) =
             sender.encrypt_and_send(plaintext1, &session_ctx, &transcript_hash, &stream_ctx)?;
-        let (counter2, ciphertext2) =
+        let (_counter2, ciphertext2) =
             sender.encrypt_and_send(plaintext2, &session_ctx, &transcript_hash, &stream_ctx)?;
         let (counter3, ciphertext3) =
             sender.encrypt_and_send(plaintext3, &session_ctx, &transcript_hash, &stream_ctx)?;
@@ -186,7 +192,13 @@ fn generate_ratchet_send_vectors() -> Result<Vec<RatchetSendVector>> {
         // Get final chain key state by computing it independently
         let mut current_ck = initial_ck.clone();
         for i in 0..=counter3.value() {
-            let output = ratchet_step(&current_ck, Counter::new(i), &session_ctx, &transcript_hash, &stream_ctx);
+            let output = ratchet_step(
+                &current_ck,
+                Counter::new(i),
+                &session_ctx,
+                &transcript_hash,
+                &stream_ctx,
+            );
             current_ck = output.next_chain_key;
         }
         let final_ck = current_ck;
@@ -202,9 +214,9 @@ fn generate_ratchet_send_vectors() -> Result<Vec<RatchetSendVector>> {
                     base64_url(plaintext2),
                     base64_url(plaintext3)
                 ),
-                session_id_hex: hex::encode(&session_ctx.session_id.0),
-                timon_device_id_hex: hex::encode(&session_ctx.initiator_device_id.0),
-                peter_device_id_hex: hex::encode(&session_ctx.responder_device_id.0),
+                session_id_hex: hex::encode(session_ctx.session_id.0),
+                timon_device_id_hex: hex::encode(session_ctx.initiator_device_id.0),
+                peter_device_id_hex: hex::encode(session_ctx.responder_device_id.0),
                 stream_id: stream_ctx.stream_id,
                 message_type: stream_ctx.message_type,
                 suite_id: stream_ctx.suite_id,
@@ -294,8 +306,13 @@ fn generate_ratchet_receive_vectors() -> Result<Vec<RatchetReceiveVector>> {
 
         // Receiver decrypts
         let mut receiver = StreamState::new(StreamDirection::I2R, initial_ck.clone());
-        let decrypted =
-            receiver.receive_and_decrypt(counter, &ciphertext, &session_ctx, &transcript_hash, &stream_ctx)?;
+        let decrypted = receiver.receive_and_decrypt(
+            counter,
+            &ciphertext,
+            &session_ctx,
+            &transcript_hash,
+            &stream_ctx,
+        )?;
 
         vectors.push(RatchetReceiveVector {
             case_id: "RECV_001".to_string(),
@@ -304,7 +321,7 @@ fn generate_ratchet_receive_vectors() -> Result<Vec<RatchetReceiveVector>> {
                 initial_chain_key_b64u: base64_url(&initial_ck.0),
                 ciphertext_b64u: base64_url(&ciphertext),
                 counter: counter.value(),
-                session_id_hex: hex::encode(&session_ctx.session_id.0),
+                session_id_hex: hex::encode(session_ctx.session_id.0),
                 stream_id: stream_ctx.stream_id,
                 message_type: stream_ctx.message_type,
                 suite_id: stream_ctx.suite_id,
@@ -313,7 +330,13 @@ fn generate_ratchet_receive_vectors() -> Result<Vec<RatchetReceiveVector>> {
                 plaintext_b64u: base64_url(&decrypted),
                 plaintext_len: decrypted.len(),
                 chain_key_after_receive_b64u: base64_url(&{
-                    let output = ratchet_step(&initial_ck, counter, &session_ctx, &transcript_hash, &stream_ctx);
+                    let output = ratchet_step(
+                        &initial_ck,
+                        counter,
+                        &session_ctx,
+                        &transcript_hash,
+                        &stream_ctx,
+                    );
                     output.next_chain_key.0
                 }),
                 recv_expected_after: counter.value() + 1,
@@ -352,8 +375,13 @@ fn generate_ratchet_receive_vectors() -> Result<Vec<RatchetReceiveVector>> {
 
         // Receiver starts fresh and receives out-of-order message #5
         let mut receiver = StreamState::new(StreamDirection::R2I, initial_ck.clone());
-        let decrypted =
-            receiver.receive_and_decrypt(counter, &ciphertext, &session_ctx, &transcript_hash, &stream_ctx)?;
+        let decrypted = receiver.receive_and_decrypt(
+            counter,
+            &ciphertext,
+            &session_ctx,
+            &transcript_hash,
+            &stream_ctx,
+        )?;
 
         vectors.push(RatchetReceiveVector {
             case_id: "RECV_002".to_string(),
@@ -362,7 +390,7 @@ fn generate_ratchet_receive_vectors() -> Result<Vec<RatchetReceiveVector>> {
                 initial_chain_key_b64u: base64_url(&initial_ck.0),
                 ciphertext_b64u: base64_url(&ciphertext),
                 counter: counter.value(),
-                session_id_hex: hex::encode(&session_ctx.session_id.0),
+                session_id_hex: hex::encode(session_ctx.session_id.0),
                 stream_id: stream_ctx.stream_id,
                 message_type: stream_ctx.message_type,
                 suite_id: stream_ctx.suite_id,
@@ -373,7 +401,13 @@ fn generate_ratchet_receive_vectors() -> Result<Vec<RatchetReceiveVector>> {
                 chain_key_after_receive_b64u: base64_url(&{
                     let mut current_ck = initial_ck;
                     for i in 0..=counter.value() {
-                        let output = ratchet_step(&current_ck, Counter::new(i), &session_ctx, &transcript_hash, &stream_ctx);
+                        let output = ratchet_step(
+                            &current_ck,
+                            Counter::new(i),
+                            &session_ctx,
+                            &transcript_hash,
+                            &stream_ctx,
+                        );
                         current_ck = output.next_chain_key;
                     }
                     current_ck.0
@@ -426,7 +460,7 @@ fn generate_skip_window_vectors() -> Result<Vec<SkipWindowVector>> {
         for &counter in &sequence {
             if window.can_accept(Counter::new(counter)).unwrap_or(false) {
                 accepted.push(counter);
-                window.mark_consumed(Counter::new(counter));
+                let _ = window.mark_consumed(Counter::new(counter));
             } else {
                 rejected.push(counter);
             }
@@ -459,7 +493,7 @@ fn generate_skip_window_vectors() -> Result<Vec<SkipWindowVector>> {
         for &counter in &sequence {
             if window.can_accept(Counter::new(counter)).unwrap_or(false) {
                 accepted.push(counter);
-                window.mark_consumed(Counter::new(counter));
+                let _ = window.mark_consumed(Counter::new(counter));
             } else {
                 rejected.push(counter);
             }
@@ -492,7 +526,7 @@ fn generate_skip_window_vectors() -> Result<Vec<SkipWindowVector>> {
         for &counter in &sequence {
             if window.can_accept(Counter::new(counter)).unwrap_or(false) {
                 accepted.push(counter);
-                window.mark_consumed(Counter::new(counter));
+                let _ = window.mark_consumed(Counter::new(counter));
             } else {
                 rejected.push(counter);
             }
@@ -500,7 +534,8 @@ fn generate_skip_window_vectors() -> Result<Vec<SkipWindowVector>> {
 
         vectors.push(SkipWindowVector {
             case_id: "SKIP_003".to_string(),
-            description: "Replay detection (counters 0,1,2,1,2,3 - duplicates rejected)".to_string(),
+            description: "Replay detection (counters 0,1,2,1,2,3 - duplicates rejected)"
+                .to_string(),
             inputs: SkipWindowInputs {
                 initial_recv_expected: 0,
                 message_sequence: sequence.clone(),
@@ -662,7 +697,8 @@ pub fn generate_all(output_dir: &Path, verbose: bool, force: bool) -> Result<()>
             module: "ratchet_receive".to_string(),
             generated_by: "rust-c6p-test-vectors v0.1.0".to_string(),
             generated_at: chrono::Utc::now().to_rfc3339(),
-            description: "Message decryption with symmetric ratcheting (Peter receives)".to_string(),
+            description: "Message decryption with symmetric ratcheting (Peter receives)"
+                .to_string(),
             vectors,
         };
 

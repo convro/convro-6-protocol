@@ -12,11 +12,11 @@
 //! - Compute KC2
 //! - Return accept + session keys
 
-use crate::types::*;
+use crate::crypto::*;
 use crate::error::{HandshakeError, Result};
 use crate::offer::Offer;
-use crate::crypto::*;
-use c6p_crypto::{derive_root_and_kc, derive_initial_chain_key, SessionContext, StreamContext};
+use crate::types::*;
+use c6p_crypto::{derive_initial_chain_key, derive_root_and_kc, SessionContext, StreamContext};
 
 /// IslandAccord accept (from responder to initiator)
 ///
@@ -94,6 +94,7 @@ impl Accept {
     /// 11. Verify KC1
     /// 12. Compute KC2
     /// 13. Return accept + handshake output
+    #[allow(clippy::too_many_arguments)]
     pub fn construct(
         offer: &Offer,
         responder_device_id: DeviceId,
@@ -107,45 +108,37 @@ impl Accept {
     ) -> Result<(Self, ResponderHandshakeOutput)> {
         // Step 1: Validate responder device ID matches
         if offer.responder_device_id != responder_device_id {
-            return Err(HandshakeError::InvalidWireFormat(
-                format!(
-                    "Offer responder_device_id mismatch: expected {:?}, got {:?}",
-                    responder_device_id, offer.responder_device_id
-                )
-            ));
+            return Err(HandshakeError::InvalidWireFormat(format!(
+                "Offer responder_device_id mismatch: expected {:?}, got {:?}",
+                responder_device_id, offer.responder_device_id
+            )));
         }
 
         // Step 2: Validate SPK ID matches
         if offer.used_spk_id != spk_id {
-            return Err(HandshakeError::InvalidWireFormat(
-                format!(
-                    "SPK ID mismatch: expected {:?}, got {:?}",
-                    spk_id, offer.used_spk_id
-                )
-            ));
+            return Err(HandshakeError::InvalidWireFormat(format!(
+                "SPK ID mismatch: expected {:?}, got {:?}",
+                spk_id, offer.used_spk_id
+            )));
         }
 
         // Step 3: Validate OTP consistency
         let offer_has_otp = offer.has_otp();
         let responder_has_otp = otp.is_some();
         if offer_has_otp != responder_has_otp {
-            return Err(HandshakeError::InvalidWireFormat(
-                format!(
-                    "OTP mismatch: offer has_otp={}, responder has_otp={}",
-                    offer_has_otp, responder_has_otp
-                )
-            ));
+            return Err(HandshakeError::InvalidWireFormat(format!(
+                "OTP mismatch: offer has_otp={}, responder has_otp={}",
+                offer_has_otp, responder_has_otp
+            )));
         }
 
         // If OTP is present, validate IDs match
         if let (Some(offer_otp_id), Some((otp_id, _, _))) = (offer.used_otp_id, otp.as_ref()) {
             if offer_otp_id != *otp_id {
-                return Err(HandshakeError::InvalidWireFormat(
-                    format!(
-                        "OTP ID mismatch: expected {:?}, got {:?}",
-                        otp_id, offer_otp_id
-                    )
-                ));
+                return Err(HandshakeError::InvalidWireFormat(format!(
+                    "OTP ID mismatch: expected {:?}, got {:?}",
+                    otp_id, offer_otp_id
+                )));
             }
         }
 
@@ -160,7 +153,9 @@ impl Accept {
         let dh3 = x25519_dh(spk_priv, &offer.initiator_ephemeral_dh_pub);
 
         // DH4 (optional) = DH(OTP_priv, initiator_ek_pub)
-        let dh4 = if let (Some(_offer_otp_pub), Some((_, otp_priv, _))) = (offer.used_otp_pub, otp.as_ref()) {
+        let dh4 = if let (Some(_offer_otp_pub), Some((_, otp_priv, _))) =
+            (offer.used_otp_pub, otp.as_ref())
+        {
             Some(x25519_dh(otp_priv, &offer.initiator_ephemeral_dh_pub))
         } else {
             None
@@ -183,7 +178,7 @@ impl Accept {
             &offer.used_spk_id,
             spk_pub,
             &offer.used_spk_sig,
-            offer.used_otp_id.as_ref().zip(offer.used_otp_pub.as_ref()).map(|(id, pub_key)| (id, pub_key)),
+            offer.used_otp_id.as_ref().zip(offer.used_otp_pub.as_ref()),
         );
 
         // Step 7: Compute transcript hash
@@ -212,8 +207,10 @@ impl Accept {
             suite_id: offer.suite_id,
         };
 
-        let send_chain_key = derive_initial_chain_key(&root_key, &transcript_hash, &ctx, &stream_ctx_r2i);
-        let recv_chain_key = derive_initial_chain_key(&root_key, &transcript_hash, &ctx, &stream_ctx_i2r);
+        let send_chain_key =
+            derive_initial_chain_key(&root_key, &transcript_hash, &ctx, &stream_ctx_r2i);
+        let recv_chain_key =
+            derive_initial_chain_key(&root_key, &transcript_hash, &ctx, &stream_ctx_i2r);
 
         // Compute session binding
         let session_binding = c6p_crypto::compute_session_binding(&ctx);
@@ -241,7 +238,7 @@ impl Accept {
 
         if offer.kc1 != expected_kc1 {
             return Err(HandshakeError::KcVerificationFailed(
-                "KC1 verification failed".to_string()
+                "KC1 verification failed".to_string(),
             ));
         }
 
@@ -303,22 +300,18 @@ impl Accept {
     ) -> Result<()> {
         // Validate session ID matches
         if &self.session_id != expected_session_id {
-            return Err(HandshakeError::InvalidWireFormat(
-                format!(
-                    "Accept session_id mismatch: expected {:?}, got {:?}",
-                    expected_session_id, self.session_id
-                )
-            ));
+            return Err(HandshakeError::InvalidWireFormat(format!(
+                "Accept session_id mismatch: expected {:?}, got {:?}",
+                expected_session_id, self.session_id
+            )));
         }
 
         // Validate responder device ID matches
         if &self.responder_device_id != expected_responder_device_id {
-            return Err(HandshakeError::InvalidWireFormat(
-                format!(
-                    "Accept responder_device_id mismatch: expected {:?}, got {:?}",
-                    expected_responder_device_id, self.responder_device_id
-                )
-            ));
+            return Err(HandshakeError::InvalidWireFormat(format!(
+                "Accept responder_device_id mismatch: expected {:?}, got {:?}",
+                expected_responder_device_id, self.responder_device_id
+            )));
         }
 
         // Verify KC2
@@ -333,7 +326,7 @@ impl Accept {
 
         if self.kc2 != expected_kc2 {
             return Err(HandshakeError::KcVerificationFailed(
-                "KC2 verification failed".to_string()
+                "KC2 verification failed".to_string(),
             ));
         }
 
@@ -344,9 +337,9 @@ impl Accept {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::offer::Offer;
     use crate::bundle::PrekeyBundle;
     use crate::crypto::ed25519_sign;
+    use crate::offer::Offer;
 
     /// Helper: Create test keys
     fn create_test_keys() -> (
@@ -369,7 +362,10 @@ mod tests {
         let mut x_priv_bytes = [0u8; 32];
         rng.fill_bytes(&mut x_priv_bytes);
         let x_priv = X25519PrivateKey::from_bytes(x_priv_bytes);
-        let x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(x_priv_bytes, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            x_priv_bytes,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
 
         (ed_priv, ed_pub, x_priv, x_pub)
     }
@@ -415,7 +411,8 @@ mod tests {
             &init_eph_priv,
             &init_eph_pub,
             0x01, // ChaCha20-Poly1305
-        ).unwrap();
+        )
+        .unwrap();
 
         // Responder constructs accept
         let result = Accept::construct(
@@ -504,7 +501,8 @@ mod tests {
             &init_eph_priv,
             &init_eph_pub,
             0x01,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Responder constructs accept (with OTP)
         let result = Accept::construct(
@@ -566,7 +564,8 @@ mod tests {
             &init_eph_priv,
             &init_eph_pub,
             0x01,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Try to construct accept with WRONG device ID
         let result = Accept::construct(
@@ -582,7 +581,10 @@ mod tests {
         );
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), HandshakeError::InvalidWireFormat(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            HandshakeError::InvalidWireFormat(_)
+        ));
     }
 
     #[test]
@@ -620,7 +622,8 @@ mod tests {
             &init_eph_priv,
             &init_eph_pub,
             0x01,
-        ).unwrap();
+        )
+        .unwrap();
 
         let (mut accept, _) = Accept::construct(
             &offer,
@@ -632,7 +635,8 @@ mod tests {
             &spk_priv,
             &spk_pub,
             None,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Corrupt KC2
         accept.kc2[0] ^= 0xFF;
@@ -649,6 +653,9 @@ mod tests {
         );
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), HandshakeError::KcVerificationFailed(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            HandshakeError::KcVerificationFailed(_)
+        ));
     }
 }

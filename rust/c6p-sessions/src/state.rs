@@ -180,11 +180,17 @@ impl StreamState {
         self.skip_window.can_accept(counter)?;
 
         // Step 2: Derive chain key at this counter
-        let chain_key_at_counter = self.derive_chain_key_at(counter, ctx, transcript_hash, stream_ctx);
+        let chain_key_at_counter =
+            self.derive_chain_key_at(counter, ctx, transcript_hash, stream_ctx);
 
         // Step 3: Derive message key material
-        let RatchetOutput { mk_material, .. } =
-            ratchet_step(&chain_key_at_counter, counter, ctx, transcript_hash, stream_ctx);
+        let RatchetOutput { mk_material, .. } = ratchet_step(
+            &chain_key_at_counter,
+            counter,
+            ctx,
+            transcript_hash,
+            stream_ctx,
+        );
 
         Ok(ReceiveOutput { mk_material })
     }
@@ -471,9 +477,9 @@ mod tests {
         let transcript_hash = TranscriptHash([0x42; 32]);
 
         let stream_ctx = StreamContext {
-            stream_id: 0x01, // I2R
+            stream_id: 0x01,    // I2R
             message_type: 0x01, // DM
-            suite_id: 0x01, // ChaCha20-Poly1305
+            suite_id: 0x01,     // ChaCha20-Poly1305
         };
 
         (ctx, transcript_hash, stream_ctx)
@@ -497,17 +503,24 @@ mod tests {
         let mut state = StreamState::new(StreamDirection::I2R, chain_key);
 
         // Send message 0
-        let output_0 = state.advance_send(&ctx, &transcript_hash, &stream_ctx).unwrap();
+        let output_0 = state
+            .advance_send(&ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
         assert_eq!(output_0.counter, Counter::new(0));
         assert_eq!(state.send_counter(), Counter::new(1));
 
         // Send message 1
-        let output_1 = state.advance_send(&ctx, &transcript_hash, &stream_ctx).unwrap();
+        let output_1 = state
+            .advance_send(&ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
         assert_eq!(output_1.counter, Counter::new(1));
         assert_eq!(state.send_counter(), Counter::new(2));
 
         // Message keys should be different
-        assert_ne!(output_0.mk_material.as_bytes(), output_1.mk_material.as_bytes());
+        assert_ne!(
+            output_0.mk_material.as_bytes(),
+            output_1.mk_material.as_bytes()
+        );
     }
 
     #[test]
@@ -517,18 +530,26 @@ mod tests {
         let mut state = StreamState::new(StreamDirection::I2R, chain_key);
 
         // Receive counter 0
-        let output = state.prepare_receive(Counter::new(0), &ctx, &transcript_hash, &stream_ctx).unwrap();
+        let output = state
+            .prepare_receive(Counter::new(0), &ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
         assert!(output.mk_material.as_bytes().len() == 32);
 
         // Mark as received
-        assert!(state.mark_received(Counter::new(0), &ctx, &transcript_hash, &stream_ctx).is_ok());
+        assert!(state
+            .mark_received(Counter::new(0), &ctx, &transcript_hash, &stream_ctx)
+            .is_ok());
         assert_eq!(state.recv_expected(), Counter::new(1));
 
         // Receive counter 1
-        let output = state.prepare_receive(Counter::new(1), &ctx, &transcript_hash, &stream_ctx).unwrap();
+        let output = state
+            .prepare_receive(Counter::new(1), &ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
         assert!(output.mk_material.as_bytes().len() == 32);
 
-        assert!(state.mark_received(Counter::new(1), &ctx, &transcript_hash, &stream_ctx).is_ok());
+        assert!(state
+            .mark_received(Counter::new(1), &ctx, &transcript_hash, &stream_ctx)
+            .is_ok());
         assert_eq!(state.recv_expected(), Counter::new(2));
     }
 
@@ -539,17 +560,28 @@ mod tests {
         let mut state = StreamState::new(StreamDirection::I2R, chain_key);
 
         // Receive counter 5 first (out of order)
-        let output_5 = state.prepare_receive(Counter::new(5), &ctx, &transcript_hash, &stream_ctx).unwrap();
-        assert!(state.mark_received(Counter::new(5), &ctx, &transcript_hash, &stream_ctx).is_ok());
+        let output_5 = state
+            .prepare_receive(Counter::new(5), &ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+        assert!(state
+            .mark_received(Counter::new(5), &ctx, &transcript_hash, &stream_ctx)
+            .is_ok());
         assert_eq!(state.recv_expected(), Counter::new(0)); // Not advanced yet
 
         // Receive counter 0
-        let output_0 = state.prepare_receive(Counter::new(0), &ctx, &transcript_hash, &stream_ctx).unwrap();
-        assert!(state.mark_received(Counter::new(0), &ctx, &transcript_hash, &stream_ctx).is_ok());
+        let output_0 = state
+            .prepare_receive(Counter::new(0), &ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+        assert!(state
+            .mark_received(Counter::new(0), &ctx, &transcript_hash, &stream_ctx)
+            .is_ok());
         assert_eq!(state.recv_expected(), Counter::new(1)); // Advanced to 1
 
         // Message keys should be different
-        assert_ne!(output_0.mk_material.as_bytes(), output_5.mk_material.as_bytes());
+        assert_ne!(
+            output_0.mk_material.as_bytes(),
+            output_5.mk_material.as_bytes()
+        );
     }
 
     #[test]
@@ -559,13 +591,20 @@ mod tests {
         let mut state = StreamState::new(StreamDirection::I2R, chain_key);
 
         // Receive counter 0
-        assert!(state.prepare_receive(Counter::new(0), &ctx, &transcript_hash, &stream_ctx).is_ok());
-        assert!(state.mark_received(Counter::new(0), &ctx, &transcript_hash, &stream_ctx).is_ok());
+        assert!(state
+            .prepare_receive(Counter::new(0), &ctx, &transcript_hash, &stream_ctx)
+            .is_ok());
+        assert!(state
+            .mark_received(Counter::new(0), &ctx, &transcript_hash, &stream_ctx)
+            .is_ok());
 
         // Try to receive counter 0 again (replay)
         let result = state.prepare_receive(Counter::new(0), &ctx, &transcript_hash, &stream_ctx);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), SessionError::ReplayDetected(0)));
+        assert!(matches!(
+            result.unwrap_err(),
+            SessionError::ReplayDetected(0)
+        ));
     }
 
     #[test]
@@ -578,7 +617,10 @@ mod tests {
         let far_counter = Counter::new(2048 + 100);
         let result = state.prepare_receive(far_counter, &ctx, &transcript_hash, &stream_ctx);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), SessionError::SkipWindowOverflow(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            SessionError::SkipWindowOverflow(_)
+        ));
     }
 
     #[test]
@@ -591,7 +633,9 @@ mod tests {
         let mut receiver = StreamState::new(StreamDirection::I2R, chain_key);
 
         // Sender sends message 0
-        let send_output = sender.advance_send(&ctx, &transcript_hash, &stream_ctx).unwrap();
+        let send_output = sender
+            .advance_send(&ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
 
         // Receiver receives message 0
         let recv_output = receiver
@@ -599,10 +643,15 @@ mod tests {
             .unwrap();
 
         // Message key material should match
-        assert_eq!(send_output.mk_material.as_bytes(), recv_output.mk_material.as_bytes());
+        assert_eq!(
+            send_output.mk_material.as_bytes(),
+            recv_output.mk_material.as_bytes()
+        );
 
         // Mark as received
-        assert!(receiver.mark_received(send_output.counter, &ctx, &transcript_hash, &stream_ctx).is_ok());
+        assert!(receiver
+            .mark_received(send_output.counter, &ctx, &transcript_hash, &stream_ctx)
+            .is_ok());
     }
 
     #[test]
@@ -614,28 +663,49 @@ mod tests {
         let mut receiver = StreamState::new(StreamDirection::I2R, chain_key);
 
         // Sender sends messages 0, 1, 2
-        let output_0 = sender.advance_send(&ctx, &transcript_hash, &stream_ctx).unwrap();
-        let output_1 = sender.advance_send(&ctx, &transcript_hash, &stream_ctx).unwrap();
-        let output_2 = sender.advance_send(&ctx, &transcript_hash, &stream_ctx).unwrap();
+        let output_0 = sender
+            .advance_send(&ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+        let output_1 = sender
+            .advance_send(&ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+        let output_2 = sender
+            .advance_send(&ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
 
         // Receiver gets them out of order: 2, 0, 1
         let recv_2 = receiver
             .prepare_receive(output_2.counter, &ctx, &transcript_hash, &stream_ctx)
             .unwrap();
-        assert_eq!(recv_2.mk_material.as_bytes(), output_2.mk_material.as_bytes());
-        assert!(receiver.mark_received(output_2.counter, &ctx, &transcript_hash, &stream_ctx).is_ok());
+        assert_eq!(
+            recv_2.mk_material.as_bytes(),
+            output_2.mk_material.as_bytes()
+        );
+        assert!(receiver
+            .mark_received(output_2.counter, &ctx, &transcript_hash, &stream_ctx)
+            .is_ok());
 
         let recv_0 = receiver
             .prepare_receive(output_0.counter, &ctx, &transcript_hash, &stream_ctx)
             .unwrap();
-        assert_eq!(recv_0.mk_material.as_bytes(), output_0.mk_material.as_bytes());
-        assert!(receiver.mark_received(output_0.counter, &ctx, &transcript_hash, &stream_ctx).is_ok());
+        assert_eq!(
+            recv_0.mk_material.as_bytes(),
+            output_0.mk_material.as_bytes()
+        );
+        assert!(receiver
+            .mark_received(output_0.counter, &ctx, &transcript_hash, &stream_ctx)
+            .is_ok());
 
         let recv_1 = receiver
             .prepare_receive(output_1.counter, &ctx, &transcript_hash, &stream_ctx)
             .unwrap();
-        assert_eq!(recv_1.mk_material.as_bytes(), output_1.mk_material.as_bytes());
-        assert!(receiver.mark_received(output_1.counter, &ctx, &transcript_hash, &stream_ctx).is_ok());
+        assert_eq!(
+            recv_1.mk_material.as_bytes(),
+            output_1.mk_material.as_bytes()
+        );
+        assert!(receiver
+            .mark_received(output_1.counter, &ctx, &transcript_hash, &stream_ctx)
+            .is_ok());
 
         // recv_expected should advance to 3 after all messages consumed
         assert_eq!(receiver.recv_expected(), Counter::new(3));
@@ -655,12 +725,17 @@ mod tests {
         );
 
         // Can send at MAX - 1
-        assert!(state.advance_send(&ctx, &transcript_hash, &stream_ctx).is_ok());
+        assert!(state
+            .advance_send(&ctx, &transcript_hash, &stream_ctx)
+            .is_ok());
 
         // Counter exhausted - should fail
         let result = state.advance_send(&ctx, &transcript_hash, &stream_ctx);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), SessionError::CounterExhausted));
+        assert!(matches!(
+            result.unwrap_err(),
+            SessionError::CounterExhausted
+        ));
     }
 
     #[test]
@@ -689,8 +764,12 @@ mod tests {
         assert_eq!(stats.consumed_count, 0);
 
         // Mark some counters consumed
-        state.mark_received(Counter::new(0), &ctx, &transcript_hash, &stream_ctx).unwrap();
-        state.mark_received(Counter::new(5), &ctx, &transcript_hash, &stream_ctx).unwrap();
+        state
+            .mark_received(Counter::new(0), &ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
+        state
+            .mark_received(Counter::new(5), &ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
 
         let stats = state.skip_window_stats();
         assert_eq!(stats.recv_expected, Counter::new(1));
@@ -728,7 +807,9 @@ mod tests {
         let plaintext = b"Hello, C6P!";
 
         // First, manually create a sealed message
-        let output = receiver.advance_send(&ctx, &transcript_hash, &stream_ctx).unwrap();
+        let output = receiver
+            .advance_send(&ctx, &transcript_hash, &stream_ctx)
+            .unwrap();
         let sealed = crate::aead::encrypt_message(
             plaintext,
             &output.mk_material,
@@ -744,7 +825,13 @@ mod tests {
 
         // Receive and decrypt
         let decrypted = receiver
-            .receive_and_decrypt(Counter::new(0), &sealed, &ctx, &transcript_hash, &stream_ctx)
+            .receive_and_decrypt(
+                Counter::new(0),
+                &sealed,
+                &ctx,
+                &transcript_hash,
+                &stream_ctx,
+            )
             .unwrap();
 
         assert_eq!(decrypted, plaintext);
@@ -866,10 +953,14 @@ mod tests {
         assert_eq!(decrypted, b"Original");
 
         // Try to receive again (replay attack - should fail)
-        let result = receiver.receive_and_decrypt(counter, &sealed, &ctx, &transcript_hash, &stream_ctx);
+        let result =
+            receiver.receive_and_decrypt(counter, &sealed, &ctx, &transcript_hash, &stream_ctx);
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), SessionError::ReplayDetected(0)));
+        assert!(matches!(
+            result.unwrap_err(),
+            SessionError::ReplayDetected(0)
+        ));
     }
 
     #[test]
@@ -891,10 +982,14 @@ mod tests {
         let recv_expected_before = receiver.recv_expected();
 
         // Try to decrypt (should fail)
-        let result = receiver.receive_and_decrypt(counter, &sealed, &ctx, &transcript_hash, &stream_ctx);
+        let result =
+            receiver.receive_and_decrypt(counter, &sealed, &ctx, &transcript_hash, &stream_ctx);
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), SessionError::DecryptionFailed(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            SessionError::DecryptionFailed(_)
+        ));
 
         // Verify state was NOT advanced (fail-closed)
         assert_eq!(receiver.recv_expected(), recv_expected_before);

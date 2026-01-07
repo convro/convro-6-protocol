@@ -36,16 +36,16 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms)]
 
-pub mod types;
+pub mod aead;
+pub mod error;
 pub mod ratchet;
 pub mod replay;
 pub mod state;
-pub mod aead;
-pub mod error;
+pub mod types;
 
-pub use types::*;
+pub use aead::*;
+pub use error::*;
 pub use ratchet::*;
 pub use replay::*;
 pub use state::*;
-pub use aead::*;
-pub use error::*;
+pub use types::*;

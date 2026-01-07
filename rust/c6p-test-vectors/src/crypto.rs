@@ -98,12 +98,12 @@ fn generate_key_schedule_vectors() -> Result<Vec<KeyScheduleVector>> {
             case_id: "ROOT_001".to_string(),
             description: "3DH root derivation (no OTP, 96-byte IKM)".to_string(),
             inputs: KeyScheduleInputs {
-                ikm_hex: hex::encode(&ikm),
+                ikm_hex: hex::encode(ikm),
                 ikm_len: ikm.len(),
                 transcript_hash_b64u: base64_url(&transcript_hash.0),
-                session_id_hex: hex::encode(&ctx.session_id.0),
-                initiator_device_id_hex: hex::encode(&ctx.initiator_device_id.0),
-                responder_device_id_hex: hex::encode(&ctx.responder_device_id.0),
+                session_id_hex: hex::encode(ctx.session_id.0),
+                initiator_device_id_hex: hex::encode(ctx.initiator_device_id.0),
+                responder_device_id_hex: hex::encode(ctx.responder_device_id.0),
                 suite_id: SUITE_CHACHA20_POLY1305,
             },
             intermediate: None, // Can add if needed for debugging
@@ -146,12 +146,12 @@ fn generate_key_schedule_vectors() -> Result<Vec<KeyScheduleVector>> {
             case_id: "ROOT_002".to_string(),
             description: "4DH root derivation (with OTP, 128-byte IKM)".to_string(),
             inputs: KeyScheduleInputs {
-                ikm_hex: hex::encode(&ikm),
+                ikm_hex: hex::encode(ikm),
                 ikm_len: ikm.len(),
                 transcript_hash_b64u: base64_url(&transcript_hash.0),
-                session_id_hex: hex::encode(&ctx.session_id.0),
-                initiator_device_id_hex: hex::encode(&ctx.initiator_device_id.0),
-                responder_device_id_hex: hex::encode(&ctx.responder_device_id.0),
+                session_id_hex: hex::encode(ctx.session_id.0),
+                initiator_device_id_hex: hex::encode(ctx.initiator_device_id.0),
+                responder_device_id_hex: hex::encode(ctx.responder_device_id.0),
                 suite_id: SUITE_CHACHA20_POLY1305,
             },
             intermediate: None,
@@ -226,7 +226,7 @@ fn generate_nonce_vectors() -> Result<Vec<NonceVector>> {
                 suite_name: "ChaCha20-Poly1305".to_string(),
                 message_type: MSG_TYPE_DM,
                 stream_id: STREAM_I2R,
-                session_id_hex: hex::encode(&session_id.0),
+                session_id_hex: hex::encode(session_id.0),
                 counter: 0,
             },
             outputs: NonceOutputs {
@@ -258,7 +258,7 @@ fn generate_nonce_vectors() -> Result<Vec<NonceVector>> {
                 suite_name: "XChaCha20-Poly1305".to_string(),
                 message_type: MSG_TYPE_DM,
                 stream_id: STREAM_I2R,
-                session_id_hex: hex::encode(&session_id.0),
+                session_id_hex: hex::encode(session_id.0),
                 counter: 0,
             },
             outputs: NonceOutputs {
@@ -290,7 +290,7 @@ fn generate_nonce_vectors() -> Result<Vec<NonceVector>> {
                 suite_name: "ChaCha20-Poly1305".to_string(),
                 message_type: MSG_TYPE_DM,
                 stream_id: STREAM_I2R,
-                session_id_hex: hex::encode(&session_id.0),
+                session_id_hex: hex::encode(session_id.0),
                 counter: 0xFFFFFFFF,
             },
             outputs: NonceOutputs {
@@ -343,7 +343,7 @@ fn generate_aad_vectors() -> Result<Vec<AadVector>> {
             case_id: "AAD_001".to_string(),
             description: "AAD for DM message (I2R, counter=0, 1024 bytes)".to_string(),
             inputs: AadInputs {
-                session_id_hex: hex::encode(&session_id.0),
+                session_id_hex: hex::encode(session_id.0),
                 stream_id: STREAM_I2R,
                 message_type: MSG_TYPE_DM,
                 counter: 0,
@@ -364,7 +364,7 @@ fn generate_aad_vectors() -> Result<Vec<AadVector>> {
             case_id: "AAD_002".to_string(),
             description: "AAD for DM message (R2I, counter=0, 512 bytes)".to_string(),
             inputs: AadInputs {
-                session_id_hex: hex::encode(&session_id.0),
+                session_id_hex: hex::encode(session_id.0),
                 stream_id: STREAM_R2I,
                 message_type: MSG_TYPE_DM,
                 counter: 0,
@@ -385,7 +385,7 @@ fn generate_aad_vectors() -> Result<Vec<AadVector>> {
             case_id: "AAD_003".to_string(),
             description: "AAD with high counter (counter=2^32-1)".to_string(),
             inputs: AadInputs {
-                session_id_hex: hex::encode(&session_id.0),
+                session_id_hex: hex::encode(session_id.0),
                 stream_id: STREAM_I2R,
                 message_type: MSG_TYPE_DM,
                 counter: 0xFFFFFFFF,
@@ -406,7 +406,7 @@ fn generate_aad_vectors() -> Result<Vec<AadVector>> {
             case_id: "AAD_004".to_string(),
             description: "AAD with zero-length payload".to_string(),
             inputs: AadInputs {
-                session_id_hex: hex::encode(&session_id.0),
+                session_id_hex: hex::encode(session_id.0),
                 stream_id: STREAM_I2R,
                 message_type: MSG_TYPE_DM,
                 counter: 1,
@@ -520,7 +520,7 @@ fn generate_aead_chacha20_vectors() -> Result<Vec<AeadVector>> {
             inputs: AeadInputs {
                 mk_material_b64u: base64_url(&mk_material.0),
                 session_binding_b64u: base64_url(&session_binding.0),
-                session_id_hex: hex::encode(&session_id.0),
+                session_id_hex: hex::encode(session_id.0),
                 stream_id: STREAM_I2R,
                 message_type: MSG_TYPE_DM,
                 counter: 0,
@@ -562,7 +562,7 @@ fn generate_aead_chacha20_vectors() -> Result<Vec<AeadVector>> {
             inputs: AeadInputs {
                 mk_material_b64u: base64_url(&mk_material.0),
                 session_binding_b64u: base64_url(&session_binding.0),
-                session_id_hex: hex::encode(&session_id.0),
+                session_id_hex: hex::encode(session_id.0),
                 stream_id: STREAM_I2R,
                 message_type: MSG_TYPE_DM,
                 counter: 1,
@@ -604,7 +604,7 @@ fn generate_aead_chacha20_vectors() -> Result<Vec<AeadVector>> {
             inputs: AeadInputs {
                 mk_material_b64u: base64_url(&mk_material.0),
                 session_binding_b64u: base64_url(&session_binding.0),
-                session_id_hex: hex::encode(&session_id.0),
+                session_id_hex: hex::encode(session_id.0),
                 stream_id: STREAM_I2R,
                 message_type: MSG_TYPE_DM,
                 counter: 2,
@@ -656,7 +656,7 @@ fn generate_aead_xchacha20_vectors() -> Result<Vec<AeadVector>> {
             inputs: AeadInputs {
                 mk_material_b64u: base64_url(&mk_material.0),
                 session_binding_b64u: base64_url(&session_binding.0),
-                session_id_hex: hex::encode(&session_id.0),
+                session_id_hex: hex::encode(session_id.0),
                 stream_id: STREAM_I2R,
                 message_type: MSG_TYPE_DM,
                 counter: 0,
@@ -698,7 +698,7 @@ fn generate_aead_xchacha20_vectors() -> Result<Vec<AeadVector>> {
             inputs: AeadInputs {
                 mk_material_b64u: base64_url(&mk_material.0),
                 session_binding_b64u: base64_url(&session_binding.0),
-                session_id_hex: hex::encode(&session_id.0),
+                session_id_hex: hex::encode(session_id.0),
                 stream_id: STREAM_I2R,
                 message_type: MSG_TYPE_DM,
                 counter: 1,
@@ -744,7 +744,8 @@ fn encrypt_chacha20poly1305(
     };
 
     let cipher = ChaCha20Poly1305::new(key.into());
-    let nonce_array: [u8; 12] = nonce.try_into()
+    let nonce_array: [u8; 12] = nonce
+        .try_into()
         .map_err(|_| anyhow::anyhow!("Invalid nonce length for ChaCha20"))?;
 
     let payload = Payload {
@@ -752,7 +753,8 @@ fn encrypt_chacha20poly1305(
         aad,
     };
 
-    cipher.encrypt(&nonce_array.into(), payload)
+    cipher
+        .encrypt(&nonce_array.into(), payload)
         .map_err(|e| anyhow::anyhow!("ChaCha20-Poly1305 encryption failed: {}", e))
 }
 
@@ -769,7 +771,8 @@ fn encrypt_xchacha20poly1305(
     };
 
     let cipher = XChaCha20Poly1305::new(key.into());
-    let nonce_array: [u8; 24] = nonce.try_into()
+    let nonce_array: [u8; 24] = nonce
+        .try_into()
         .map_err(|_| anyhow::anyhow!("Invalid nonce length for XChaCha20"))?;
 
     let payload = Payload {
@@ -777,7 +780,8 @@ fn encrypt_xchacha20poly1305(
         aad,
     };
 
-    cipher.encrypt(&nonce_array.into(), payload)
+    cipher
+        .encrypt(&nonce_array.into(), payload)
         .map_err(|e| anyhow::anyhow!("XChaCha20-Poly1305 encryption failed: {}", e))
 }
 
@@ -790,13 +794,12 @@ fn base64_url(data: &[u8]) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(data)
 }
 
-fn write_json_file<T: Serialize>(
-    path: &Path,
-    data: &T,
-    force: bool,
-) -> Result<()> {
+fn write_json_file<T: Serialize>(path: &Path, data: &T, force: bool) -> Result<()> {
     if path.exists() && !force {
-        anyhow::bail!("File already exists: {} (use --force to overwrite)", path.display());
+        anyhow::bail!(
+            "File already exists: {} (use --force to overwrite)",
+            path.display()
+        );
     }
 
     let json = serde_json::to_string_pretty(data)?;
@@ -860,7 +863,8 @@ pub fn generate_all(output_dir: &Path, verbose: bool, force: bool) -> Result<()>
             module: "aad".to_string(),
             generated_by: "rust-c6p-test-vectors v0.1.0".to_string(),
             generated_at: chrono::Utc::now().to_rfc3339(),
-            description: "Additional Authenticated Data (AAD) construction test vectors".to_string(),
+            description: "Additional Authenticated Data (AAD) construction test vectors"
+                .to_string(),
             vectors,
         };
 

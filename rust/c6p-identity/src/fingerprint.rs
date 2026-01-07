@@ -81,7 +81,7 @@ impl Fingerprint {
     /// ```
     pub fn to_base64url(&self) -> String {
         use base64::Engine;
-        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&self.hash)
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(self.hash)
     }
 
     /// Get short fingerprint (first 8 bytes, hex16 lowercase)
@@ -153,7 +153,7 @@ impl Fingerprint {
 
     /// Get hex encoding of full hash (64 characters)
     pub fn to_hex(&self) -> String {
-        hex::encode(&self.hash)
+        hex::encode(self.hash)
     }
 }
 
@@ -208,7 +208,9 @@ mod tests {
         assert_eq!(short.len(), 16); // 8 bytes → 16 hex chars
 
         // Verify it's hex lowercase
-        assert!(short.chars().all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
+        assert!(short
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
     }
 
     #[test]
@@ -228,10 +230,11 @@ mod tests {
 
     #[test]
     fn test_fingerprint_base64url_roundtrip() {
-        let public_key = [0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0,
-                          0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
-                          0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11,
-                          0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99];
+        let public_key = [
+            0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
+            0x77, 0x88, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55,
+            0x66, 0x77, 0x88, 0x99,
+        ];
 
         let fp = Fingerprint::from_ed25519_public_key(&public_key).unwrap();
         let b64 = fp.to_base64url();

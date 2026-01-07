@@ -240,8 +240,14 @@ mod tests {
     fn test_stream_direction() {
         assert_eq!(StreamDirection::I2R.stream_id(), 0x01);
         assert_eq!(StreamDirection::R2I.stream_id(), 0x02);
-        assert_eq!(StreamDirection::from_stream_id(0x01), Some(StreamDirection::I2R));
-        assert_eq!(StreamDirection::from_stream_id(0x02), Some(StreamDirection::R2I));
+        assert_eq!(
+            StreamDirection::from_stream_id(0x01),
+            Some(StreamDirection::I2R)
+        );
+        assert_eq!(
+            StreamDirection::from_stream_id(0x02),
+            Some(StreamDirection::R2I)
+        );
         assert_eq!(StreamDirection::from_stream_id(0x99), None);
         assert_eq!(StreamDirection::I2R.reverse(), StreamDirection::R2I);
         assert_eq!(StreamDirection::R2I.reverse(), StreamDirection::I2R);

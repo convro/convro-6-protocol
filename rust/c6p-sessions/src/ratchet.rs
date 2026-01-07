@@ -21,8 +21,8 @@
 
 use crate::types::{ChainKey, Counter, MessageKeyMaterial};
 use c6p_crypto::{SessionContext, StreamContext, TranscriptHash};
-use sha2::{Digest, Sha256};
 use hkdf::Hkdf;
+use sha2::{Digest, Sha256};
 
 /// Labels for ratchet derivation (normative)
 const LABEL_MSG: &[u8] = b"C6P_MSG_V1";
@@ -102,14 +102,14 @@ pub fn ratchet_step(
     // salt_msg = SHA256( "C6P_MSG_V1" || CTX || transcript_hash || STREAM_CTX || BE64(counter) )
     let mut hasher = Sha256::new();
     hasher.update(LABEL_MSG);
-    hasher.update(&ctx.session_id.0);
-    hasher.update(&ctx.initiator_device_id.0);
-    hasher.update(&ctx.responder_device_id.0);
-    hasher.update(&transcript_hash.0);
-    hasher.update(&[stream_ctx.stream_id]);
-    hasher.update(&[stream_ctx.message_type]);
-    hasher.update(&stream_ctx.suite_id.to_be_bytes());
-    hasher.update(&counter.to_be_bytes());
+    hasher.update(ctx.session_id.0);
+    hasher.update(ctx.initiator_device_id.0);
+    hasher.update(ctx.responder_device_id.0);
+    hasher.update(transcript_hash.0);
+    hasher.update([stream_ctx.stream_id]);
+    hasher.update([stream_ctx.message_type]);
+    hasher.update(stream_ctx.suite_id.to_be_bytes());
+    hasher.update(counter.to_be_bytes());
     let salt_msg = hasher.finalize();
 
     // Step 2: HKDF-Extract
@@ -165,9 +165,9 @@ mod tests {
         let transcript_hash = TranscriptHash([0x42; 32]);
 
         let stream_ctx = StreamContext {
-            stream_id: 0x01, // I2R
+            stream_id: 0x01,    // I2R
             message_type: 0x01, // DM
-            suite_id: 0x01, // ChaCha20-Poly1305
+            suite_id: 0x01,     // ChaCha20-Poly1305
         };
 
         (ctx, transcript_hash, stream_ctx)
@@ -184,8 +184,14 @@ mod tests {
         let output2 = ratchet_step(&chain_key, counter, &ctx, &transcript_hash, &stream_ctx);
 
         // Outputs must be identical
-        assert_eq!(output1.mk_material.as_bytes(), output2.mk_material.as_bytes());
-        assert_eq!(output1.next_chain_key.as_bytes(), output2.next_chain_key.as_bytes());
+        assert_eq!(
+            output1.mk_material.as_bytes(),
+            output2.mk_material.as_bytes()
+        );
+        assert_eq!(
+            output1.next_chain_key.as_bytes(),
+            output2.next_chain_key.as_bytes()
+        );
     }
 
     #[test]
@@ -193,12 +199,30 @@ mod tests {
         let (ctx, transcript_hash, stream_ctx) = create_test_context();
         let chain_key = ChainKey::from_bytes([0x10; 32]);
 
-        let output0 = ratchet_step(&chain_key, Counter::new(0), &ctx, &transcript_hash, &stream_ctx);
-        let output1 = ratchet_step(&chain_key, Counter::new(1), &ctx, &transcript_hash, &stream_ctx);
+        let output0 = ratchet_step(
+            &chain_key,
+            Counter::new(0),
+            &ctx,
+            &transcript_hash,
+            &stream_ctx,
+        );
+        let output1 = ratchet_step(
+            &chain_key,
+            Counter::new(1),
+            &ctx,
+            &transcript_hash,
+            &stream_ctx,
+        );
 
         // Different counters must produce different outputs
-        assert_ne!(output0.mk_material.as_bytes(), output1.mk_material.as_bytes());
-        assert_ne!(output0.next_chain_key.as_bytes(), output1.next_chain_key.as_bytes());
+        assert_ne!(
+            output0.mk_material.as_bytes(),
+            output1.mk_material.as_bytes()
+        );
+        assert_ne!(
+            output0.next_chain_key.as_bytes(),
+            output1.next_chain_key.as_bytes()
+        );
     }
 
     #[test]
@@ -207,14 +231,32 @@ mod tests {
         let chain_key_0 = ChainKey::from_bytes([0x10; 32]);
 
         // Ratchet at counter 0
-        let output_0 = ratchet_step(&chain_key_0, Counter::new(0), &ctx, &transcript_hash, &stream_ctx);
+        let output_0 = ratchet_step(
+            &chain_key_0,
+            Counter::new(0),
+            &ctx,
+            &transcript_hash,
+            &stream_ctx,
+        );
 
         // Ratchet at counter 1 using next_chain_key from counter 0
-        let output_1 = ratchet_step(&output_0.next_chain_key, Counter::new(1), &ctx, &transcript_hash, &stream_ctx);
+        let output_1 = ratchet_step(
+            &output_0.next_chain_key,
+            Counter::new(1),
+            &ctx,
+            &transcript_hash,
+            &stream_ctx,
+        );
 
         // Should produce valid outputs
-        assert_ne!(output_0.mk_material.as_bytes(), output_1.mk_material.as_bytes());
-        assert_ne!(output_0.next_chain_key.as_bytes(), output_1.next_chain_key.as_bytes());
+        assert_ne!(
+            output_0.mk_material.as_bytes(),
+            output_1.mk_material.as_bytes()
+        );
+        assert_ne!(
+            output_0.next_chain_key.as_bytes(),
+            output_1.next_chain_key.as_bytes()
+        );
     }
 
     #[test]
@@ -239,8 +281,14 @@ mod tests {
         let output_r2i = ratchet_step(&chain_key, counter, &ctx, &transcript_hash, &stream_ctx_r2i);
 
         // Different streams must produce different outputs
-        assert_ne!(output_i2r.mk_material.as_bytes(), output_r2i.mk_material.as_bytes());
-        assert_ne!(output_i2r.next_chain_key.as_bytes(), output_r2i.next_chain_key.as_bytes());
+        assert_ne!(
+            output_i2r.mk_material.as_bytes(),
+            output_r2i.mk_material.as_bytes()
+        );
+        assert_ne!(
+            output_i2r.next_chain_key.as_bytes(),
+            output_r2i.next_chain_key.as_bytes()
+        );
     }
 
     #[test]
@@ -252,7 +300,10 @@ mod tests {
         let output = ratchet_step(&chain_key, counter, &ctx, &transcript_hash, &stream_ctx);
 
         // mk_material and next_chain_key must be different (domain separation)
-        assert_ne!(output.mk_material.as_bytes(), output.next_chain_key.as_bytes());
+        assert_ne!(
+            output.mk_material.as_bytes(),
+            output.next_chain_key.as_bytes()
+        );
     }
 
     #[test]

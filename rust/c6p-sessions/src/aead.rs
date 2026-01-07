@@ -12,8 +12,8 @@ use crate::error::{Result, SessionError};
 use crate::types::MessageKeyMaterial;
 use c6p_crypto::{
     compute_session_binding, derive_nonce, SessionBinding, SessionContext, SessionId,
-    StreamContext, TranscriptHash, SUITE_CHACHA20_POLY1305, SUITE_XCHACHA20_POLY1305,
-    SUITE_AEGIS_128L,
+    StreamContext, TranscriptHash, SUITE_AEGIS_128L, SUITE_CHACHA20_POLY1305,
+    SUITE_XCHACHA20_POLY1305,
 };
 use chacha20poly1305::{
     aead::{Aead, KeyInit, Payload},
@@ -89,10 +89,7 @@ pub fn map_to_suite_key(mk_material: &MessageKeyMaterial, suite_id: u16) -> Vec<
 
             hkdf_expand(&aegis_prk, &aegis_info, 16)
         }
-        _ => panic!(
-            "Unknown suite_id: 0x{:04x} (MUST fail-closed)",
-            suite_id
-        ),
+        _ => panic!("Unknown suite_id: 0x{:04x} (MUST fail-closed)", suite_id),
     }
 }
 
@@ -177,7 +174,10 @@ pub fn construct_aad(
     offset += 8;
 
     // Invariant check: MUST be exactly 63 bytes
-    debug_assert_eq!(offset, AAD_LEN_V1, "AAD construction MUST yield exactly 63 bytes");
+    debug_assert_eq!(
+        offset, AAD_LEN_V1,
+        "AAD construction MUST yield exactly 63 bytes"
+    );
 
     aad
 }
@@ -383,7 +383,7 @@ mod tests {
         let transcript_hash = TranscriptHash([0x42; 32]);
 
         let stream_ctx = StreamContext {
-            stream_id: 0x01, // I2R
+            stream_id: 0x01,    // I2R
             message_type: 0x01, // DM
             suite_id: SUITE_CHACHA20_POLY1305,
         };
@@ -561,7 +561,10 @@ mod tests {
         );
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), SessionError::DecryptionFailed(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            SessionError::DecryptionFailed(_)
+        ));
     }
 
     #[test]
@@ -593,7 +596,10 @@ mod tests {
         );
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), SessionError::DecryptionFailed(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            SessionError::DecryptionFailed(_)
+        ));
     }
 
     #[test]
@@ -628,7 +634,10 @@ mod tests {
         );
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), SessionError::DecryptionFailed(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            SessionError::DecryptionFailed(_)
+        ));
     }
 
     #[test]
@@ -650,7 +659,10 @@ mod tests {
         );
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), SessionError::DecryptionFailed(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            SessionError::DecryptionFailed(_)
+        ));
     }
 
     #[test]

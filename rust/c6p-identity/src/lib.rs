@@ -28,9 +28,9 @@
 #![warn(missing_docs, rust_2018_idioms)]
 
 pub mod device_id;
-pub mod fingerprint;
 pub mod error;
+pub mod fingerprint;
 
 pub use device_id::*;
-pub use fingerprint::*;
 pub use error::*;
+pub use fingerprint::*;

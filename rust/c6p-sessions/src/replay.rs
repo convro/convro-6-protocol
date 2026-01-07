@@ -20,8 +20,8 @@
 //! - `R < c <= R + 2048`: Accept out-of-order if not consumed
 //! - `c > R + 2048`: Reject (too far ahead)
 
-use crate::types::Counter;
 use crate::error::{Result, SessionError};
+use crate::types::Counter;
 
 /// Skip-window size for DM messages (normative)
 ///
@@ -196,7 +196,8 @@ impl SkipWindow {
         }
 
         // Advance recv_expected
-        self.recv_expected = self.recv_expected
+        self.recv_expected = self
+            .recv_expected
             .checked_add(advance_count)
             .expect("Counter overflow in advance_window");
 
@@ -332,7 +333,10 @@ mod tests {
         // Try counter 0 again (replay)
         let result = window.can_accept(Counter::new(0));
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), SessionError::ReplayDetected(0)));
+        assert!(matches!(
+            result.unwrap_err(),
+            SessionError::ReplayDetected(0)
+        ));
     }
 
     #[test]
@@ -343,7 +347,10 @@ mod tests {
         let far_counter = Counter::new(SKIP_WINDOW_DM_V1 + 100);
         let result = window.can_accept(far_counter);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), SessionError::SkipWindowOverflow(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            SessionError::SkipWindowOverflow(_)
+        ));
     }
 
     #[test]
@@ -423,7 +430,10 @@ mod tests {
         // Counter 50 should now be below window (reject as replay/expired)
         let result = window.can_accept(Counter::new(50));
         assert!(result.is_err()); // Below window = replay error
-        assert!(matches!(result.unwrap_err(), SessionError::ReplayDetected(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            SessionError::ReplayDetected(_)
+        ));
     }
 
     #[test]

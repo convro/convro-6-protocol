@@ -45,18 +45,18 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms)]
 
-pub mod types;
-pub mod bundle;
-pub mod offer;
 pub mod accept;
-pub mod error;
+pub mod bundle;
 pub mod crypto;
+pub mod error;
+pub mod offer;
+pub mod types;
 pub mod wire;
 
-pub use types::*;
-pub use bundle::*;
-pub use offer::*;
 pub use accept::*;
-pub use error::*;
+pub use bundle::*;
 pub use crypto::*;
+pub use error::*;
+pub use offer::*;
+pub use types::*;
 pub use wire::*;

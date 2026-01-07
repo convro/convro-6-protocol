@@ -9,7 +9,7 @@
 use anyhow::Result;
 use c6p_crypto::*;
 use c6p_handshake::*;
-use ed25519_dalek::{SigningKey, Signer};
+use ed25519_dalek::{Signer, SigningKey};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -104,13 +104,20 @@ fn generate_offer_vectors() -> Result<Vec<OfferVector>> {
 
         let timon_x_seed = [0x11u8; 32];
         let timon_x_priv = X25519PrivateKey::from_bytes(timon_x_seed);
-        let timon_x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(timon_x_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let timon_x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            timon_x_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
 
         let timon_eph_seed = [0x21u8; 32];
         let timon_eph_priv = X25519PrivateKey::from_bytes(timon_eph_seed);
-        let timon_eph_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(timon_eph_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let timon_eph_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            timon_eph_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
 
-        let timon_device_id_tmp = c6p_identity::DeviceId::from_ed25519_public_key(&timon_ed_pub.to_bytes())?;
+        let timon_device_id_tmp =
+            c6p_identity::DeviceId::from_ed25519_public_key(&timon_ed_pub.to_bytes())?;
         let timon_device_id = DeviceId(timon_device_id_tmp.0);
 
         // Peter's prekey bundle (responder)
@@ -119,12 +126,18 @@ fn generate_offer_vectors() -> Result<Vec<OfferVector>> {
         let peter_ed_pub = peter_ed_priv.verifying_key();
 
         let peter_x_seed = [0x22u8; 32];
-        let peter_x_priv = X25519PrivateKey::from_bytes(peter_x_seed);
-        let peter_x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(peter_x_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let _peter_x_priv = X25519PrivateKey::from_bytes(peter_x_seed);
+        let peter_x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            peter_x_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
 
         let peter_spk_seed = [0x32u8; 32];
-        let peter_spk_priv = X25519PrivateKey::from_bytes(peter_spk_seed);
-        let peter_spk_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(peter_spk_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let _peter_spk_priv = X25519PrivateKey::from_bytes(peter_spk_seed);
+        let peter_spk_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            peter_spk_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
         let peter_spk_id = SpkId([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
 
         // Sign Peter's SPK
@@ -134,7 +147,8 @@ fn generate_offer_vectors() -> Result<Vec<OfferVector>> {
         peter_spk_msg.extend_from_slice(peter_spk_pub.as_bytes());
         let peter_spk_sig = peter_ed_priv.sign(&peter_spk_msg);
 
-        let peter_device_id_tmp = c6p_identity::DeviceId::from_ed25519_public_key(&peter_ed_pub.to_bytes())?;
+        let peter_device_id_tmp =
+            c6p_identity::DeviceId::from_ed25519_public_key(&peter_ed_pub.to_bytes())?;
         let peter_device_id = DeviceId(peter_device_id_tmp.0);
 
         // Create Peter's bundle
@@ -162,7 +176,7 @@ fn generate_offer_vectors() -> Result<Vec<OfferVector>> {
             &Ed25519PublicKey(timon_ed_pub.to_bytes()),
             &X25519PrivateKey(*timon_eph_priv.as_bytes()),
             &X25519PublicKey(*timon_eph_pub.as_bytes()),
-            SUITE_CHACHA20_POLY1305 as u16,
+            SUITE_CHACHA20_POLY1305,
         )?;
 
         vectors.push(OfferVector {
@@ -175,17 +189,17 @@ fn generate_offer_vectors() -> Result<Vec<OfferVector>> {
                 timon_x_pub_b64u: base64_url(timon_x_pub.as_bytes()),
                 timon_eph_priv_b64u: base64_url(timon_eph_priv.as_bytes()),
                 timon_eph_pub_b64u: base64_url(timon_eph_pub.as_bytes()),
-                timon_device_id_hex: hex::encode(&timon_device_id.0),
-                peter_device_id_hex: hex::encode(&peter_device_id.0),
+                timon_device_id_hex: hex::encode(timon_device_id.0),
+                peter_device_id_hex: hex::encode(peter_device_id.0),
                 peter_ed_pub_b64u: base64_url(&peter_ed_pub.to_bytes()),
                 peter_x_pub_b64u: base64_url(peter_x_pub.as_bytes()),
-                peter_spk_id_hex: hex::encode(&peter_spk_id.0),
+                peter_spk_id_hex: hex::encode(peter_spk_id.0),
                 peter_spk_pub_b64u: base64_url(peter_spk_pub.as_bytes()),
                 peter_spk_sig_b64u: base64_url(&peter_spk_sig.to_bytes()),
                 peter_otp_id_hex: None,
                 peter_otp_pub_b64u: None,
-                session_id_hex: hex::encode(&session_id.0),
-                suite_id: SUITE_CHACHA20_POLY1305 as u16,
+                session_id_hex: hex::encode(session_id.0),
+                suite_id: SUITE_CHACHA20_POLY1305,
             },
             outputs: OfferOutputs {
                 dh1_b64u: base64_url(b"<intermediate-value-not-exposed>"),
@@ -201,7 +215,7 @@ fn generate_offer_vectors() -> Result<Vec<OfferVector>> {
                 ck_i2r_b64u: base64_url(&output.send_chain_key),
                 ck_r2i_b64u: base64_url(&output.recv_chain_key),
                 offer_signature_b64u: base64_url(&offer.offer_signature.0),
-                offer_json: format!("{{\"offer\":\"serialization-not-supported\"}}"),
+                offer_json: "{\"offer\":\"serialization-not-supported\"}".to_string(),
             },
         });
     }
@@ -215,13 +229,20 @@ fn generate_offer_vectors() -> Result<Vec<OfferVector>> {
 
         let timon_x_seed = [0x13u8; 32];
         let timon_x_priv = X25519PrivateKey::from_bytes(timon_x_seed);
-        let timon_x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(timon_x_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let timon_x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            timon_x_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
 
         let timon_eph_seed = [0x23u8; 32];
         let timon_eph_priv = X25519PrivateKey::from_bytes(timon_eph_seed);
-        let timon_eph_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(timon_eph_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let timon_eph_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            timon_eph_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
 
-        let timon_device_id_tmp = c6p_identity::DeviceId::from_ed25519_public_key(&timon_ed_pub.to_bytes())?;
+        let timon_device_id_tmp =
+            c6p_identity::DeviceId::from_ed25519_public_key(&timon_ed_pub.to_bytes())?;
         let timon_device_id = DeviceId(timon_device_id_tmp.0);
 
         // Peter's prekey bundle with OTP
@@ -230,12 +251,18 @@ fn generate_offer_vectors() -> Result<Vec<OfferVector>> {
         let peter_ed_pub = peter_ed_priv.verifying_key();
 
         let peter_x_seed = [0x24u8; 32];
-        let peter_x_priv = X25519PrivateKey::from_bytes(peter_x_seed);
-        let peter_x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(peter_x_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let _peter_x_priv = X25519PrivateKey::from_bytes(peter_x_seed);
+        let peter_x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            peter_x_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
 
         let peter_spk_seed = [0x34u8; 32];
-        let peter_spk_priv = X25519PrivateKey::from_bytes(peter_spk_seed);
-        let peter_spk_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(peter_spk_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let _peter_spk_priv = X25519PrivateKey::from_bytes(peter_spk_seed);
+        let peter_spk_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            peter_spk_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
         let peter_spk_id = SpkId([0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88]);
 
         let mut peter_spk_msg = Vec::new();
@@ -246,11 +273,15 @@ fn generate_offer_vectors() -> Result<Vec<OfferVector>> {
 
         // Peter's OTP
         let peter_otp_seed = [0x44u8; 32];
-        let peter_otp_priv = X25519PrivateKey::from_bytes(peter_otp_seed);
-        let peter_otp_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(peter_otp_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let _peter_otp_priv = X25519PrivateKey::from_bytes(peter_otp_seed);
+        let peter_otp_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            peter_otp_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
         let peter_otp_id = OtpId([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11]);
 
-        let peter_device_id_tmp = c6p_identity::DeviceId::from_ed25519_public_key(&peter_ed_pub.to_bytes())?;
+        let peter_device_id_tmp =
+            c6p_identity::DeviceId::from_ed25519_public_key(&peter_ed_pub.to_bytes())?;
         let peter_device_id = DeviceId(peter_device_id_tmp.0);
 
         let bundle = PrekeyBundle::new(
@@ -275,7 +306,7 @@ fn generate_offer_vectors() -> Result<Vec<OfferVector>> {
             &Ed25519PublicKey(timon_ed_pub.to_bytes()),
             &X25519PrivateKey(*timon_eph_priv.as_bytes()),
             &X25519PublicKey(*timon_eph_pub.as_bytes()),
-            SUITE_CHACHA20_POLY1305 as u16,
+            SUITE_CHACHA20_POLY1305,
         )?;
 
         vectors.push(OfferVector {
@@ -288,17 +319,17 @@ fn generate_offer_vectors() -> Result<Vec<OfferVector>> {
                 timon_x_pub_b64u: base64_url(timon_x_pub.as_bytes()),
                 timon_eph_priv_b64u: base64_url(timon_eph_priv.as_bytes()),
                 timon_eph_pub_b64u: base64_url(timon_eph_pub.as_bytes()),
-                timon_device_id_hex: hex::encode(&timon_device_id.0),
-                peter_device_id_hex: hex::encode(&peter_device_id.0),
+                timon_device_id_hex: hex::encode(timon_device_id.0),
+                peter_device_id_hex: hex::encode(peter_device_id.0),
                 peter_ed_pub_b64u: base64_url(&peter_ed_pub.to_bytes()),
                 peter_x_pub_b64u: base64_url(peter_x_pub.as_bytes()),
-                peter_spk_id_hex: hex::encode(&peter_spk_id.0),
+                peter_spk_id_hex: hex::encode(peter_spk_id.0),
                 peter_spk_pub_b64u: base64_url(peter_spk_pub.as_bytes()),
                 peter_spk_sig_b64u: base64_url(&peter_spk_sig.to_bytes()),
-                peter_otp_id_hex: Some(hex::encode(&peter_otp_id.0)),
+                peter_otp_id_hex: Some(hex::encode(peter_otp_id.0)),
                 peter_otp_pub_b64u: Some(base64_url(peter_otp_pub.as_bytes())),
-                session_id_hex: hex::encode(&session_id.0),
-                suite_id: SUITE_CHACHA20_POLY1305 as u16,
+                session_id_hex: hex::encode(session_id.0),
+                suite_id: SUITE_CHACHA20_POLY1305,
             },
             outputs: OfferOutputs {
                 dh1_b64u: base64_url(b"<intermediate-value-not-exposed>"),
@@ -314,7 +345,7 @@ fn generate_offer_vectors() -> Result<Vec<OfferVector>> {
                 ck_i2r_b64u: base64_url(&output.send_chain_key),
                 ck_r2i_b64u: base64_url(&output.recv_chain_key),
                 offer_signature_b64u: base64_url(&offer.offer_signature.0),
-                offer_json: format!("{{\"offer\":\"serialization-not-supported\"}}"),
+                offer_json: "{\"offer\":\"serialization-not-supported\"}".to_string(),
             },
         });
     }
@@ -384,13 +415,20 @@ fn generate_initiator_derive_vectors() -> Result<Vec<InitiatorDeriveVector>> {
 
         let timon_x_seed = [0x11u8; 32];
         let timon_x_priv = X25519PrivateKey::from_bytes(timon_x_seed);
-        let timon_x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(timon_x_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let timon_x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            timon_x_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
 
         let timon_eph_seed = [0x21u8; 32];
         let timon_eph_priv = X25519PrivateKey::from_bytes(timon_eph_seed);
-        let timon_eph_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(timon_eph_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let timon_eph_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            timon_eph_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
 
-        let timon_device_id_tmp = c6p_identity::DeviceId::from_ed25519_public_key(&timon_ed_pub.to_bytes())?;
+        let timon_device_id_tmp =
+            c6p_identity::DeviceId::from_ed25519_public_key(&timon_ed_pub.to_bytes())?;
         let timon_device_id = DeviceId(timon_device_id_tmp.0);
 
         let peter_ed_seed = [0x02u8; 32];
@@ -398,12 +436,18 @@ fn generate_initiator_derive_vectors() -> Result<Vec<InitiatorDeriveVector>> {
         let peter_ed_pub = peter_ed_priv.verifying_key();
 
         let peter_x_seed = [0x22u8; 32];
-        let peter_x_priv = X25519PrivateKey::from_bytes(peter_x_seed);
-        let peter_x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(peter_x_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let _peter_x_priv = X25519PrivateKey::from_bytes(peter_x_seed);
+        let peter_x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            peter_x_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
 
         let peter_spk_seed = [0x32u8; 32];
-        let peter_spk_priv = X25519PrivateKey::from_bytes(peter_spk_seed);
-        let peter_spk_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(peter_spk_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let _peter_spk_priv = X25519PrivateKey::from_bytes(peter_spk_seed);
+        let peter_spk_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            peter_spk_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
         let peter_spk_id = SpkId([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
 
         let mut peter_spk_msg = Vec::new();
@@ -412,7 +456,8 @@ fn generate_initiator_derive_vectors() -> Result<Vec<InitiatorDeriveVector>> {
         peter_spk_msg.extend_from_slice(peter_spk_pub.as_bytes());
         let peter_spk_sig = peter_ed_priv.sign(&peter_spk_msg);
 
-        let peter_device_id_tmp = c6p_identity::DeviceId::from_ed25519_public_key(&peter_ed_pub.to_bytes())?;
+        let peter_device_id_tmp =
+            c6p_identity::DeviceId::from_ed25519_public_key(&peter_ed_pub.to_bytes())?;
         let peter_device_id = DeviceId(peter_device_id_tmp.0);
 
         let bundle = PrekeyBundle::new(
@@ -437,7 +482,7 @@ fn generate_initiator_derive_vectors() -> Result<Vec<InitiatorDeriveVector>> {
             &Ed25519PublicKey(timon_ed_pub.to_bytes()),
             &X25519PrivateKey(*timon_eph_priv.as_bytes()),
             &X25519PublicKey(*timon_eph_pub.as_bytes()),
-            SUITE_CHACHA20_POLY1305 as u16,
+            SUITE_CHACHA20_POLY1305,
         )?;
 
         vectors.push(InitiatorDeriveVector {
@@ -446,15 +491,15 @@ fn generate_initiator_derive_vectors() -> Result<Vec<InitiatorDeriveVector>> {
             inputs: InitiatorDeriveInputs {
                 timon_ik_dh_priv_b64u: base64_url(timon_x_priv.as_bytes()),
                 timon_ek_priv_b64u: base64_url(timon_eph_priv.as_bytes()),
-                peter_bundle_device_id_hex: hex::encode(&peter_device_id.0),
+                peter_bundle_device_id_hex: hex::encode(peter_device_id.0),
                 peter_bundle_ed_pub_b64u: base64_url(&peter_ed_pub.to_bytes()),
                 peter_bundle_x_pub_b64u: base64_url(peter_x_pub.as_bytes()),
-                peter_bundle_spk_id_hex: hex::encode(&peter_spk_id.0),
+                peter_bundle_spk_id_hex: hex::encode(peter_spk_id.0),
                 peter_bundle_spk_pub_b64u: base64_url(peter_spk_pub.as_bytes()),
                 peter_bundle_otp_id_hex: None,
                 peter_bundle_otp_pub_b64u: None,
-                session_id_hex: hex::encode(&session_id.0),
-                timon_device_id_hex: hex::encode(&timon_device_id.0),
+                session_id_hex: hex::encode(session_id.0),
+                timon_device_id_hex: hex::encode(timon_device_id.0),
             },
             crypto_steps: CryptoSteps {
                 dh1_b64u: base64_url(b"<intermediate-value-not-exposed>"),
@@ -528,13 +573,20 @@ fn generate_responder_derive_vectors() -> Result<Vec<ResponderDeriveVector>> {
 
         let timon_x_seed = [0x11u8; 32];
         let timon_x_priv = X25519PrivateKey::from_bytes(timon_x_seed);
-        let timon_x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(timon_x_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let timon_x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            timon_x_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
 
         let timon_eph_seed = [0x21u8; 32];
         let timon_eph_priv = X25519PrivateKey::from_bytes(timon_eph_seed);
-        let timon_eph_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(timon_eph_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let timon_eph_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            timon_eph_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
 
-        let timon_device_id_tmp = c6p_identity::DeviceId::from_ed25519_public_key(&timon_ed_pub.to_bytes())?;
+        let timon_device_id_tmp =
+            c6p_identity::DeviceId::from_ed25519_public_key(&timon_ed_pub.to_bytes())?;
         let timon_device_id = DeviceId(timon_device_id_tmp.0);
 
         // Peter's prekey bundle
@@ -544,11 +596,17 @@ fn generate_responder_derive_vectors() -> Result<Vec<ResponderDeriveVector>> {
 
         let peter_x_seed = [0x22u8; 32];
         let peter_x_priv = X25519PrivateKey::from_bytes(peter_x_seed);
-        let peter_x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(peter_x_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let peter_x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            peter_x_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
 
         let peter_spk_seed = [0x32u8; 32];
         let peter_spk_priv = X25519PrivateKey::from_bytes(peter_spk_seed);
-        let peter_spk_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(peter_spk_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let peter_spk_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            peter_spk_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
         let peter_spk_id = SpkId([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
 
         let mut peter_spk_msg = Vec::new();
@@ -557,7 +615,8 @@ fn generate_responder_derive_vectors() -> Result<Vec<ResponderDeriveVector>> {
         peter_spk_msg.extend_from_slice(peter_spk_pub.as_bytes());
         let peter_spk_sig = peter_ed_priv.sign(&peter_spk_msg);
 
-        let peter_device_id_tmp = c6p_identity::DeviceId::from_ed25519_public_key(&peter_ed_pub.to_bytes())?;
+        let peter_device_id_tmp =
+            c6p_identity::DeviceId::from_ed25519_public_key(&peter_ed_pub.to_bytes())?;
         let peter_device_id = DeviceId(peter_device_id_tmp.0);
 
         let bundle = PrekeyBundle::new(
@@ -573,7 +632,7 @@ fn generate_responder_derive_vectors() -> Result<Vec<ResponderDeriveVector>> {
         let session_id = SessionId([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11]);
 
         // Timon constructs offer
-        let (offer, timon_output) = Offer::construct(
+        let (offer, _timon_output) = Offer::construct(
             &bundle,
             session_id,
             timon_device_id,
@@ -583,7 +642,7 @@ fn generate_responder_derive_vectors() -> Result<Vec<ResponderDeriveVector>> {
             &Ed25519PublicKey(timon_ed_pub.to_bytes()),
             &X25519PrivateKey(*timon_eph_priv.as_bytes()),
             &X25519PublicKey(*timon_eph_pub.as_bytes()),
-            SUITE_CHACHA20_POLY1305 as u16,
+            SUITE_CHACHA20_POLY1305,
         )?;
 
         // Peter constructs accept (which derives keys)
@@ -603,12 +662,12 @@ fn generate_responder_derive_vectors() -> Result<Vec<ResponderDeriveVector>> {
             case_id: "RESP_DERIVE_001".to_string(),
             description: "3DH key derivation (Peter's perspective)".to_string(),
             inputs: ResponderDeriveInputs {
-                received_offer_json: format!("{{\"offer\":\"serialization-not-supported\"}}"),
+                received_offer_json: "{\"offer\":\"serialization-not-supported\"}".to_string(),
                 peter_ik_dh_priv_b64u: base64_url(peter_x_priv.as_bytes()),
                 peter_spk_priv_b64u: base64_url(peter_spk_priv.as_bytes()),
-                peter_spk_id_hex: hex::encode(&peter_spk_id.0),
+                peter_spk_id_hex: hex::encode(peter_spk_id.0),
                 peter_otp_priv_b64u: None,
-                peter_device_id_hex: hex::encode(&peter_device_id.0),
+                peter_device_id_hex: hex::encode(peter_device_id.0),
             },
             crypto_steps: CryptoSteps {
                 dh1_b64u: base64_url(b"<intermediate-value-not-exposed>"),
@@ -669,13 +728,15 @@ fn generate_kc_vectors() -> Result<Vec<KcVector>> {
         let timon_ed_seed = [0x01u8; 32];
         let timon_ed_priv = SigningKey::from_bytes(&timon_ed_seed);
         let timon_ed_pub = timon_ed_priv.verifying_key();
-        let timon_device_id_tmp = c6p_identity::DeviceId::from_ed25519_public_key(&timon_ed_pub.to_bytes())?;
+        let timon_device_id_tmp =
+            c6p_identity::DeviceId::from_ed25519_public_key(&timon_ed_pub.to_bytes())?;
         let timon_device_id = DeviceId(timon_device_id_tmp.0);
 
         let peter_ed_seed = [0x02u8; 32];
         let peter_ed_priv = SigningKey::from_bytes(&peter_ed_seed);
         let peter_ed_pub = peter_ed_priv.verifying_key();
-        let peter_device_id_tmp = c6p_identity::DeviceId::from_ed25519_public_key(&peter_ed_pub.to_bytes())?;
+        let peter_device_id_tmp =
+            c6p_identity::DeviceId::from_ed25519_public_key(&peter_ed_pub.to_bytes())?;
         let peter_device_id = DeviceId(peter_device_id_tmp.0);
 
         let kc_key = KcKey([0x42u8; 32]);
@@ -699,9 +760,9 @@ fn generate_kc_vectors() -> Result<Vec<KcVector>> {
             inputs: KcInputs {
                 kc_key_b64u: base64_url(&kc_key.0),
                 transcript_hash_b64u: base64_url(&transcript_hash.0),
-                session_id_hex: hex::encode(&session_id.0),
-                timon_device_id_hex: hex::encode(&timon_device_id.0),
-                peter_device_id_hex: hex::encode(&peter_device_id.0),
+                session_id_hex: hex::encode(session_id.0),
+                timon_device_id_hex: hex::encode(timon_device_id.0),
+                peter_device_id_hex: hex::encode(peter_device_id.0),
             },
             outputs: KcOutputs {
                 kc_payload_hex: hex::encode(&kc_payload),
@@ -737,12 +798,18 @@ fn generate_negative_vectors() -> Result<Vec<NegativeVector>> {
         let peter_ed_pub = peter_ed_priv.verifying_key();
 
         let peter_x_seed = [0x22u8; 32];
-        let peter_x_priv = X25519PrivateKey::from_bytes(peter_x_seed);
-        let peter_x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(peter_x_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let _peter_x_priv = X25519PrivateKey::from_bytes(peter_x_seed);
+        let peter_x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            peter_x_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
 
         let peter_spk_seed = [0x32u8; 32];
-        let peter_spk_priv = X25519PrivateKey::from_bytes(peter_spk_seed);
-        let peter_spk_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(peter_spk_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let _peter_spk_priv = X25519PrivateKey::from_bytes(peter_spk_seed);
+        let peter_spk_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            peter_spk_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
         let peter_spk_id = SpkId([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
 
         let mut peter_spk_msg = Vec::new();
@@ -755,7 +822,8 @@ fn generate_negative_vectors() -> Result<Vec<NegativeVector>> {
         let mut tampered_sig_bytes = peter_spk_sig.to_bytes();
         tampered_sig_bytes[0] ^= 0xFF;
 
-        let peter_device_id_tmp = c6p_identity::DeviceId::from_ed25519_public_key(&peter_ed_pub.to_bytes()).unwrap();
+        let peter_device_id_tmp =
+            c6p_identity::DeviceId::from_ed25519_public_key(&peter_ed_pub.to_bytes()).unwrap();
         let peter_device_id = DeviceId(peter_device_id_tmp.0);
 
         vectors.push(NegativeVector {
@@ -763,10 +831,10 @@ fn generate_negative_vectors() -> Result<Vec<NegativeVector>> {
             description: "Invalid SPK signature (tampered)".to_string(),
             test_type: "invalid_spk_signature".to_string(),
             inputs: serde_json::json!({
-                "device_id_hex": hex::encode(&peter_device_id.0),
+                "device_id_hex": hex::encode(peter_device_id.0),
                 "ed_pub_b64u": base64_url(&peter_ed_pub.to_bytes()),
                 "x_pub_b64u": base64_url(peter_x_pub.as_bytes()),
-                "spk_id_hex": hex::encode(&peter_spk_id.0),
+                "spk_id_hex": hex::encode(peter_spk_id.0),
                 "spk_pub_b64u": base64_url(peter_spk_pub.as_bytes()),
                 "spk_sig_b64u": base64_url(&tampered_sig_bytes),
             }),
@@ -814,8 +882,8 @@ pub fn generate_all(output_dir: &Path, verbose: bool, force: bool) -> Result<()>
             module: "island_accord_offer".to_string(),
             generated_by: "rust-c6p-test-vectors v0.1.0".to_string(),
             generated_at: chrono::Utc::now().to_rfc3339(),
-            description:
-                "IslandAccord offer construction (3DH/4DH) with Timon and Peter".to_string(),
+            description: "IslandAccord offer construction (3DH/4DH) with Timon and Peter"
+                .to_string(),
             vectors,
         };
 
@@ -891,8 +959,7 @@ pub fn generate_all(output_dir: &Path, verbose: bool, force: bool) -> Result<()>
             module: "negative_tests".to_string(),
             generated_by: "rust-c6p-test-vectors v0.1.0".to_string(),
             generated_at: chrono::Utc::now().to_rfc3339(),
-            description:
-                "Negative test cases (invalid signatures, tampered data)".to_string(),
+            description: "Negative test cases (invalid signatures, tampered data)".to_string(),
             vectors,
         };
 

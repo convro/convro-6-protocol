@@ -4,9 +4,9 @@
 //! Uses deterministic keys derived from fixed seeds for reproducibility.
 
 use anyhow::Result;
+use c6p_handshake::{X25519PrivateKey, X25519PublicKey};
 use c6p_identity::{DeviceId, Fingerprint};
-use c6p_handshake::{X25519PublicKey, X25519PrivateKey};
-use ed25519_dalek::{SigningKey, Signer};
+use ed25519_dalek::{Signer, SigningKey};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -66,7 +66,7 @@ fn generate_device_id_vectors() -> Result<Vec<DeviceIdVector>> {
             description: "Device ID for Timon (deterministic seed 0x01)".to_string(),
             inputs: DeviceIdInputs {
                 ed25519_public_key_b64u: base64_url(&public_key_bytes),
-                ed25519_public_key_hex: hex::encode(&public_key_bytes),
+                ed25519_public_key_hex: hex::encode(public_key_bytes),
             },
             outputs: DeviceIdOutputs {
                 device_id_hex: device_id.to_hex(),
@@ -89,7 +89,7 @@ fn generate_device_id_vectors() -> Result<Vec<DeviceIdVector>> {
             description: "Device ID for Peter (deterministic seed 0x02)".to_string(),
             inputs: DeviceIdInputs {
                 ed25519_public_key_b64u: base64_url(&public_key_bytes),
-                ed25519_public_key_hex: hex::encode(&public_key_bytes),
+                ed25519_public_key_hex: hex::encode(public_key_bytes),
             },
             outputs: DeviceIdOutputs {
                 device_id_hex: device_id.to_hex(),
@@ -109,7 +109,7 @@ fn generate_device_id_vectors() -> Result<Vec<DeviceIdVector>> {
             description: "Device ID for all-zeros public key (edge case)".to_string(),
             inputs: DeviceIdInputs {
                 ed25519_public_key_b64u: base64_url(&public_key_bytes),
-                ed25519_public_key_hex: hex::encode(&public_key_bytes),
+                ed25519_public_key_hex: hex::encode(public_key_bytes),
             },
             outputs: DeviceIdOutputs {
                 device_id_hex: device_id.to_hex(),
@@ -128,7 +128,7 @@ fn generate_device_id_vectors() -> Result<Vec<DeviceIdVector>> {
             description: "Device ID for all-ones public key (edge case)".to_string(),
             inputs: DeviceIdInputs {
                 ed25519_public_key_b64u: base64_url(&public_key_bytes),
-                ed25519_public_key_hex: hex::encode(&public_key_bytes),
+                ed25519_public_key_hex: hex::encode(public_key_bytes),
             },
             outputs: DeviceIdOutputs {
                 device_id_hex: device_id.to_hex(),
@@ -184,7 +184,7 @@ fn generate_fingerprint_vectors() -> Result<Vec<FingerprintVector>> {
             description: "Fingerprint for Timon (all formats)".to_string(),
             inputs: FingerprintInputs {
                 ed25519_public_key_b64u: base64_url(&public_key_bytes),
-                ed25519_public_key_hex: hex::encode(&public_key_bytes),
+                ed25519_public_key_hex: hex::encode(public_key_bytes),
             },
             outputs: FingerprintOutputs {
                 fingerprint_b64u: fingerprint.to_base64url(),
@@ -210,7 +210,7 @@ fn generate_fingerprint_vectors() -> Result<Vec<FingerprintVector>> {
             description: "Fingerprint for Peter (all formats)".to_string(),
             inputs: FingerprintInputs {
                 ed25519_public_key_b64u: base64_url(&public_key_bytes),
-                ed25519_public_key_hex: hex::encode(&public_key_bytes),
+                ed25519_public_key_hex: hex::encode(public_key_bytes),
             },
             outputs: FingerprintOutputs {
                 fingerprint_b64u: fingerprint.to_base64url(),
@@ -232,7 +232,7 @@ fn generate_fingerprint_vectors() -> Result<Vec<FingerprintVector>> {
             description: "Fingerprint for all-zeros key (edge case)".to_string(),
             inputs: FingerprintInputs {
                 ed25519_public_key_b64u: base64_url(&public_key_bytes),
-                ed25519_public_key_hex: hex::encode(&public_key_bytes),
+                ed25519_public_key_hex: hex::encode(public_key_bytes),
             },
             outputs: FingerprintOutputs {
                 fingerprint_b64u: fingerprint.to_base64url(),
@@ -285,8 +285,11 @@ fn generate_spk_signature_vectors() -> Result<Vec<SpkSigVector>> {
         let ik_verifying_key = ik_signing_key.verifying_key();
 
         let spk_seed = [0x11u8; 32];
-        let spk_priv = X25519PrivateKey::from_bytes(spk_seed);
-        let spk_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(spk_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let _spk_priv = X25519PrivateKey::from_bytes(spk_seed);
+        let spk_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            spk_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
 
         let spk_id = [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
 
@@ -308,7 +311,7 @@ fn generate_spk_signature_vectors() -> Result<Vec<SpkSigVector>> {
             inputs: SpkSigInputs {
                 ik_sig_priv_b64u: base64_url(&ik_signing_key.to_bytes()),
                 ik_sig_pub_b64u: base64_url(&ik_verifying_key.to_bytes()),
-                spk_id_hex: hex::encode(&spk_id),
+                spk_id_hex: hex::encode(spk_id),
                 spk_pub_b64u: base64_url(spk_pub.as_bytes()),
             },
             outputs: SpkSigOutputs {
@@ -327,8 +330,11 @@ fn generate_spk_signature_vectors() -> Result<Vec<SpkSigVector>> {
         let ik_verifying_key = ik_signing_key.verifying_key();
 
         let spk_seed = [0x22u8; 32];
-        let spk_priv = X25519PrivateKey::from_bytes(spk_seed);
-        let spk_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(spk_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let _spk_priv = X25519PrivateKey::from_bytes(spk_seed);
+        let spk_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            spk_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
 
         let spk_id = [0x11u8, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88];
 
@@ -346,7 +352,7 @@ fn generate_spk_signature_vectors() -> Result<Vec<SpkSigVector>> {
             inputs: SpkSigInputs {
                 ik_sig_priv_b64u: base64_url(&ik_signing_key.to_bytes()),
                 ik_sig_pub_b64u: base64_url(&ik_verifying_key.to_bytes()),
-                spk_id_hex: hex::encode(&spk_id),
+                spk_id_hex: hex::encode(spk_id),
                 spk_pub_b64u: base64_url(spk_pub.as_bytes()),
             },
             outputs: SpkSigOutputs {
@@ -365,8 +371,11 @@ fn generate_spk_signature_vectors() -> Result<Vec<SpkSigVector>> {
         let ik_verifying_key = ik_signing_key.verifying_key();
 
         let spk_seed = [0x33u8; 32];
-        let spk_priv = X25519PrivateKey::from_bytes(spk_seed);
-        let spk_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(spk_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let _spk_priv = X25519PrivateKey::from_bytes(spk_seed);
+        let spk_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            spk_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
 
         let spk_id = [0xAAu8; 8];
 
@@ -383,7 +392,9 @@ fn generate_spk_signature_vectors() -> Result<Vec<SpkSigVector>> {
 
         // Try to verify tampered signature
         let tampered_sig = ed25519_dalek::Signature::from_bytes(&tampered_sig_bytes);
-        let verification_ok = ik_verifying_key.verify_strict(&message, &tampered_sig).is_ok();
+        let verification_ok = ik_verifying_key
+            .verify_strict(&message, &tampered_sig)
+            .is_ok();
 
         vectors.push(SpkSigVector {
             case_id: "SPK_SIG_003".to_string(),
@@ -391,7 +402,7 @@ fn generate_spk_signature_vectors() -> Result<Vec<SpkSigVector>> {
             inputs: SpkSigInputs {
                 ik_sig_priv_b64u: base64_url(&ik_signing_key.to_bytes()),
                 ik_sig_pub_b64u: base64_url(&ik_verifying_key.to_bytes()),
-                spk_id_hex: hex::encode(&spk_id),
+                spk_id_hex: hex::encode(spk_id),
                 spk_pub_b64u: base64_url(spk_pub.as_bytes()),
             },
             outputs: SpkSigOutputs {
@@ -440,7 +451,10 @@ fn generate_identity_key_vectors() -> Result<Vec<IdentityKeyVector>> {
 
         let x_seed = [0x11u8; 32];
         let x_priv = X25519PrivateKey::from_bytes(x_seed);
-        let x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(x_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            x_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
 
         let device_id = DeviceId::from_ed25519_public_key(&ed_verifying_key.to_bytes())?;
         let fingerprint = Fingerprint::from_ed25519_public_key(&ed_verifying_key.to_bytes())?;
@@ -451,7 +465,7 @@ fn generate_identity_key_vectors() -> Result<Vec<IdentityKeyVector>> {
             outputs: IdentityKeyOutputs {
                 ed25519_priv_b64u: base64_url(&ed_signing_key.to_bytes()),
                 ed25519_pub_b64u: base64_url(&ed_verifying_key.to_bytes()),
-                ed25519_pub_hex: hex::encode(&ed_verifying_key.to_bytes()),
+                ed25519_pub_hex: hex::encode(ed_verifying_key.to_bytes()),
                 x25519_priv_b64u: base64_url(x_priv.as_bytes()),
                 x25519_pub_b64u: base64_url(x_pub.as_bytes()),
                 x25519_pub_hex: hex::encode(x_pub.as_bytes()),
@@ -469,7 +483,10 @@ fn generate_identity_key_vectors() -> Result<Vec<IdentityKeyVector>> {
 
         let x_seed = [0x22u8; 32];
         let x_priv = X25519PrivateKey::from_bytes(x_seed);
-        let x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(x_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            x_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
 
         let device_id = DeviceId::from_ed25519_public_key(&ed_verifying_key.to_bytes())?;
         let fingerprint = Fingerprint::from_ed25519_public_key(&ed_verifying_key.to_bytes())?;
@@ -480,7 +497,7 @@ fn generate_identity_key_vectors() -> Result<Vec<IdentityKeyVector>> {
             outputs: IdentityKeyOutputs {
                 ed25519_priv_b64u: base64_url(&ed_signing_key.to_bytes()),
                 ed25519_pub_b64u: base64_url(&ed_verifying_key.to_bytes()),
-                ed25519_pub_hex: hex::encode(&ed_verifying_key.to_bytes()),
+                ed25519_pub_hex: hex::encode(ed_verifying_key.to_bytes()),
                 x25519_priv_b64u: base64_url(x_priv.as_bytes()),
                 x25519_pub_b64u: base64_url(x_pub.as_bytes()),
                 x25519_pub_hex: hex::encode(x_pub.as_bytes()),
@@ -535,12 +552,18 @@ fn generate_prekey_payload_vectors() -> Result<Vec<PrekeyPayloadVector>> {
         let ed_verifying_key = ed_signing_key.verifying_key();
 
         let x_seed = [0x11u8; 32];
-        let x_priv = X25519PrivateKey::from_bytes(x_seed);
-        let x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(x_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let _x_priv = X25519PrivateKey::from_bytes(x_seed);
+        let x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            x_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
 
         let spk_seed = [0x11u8; 32];
-        let spk_priv = X25519PrivateKey::from_bytes(spk_seed);
-        let spk_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(spk_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let _spk_priv = X25519PrivateKey::from_bytes(spk_seed);
+        let spk_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            spk_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
         let spk_id = [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
 
         let mut spk_message = Vec::new();
@@ -558,7 +581,7 @@ fn generate_prekey_payload_vectors() -> Result<Vec<PrekeyPayloadVector>> {
                 device_id_hex: device_id.to_hex(),
                 ed25519_pub_b64u: base64_url(&ed_verifying_key.to_bytes()),
                 x25519_pub_b64u: base64_url(x_pub.as_bytes()),
-                spk_id_hex: hex::encode(&spk_id),
+                spk_id_hex: hex::encode(spk_id),
                 spk_pub_b64u: base64_url(spk_pub.as_bytes()),
                 spk_sig_b64u: base64_url(&spk_sig.to_bytes()),
                 otp_id_hex: None,
@@ -570,7 +593,7 @@ fn generate_prekey_payload_vectors() -> Result<Vec<PrekeyPayloadVector>> {
                     device_id.to_hex(),
                     base64_url(&ed_verifying_key.to_bytes()),
                     base64_url(x_pub.as_bytes()),
-                    hex::encode(&spk_id),
+                    hex::encode(spk_id),
                     base64_url(spk_pub.as_bytes()),
                     base64_url(&spk_sig.to_bytes())
                 ),
@@ -586,12 +609,18 @@ fn generate_prekey_payload_vectors() -> Result<Vec<PrekeyPayloadVector>> {
         let ed_verifying_key = ed_signing_key.verifying_key();
 
         let x_seed = [0x22u8; 32];
-        let x_priv = X25519PrivateKey::from_bytes(x_seed);
-        let x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(x_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let _x_priv = X25519PrivateKey::from_bytes(x_seed);
+        let x_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            x_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
 
         let spk_seed = [0x22u8; 32];
-        let spk_priv = X25519PrivateKey::from_bytes(spk_seed);
-        let spk_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(spk_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let _spk_priv = X25519PrivateKey::from_bytes(spk_seed);
+        let spk_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            spk_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
         let spk_id = [0x11u8, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88];
 
         let mut spk_message = Vec::new();
@@ -601,8 +630,11 @@ fn generate_prekey_payload_vectors() -> Result<Vec<PrekeyPayloadVector>> {
         let spk_sig = ed_signing_key.sign(&spk_message);
 
         let otp_seed = [0x33u8; 32];
-        let otp_priv = X25519PrivateKey::from_bytes(otp_seed);
-        let otp_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(otp_seed, x25519_dalek::X25519_BASEPOINT_BYTES));
+        let _otp_priv = X25519PrivateKey::from_bytes(otp_seed);
+        let otp_pub = X25519PublicKey::from_bytes(x25519_dalek::x25519(
+            otp_seed,
+            x25519_dalek::X25519_BASEPOINT_BYTES,
+        ));
         let otp_id = [0xAAu8, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11];
 
         let device_id = DeviceId::from_ed25519_public_key(&ed_verifying_key.to_bytes())?;
@@ -614,10 +646,10 @@ fn generate_prekey_payload_vectors() -> Result<Vec<PrekeyPayloadVector>> {
                 device_id_hex: device_id.to_hex(),
                 ed25519_pub_b64u: base64_url(&ed_verifying_key.to_bytes()),
                 x25519_pub_b64u: base64_url(x_pub.as_bytes()),
-                spk_id_hex: hex::encode(&spk_id),
+                spk_id_hex: hex::encode(spk_id),
                 spk_pub_b64u: base64_url(spk_pub.as_bytes()),
                 spk_sig_b64u: base64_url(&spk_sig.to_bytes()),
-                otp_id_hex: Some(hex::encode(&otp_id)),
+                otp_id_hex: Some(hex::encode(otp_id)),
                 otp_pub_b64u: Some(base64_url(otp_pub.as_bytes())),
             },
             outputs: PrekeyPayloadOutputs {
@@ -626,10 +658,10 @@ fn generate_prekey_payload_vectors() -> Result<Vec<PrekeyPayloadVector>> {
                     device_id.to_hex(),
                     base64_url(&ed_verifying_key.to_bytes()),
                     base64_url(x_pub.as_bytes()),
-                    hex::encode(&spk_id),
+                    hex::encode(spk_id),
                     base64_url(spk_pub.as_bytes()),
                     base64_url(&spk_sig.to_bytes()),
-                    hex::encode(&otp_id),
+                    hex::encode(otp_id),
                     base64_url(otp_pub.as_bytes())
                 ),
                 bundle_type: "4DH".to_string(),
@@ -734,7 +766,9 @@ pub fn generate_all(output_dir: &Path, verbose: bool, force: bool) -> Result<()>
             module: "identity_keys".to_string(),
             generated_by: "rust-c6p-test-vectors v0.1.0".to_string(),
             generated_at: chrono::Utc::now().to_rfc3339(),
-            description: "Complete identity key generation (Ed25519 + X25519 + Device ID + Fingerprint)".to_string(),
+            description:
+                "Complete identity key generation (Ed25519 + X25519 + Device ID + Fingerprint)"
+                    .to_string(),
             vectors,
         };
 

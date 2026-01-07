@@ -3,8 +3,8 @@
 //! All types are normative and MUST match wire format specification.
 
 use serde::{Deserialize, Serialize};
-use zeroize::{Zeroize, ZeroizeOnDrop};
 use std::fmt;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 // Re-export from c6p-crypto
 pub use c6p_crypto::{DeviceId, SessionId, TranscriptHash};
@@ -31,7 +31,7 @@ impl SpkId {
 
     /// Convert to hex string (lowercase)
     pub fn to_hex(&self) -> String {
-        hex::encode(&self.0)
+        hex::encode(self.0)
     }
 }
 
@@ -59,7 +59,7 @@ impl OtpId {
 
     /// Convert to hex string (lowercase)
     pub fn to_hex(&self) -> String {
-        hex::encode(&self.0)
+        hex::encode(self.0)
     }
 }
 
