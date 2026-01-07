@@ -19,7 +19,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        rust: [stable, 1.75.0]  # MSRV: Rust 1.75.0
+        rust: [stable, 1.85.0]  # MSRV: Rust 1.85.0 (required for edition2024 dependencies)
 
     steps:
       - name: Checkout code
