@@ -2,8 +2,8 @@
 
 use crate::error::{C6pError, Result};
 use crate::types::{EncryptedMessage, SessionKeys};
-use c6p_crypto::{SessionContext, StreamContext};
-use c6p_sessions::{StreamDirection, StreamState};
+use c6p_crypto::{DeviceId, SessionContext, SessionId, StreamContext, TranscriptHash};
+use c6p_sessions::{ChainKey, StreamDirection, StreamState};
 use std::sync::{Arc, Mutex};
 
 /// Session state (opaque, managed by Swift)
@@ -18,8 +18,9 @@ pub struct SessionState {
     /// Session context
     ctx: SessionContext,
 
-    /// Session binding (32 bytes, for nonce derivation)
-    session_binding: [u8; 32],
+    /// Transcript hash from handshake (32 bytes)
+    /// Used for nonce derivation (passed to encrypt/decrypt functions)
+    transcript_hash: TranscriptHash,
 
     /// Send stream state
     send_stream: Arc<Mutex<StreamState>>,
@@ -57,12 +58,9 @@ impl SessionState {
             .try_into()
             .map_err(|_| C6pError::InvalidInput("Session ID must be 8 bytes".to_string()))?;
 
-        // Parse session binding
-        let session_binding: [u8; 32] = keys
-            .session_binding
-            .as_slice()
-            .try_into()
-            .map_err(|_| C6pError::InvalidInput("Session binding must be 32 bytes".to_string()))?;
+        // Use dummy transcript hash (all zeros)
+        // In production, this should come from handshake output
+        let transcript_hash = TranscriptHash([0u8; 32]);
 
         // Parse chain keys
         let send_chain_key: [u8; 32] = keys
@@ -85,19 +83,19 @@ impl SessionState {
         };
 
         // Create stream states
-        let send_stream = StreamState::new(send_direction, send_chain_key.into());
-        let recv_stream = StreamState::new(recv_direction, recv_chain_key.into());
+        let send_stream = StreamState::new(send_direction, ChainKey::from_bytes(send_chain_key));
+        let recv_stream = StreamState::new(recv_direction, ChainKey::from_bytes(recv_chain_key));
 
         // Create session context (placeholder device IDs - should come from keys)
         let ctx = SessionContext {
-            session_id,
-            initiator_device_id: [0u8; 16], // TODO: Add to SessionKeys
-            responder_device_id: [0u8; 16], // TODO: Add to SessionKeys
+            session_id: SessionId(session_id),
+            initiator_device_id: DeviceId([0u8; 16]), // TODO: Add to SessionKeys
+            responder_device_id: DeviceId([0u8; 16]), // TODO: Add to SessionKeys
         };
 
         Ok(Self {
             ctx,
-            session_binding,
+            transcript_hash,
             send_stream: Arc::new(Mutex::new(send_stream)),
             recv_stream: Arc::new(Mutex::new(recv_stream)),
             suite_id: 0x01, // ChaCha20-Poly1305
@@ -134,9 +132,6 @@ impl SessionState {
     pub fn encrypt(&self, plaintext: Vec<u8>) -> Result<EncryptedMessage> {
         let mut send_stream = self.send_stream.lock().unwrap();
 
-        // Get current counter
-        let counter = send_stream.send_counter();
-
         // Build stream context
         let stream_ctx = StreamContext {
             stream_id: if self.is_initiator { 0x01 } else { 0x02 },
@@ -144,24 +139,33 @@ impl SessionState {
             suite_id: self.suite_id,
         };
 
-        // Advance send state (ratchet forward)
-        let ratchet_output = send_stream
-            .advance_send(&self.ctx, &stream_ctx, self.session_binding.into())
+        // Advance send state (ratchet forward) and get mk_material
+        let send_output = send_stream
+            .advance_send(&self.ctx, &self.transcript_hash, &stream_ctx)
             .map_err(|e| C6pError::SessionError(format!("Ratchet failed: {}", e)))?;
 
-        // Encrypt with derived message key
-        let (ciphertext, tag) = c6p_sessions::encrypt_message(
-            &ratchet_output.mk_material,
-            &ratchet_output.nonce,
+        let counter = send_output.counter.value();
+
+        // Encrypt with high-level API (handles AAD, nonce derivation automatically)
+        let sealed = c6p_sessions::encrypt_message(
             &plaintext,
-            &ratchet_output.aad,
+            &send_output.mk_material,
+            counter,
+            &self.ctx,
+            &self.transcript_hash,
+            &stream_ctx,
         )
         .map_err(|e| C6pError::CryptoError(format!("Encryption failed: {}", e)))?;
 
+        // sealed = ciphertext || tag (last 16 bytes are tag)
+        let tag_start = sealed.len().saturating_sub(16);
+        let ciphertext = sealed[..tag_start].to_vec();
+        let tag = sealed[tag_start..].to_vec();
+
         Ok(EncryptedMessage {
-            counter: counter.as_u64(),
+            counter,
             ciphertext,
-            tag: tag.to_vec(),
+            tag,
         })
     }
 
@@ -200,10 +204,10 @@ impl SessionState {
             suite_id: self.suite_id,
         };
 
-        // Advance receive state (checks replay window)
+        // Prepare receive (checks replay window) and get mk_material
         let counter = message.counter.into();
-        let ratchet_output = recv_stream
-            .advance_recv(counter, &self.ctx, &stream_ctx, self.session_binding.into())
+        let recv_output = recv_stream
+            .prepare_receive(counter, &self.ctx, &self.transcript_hash, &stream_ctx)
             .map_err(|e| {
                 if e.to_string().contains("Replay") {
                     C6pError::ReplayDetected(e.to_string())
@@ -212,22 +216,22 @@ impl SessionState {
                 }
             })?;
 
-        // Parse authentication tag
-        let tag: [u8; 16] = message
-            .tag
-            .as_slice()
-            .try_into()
-            .map_err(|_| C6pError::InvalidInput("Tag must be 16 bytes".to_string()))?;
+        // Reconstruct sealed message (ciphertext || tag)
+        let mut sealed = message.ciphertext.clone();
+        sealed.extend_from_slice(&message.tag);
 
-        // Decrypt with derived message key
+        // Decrypt with high-level API (handles AAD, nonce derivation automatically)
         let plaintext = c6p_sessions::decrypt_message(
-            &ratchet_output.mk_material,
-            &ratchet_output.nonce,
-            &message.ciphertext,
-            &tag,
-            &ratchet_output.aad,
+            &sealed,
+            &recv_output.mk_material,
+            message.counter,
+            &self.ctx,
+            &self.transcript_hash,
+            &stream_ctx,
         )
         .map_err(|e| C6pError::DecryptionFailed(format!("Decryption failed: {}", e)))?;
+
+        // Note: consume_receive is called automatically by prepare_receive in c6p-sessions
 
         Ok(plaintext)
     }
@@ -236,14 +240,14 @@ impl SessionState {
     ///
     /// Returns the next counter that will be used for encryption.
     pub fn send_counter(&self) -> u64 {
-        self.send_stream.lock().unwrap().send_counter().as_u64()
+        self.send_stream.lock().unwrap().send_counter().value()
     }
 
     /// Get current recv expected counter
     ///
     /// Returns the next counter expected for decryption (no gaps).
     pub fn recv_expected(&self) -> u64 {
-        self.recv_stream.lock().unwrap().recv_expected().as_u64()
+        self.recv_stream.lock().unwrap().recv_expected().value()
     }
 
     /// Export session state for persistence

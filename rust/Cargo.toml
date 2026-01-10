@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "c6p-crypto", "c6p-handshake", "c6p-identity", "c6p-sessions",
     "c6p-test-vectors",
-    # "c6p-ios",  # Temporarily excluded - UDL syntax needs fixing
+    "c6p-ios",  # Testing minimal UDL
     "examples",
     "benches",
 ]
