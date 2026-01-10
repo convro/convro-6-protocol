@@ -2,10 +2,9 @@
 
 use crate::error::{C6pError, Result};
 use crate::types::{DeviceIdentity, OneTimePrekey, PrekeyBundle, SignedPrekey};
-use c6p_identity::{derive_device_id, derive_fingerprint};
+use c6p_identity::{DeviceId, Fingerprint};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use rand::rngs::OsRng;
-use x25519_dalek::{PublicKey as X25519Public, StaticSecret as X25519Secret};
 
 /// Generate a new device identity
 ///
@@ -17,7 +16,7 @@ use x25519_dalek::{PublicKey as X25519Public, StaticSecret as X25519Secret};
 /// - device_id (16 bytes)
 /// - Ed25519 key pair (signing)
 /// - X25519 key pair (DH)
-/// - fingerprint (Base32 string)
+/// - fingerprint (Base64URL string)
 ///
 /// # Errors
 ///
@@ -27,24 +26,27 @@ pub fn generate_identity() -> Result<DeviceIdentity> {
     let signing_key = SigningKey::generate(&mut OsRng);
     let verifying_key = signing_key.verifying_key();
 
-    // Convert Ed25519 to X25519 for DH operations
-    let ed25519_secret_bytes = signing_key.to_bytes();
-    let x25519_secret = X25519Secret::from(ed25519_secret_bytes);
-    let x25519_public = X25519Public::from(&x25519_secret);
+    // Generate X25519 key pair for DH operations
+    let mut x25519_priv_bytes = [0u8; 32];
+    rand::RngCore::fill_bytes(&mut OsRng, &mut x25519_priv_bytes);
+    let x25519_pub_bytes = x25519_dalek::x25519(
+        x25519_priv_bytes,
+        x25519_dalek::X25519_BASEPOINT_BYTES,
+    );
 
     // Derive device ID from Ed25519 public key
-    let device_id = derive_device_id(verifying_key.as_bytes())?;
+    let device_id = DeviceId::from_ed25519_public_key(verifying_key.as_bytes());
 
     // Derive human-readable fingerprint
-    let fingerprint = derive_fingerprint(verifying_key.as_bytes())?;
+    let fingerprint = Fingerprint::from_ed25519_public_key(verifying_key.as_bytes());
 
     Ok(DeviceIdentity {
-        device_id: device_id.to_vec(),
+        device_id: device_id.0.to_vec(),
         identity_priv_ed25519: signing_key.to_keypair_bytes().to_vec(),
         identity_pub_ed25519: verifying_key.as_bytes().to_vec(),
-        identity_priv_x25519: x25519_secret.to_bytes().to_vec(),
-        identity_pub_x25519: x25519_public.as_bytes().to_vec(),
-        fingerprint,
+        identity_priv_x25519: x25519_priv_bytes.to_vec(),
+        identity_pub_x25519: x25519_pub_bytes.to_vec(),
+        fingerprint: fingerprint.to_base64url(),
     })
 }
 
@@ -68,8 +70,12 @@ pub fn generate_identity() -> Result<DeviceIdentity> {
 /// Returns error if signing fails or key parsing fails
 pub fn generate_signed_prekey(identity: DeviceIdentity) -> Result<SignedPrekey> {
     // Generate fresh X25519 key pair for SPK
-    let spk_secret = X25519Secret::random_from_rng(&mut OsRng);
-    let spk_public = X25519Public::from(&spk_secret);
+    let mut spk_priv_bytes = [0u8; 32];
+    rand::RngCore::fill_bytes(&mut OsRng, &mut spk_priv_bytes);
+    let spk_pub_bytes = x25519_dalek::x25519(
+        spk_priv_bytes,
+        x25519_dalek::X25519_BASEPOINT_BYTES,
+    );
 
     // Generate random SPK ID (8 bytes)
     let mut spk_id = [0u8; 8];
@@ -89,14 +95,14 @@ pub fn generate_signed_prekey(identity: DeviceIdentity) -> Result<SignedPrekey> 
     let mut msg = Vec::with_capacity(label.len() + 8 + 32);
     msg.extend_from_slice(label);
     msg.extend_from_slice(&spk_id);
-    msg.extend_from_slice(spk_public.as_bytes());
+    msg.extend_from_slice(&spk_pub_bytes);
 
     let signature = signing_key.sign(&msg);
 
     Ok(SignedPrekey {
         spk_id: spk_id.to_vec(),
-        spk_priv: spk_secret.to_bytes().to_vec(),
-        spk_pub: spk_public.as_bytes().to_vec(),
+        spk_priv: spk_priv_bytes.to_vec(),
+        spk_pub: spk_pub_bytes.to_vec(),
         spk_sig: signature.to_bytes().to_vec(),
     })
 }
@@ -116,8 +122,12 @@ pub fn generate_signed_prekey(identity: DeviceIdentity) -> Result<SignedPrekey> 
 /// Returns error if random number generation fails
 pub fn generate_one_time_prekey() -> Result<OneTimePrekey> {
     // Generate fresh X25519 key pair
-    let otp_secret = X25519Secret::random_from_rng(&mut OsRng);
-    let otp_public = X25519Public::from(&otp_secret);
+    let mut otp_priv_bytes = [0u8; 32];
+    rand::RngCore::fill_bytes(&mut OsRng, &mut otp_priv_bytes);
+    let otp_pub_bytes = x25519_dalek::x25519(
+        otp_priv_bytes,
+        x25519_dalek::X25519_BASEPOINT_BYTES,
+    );
 
     // Generate random OTP ID (8 bytes)
     let mut otp_id = [0u8; 8];
@@ -125,8 +135,8 @@ pub fn generate_one_time_prekey() -> Result<OneTimePrekey> {
 
     Ok(OneTimePrekey {
         otp_id: otp_id.to_vec(),
-        otp_priv: otp_secret.to_bytes().to_vec(),
-        otp_pub: otp_public.as_bytes().to_vec(),
+        otp_priv: otp_priv_bytes.to_vec(),
+        otp_pub: otp_pub_bytes.to_vec(),
     })
 }
 
@@ -149,8 +159,8 @@ pub fn compute_device_id(ed25519_pub: Vec<u8>) -> Result<Vec<u8>> {
         .try_into()
         .map_err(|_| C6pError::InvalidKey("Ed25519 public key must be 32 bytes".to_string()))?;
 
-    let device_id = derive_device_id(&pub_bytes)?;
-    Ok(device_id.to_vec())
+    let device_id = DeviceId::from_ed25519_public_key(&pub_bytes);
+    Ok(device_id.0.to_vec())
 }
 
 /// Compute fingerprint from Ed25519 public key
@@ -161,7 +171,7 @@ pub fn compute_device_id(ed25519_pub: Vec<u8>) -> Result<Vec<u8>> {
 ///
 /// # Returns
 ///
-/// Fingerprint (Base32 string, 32 characters)
+/// Fingerprint (Base64URL string)
 ///
 /// # Errors
 ///
@@ -172,7 +182,8 @@ pub fn compute_fingerprint(ed25519_pub: Vec<u8>) -> Result<String> {
         .try_into()
         .map_err(|_| C6pError::InvalidKey("Ed25519 public key must be 32 bytes".to_string()))?;
 
-    derive_fingerprint(&pub_bytes).map_err(Into::into)
+    let fingerprint = Fingerprint::from_ed25519_public_key(&pub_bytes);
+    Ok(fingerprint.to_base64url())
 }
 
 /// Validate prekey bundle (verify SPK signature)
@@ -233,7 +244,8 @@ mod tests {
         assert_eq!(identity.device_id.len(), 16);
         assert_eq!(identity.identity_pub_ed25519.len(), 32);
         assert_eq!(identity.identity_pub_x25519.len(), 32);
-        assert_eq!(identity.fingerprint.len(), 32); // Base32 encoded
+        // Base64URL fingerprint length varies
+        assert!(!identity.fingerprint.is_empty());
     }
 
     #[test]

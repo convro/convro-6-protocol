@@ -47,7 +47,8 @@
 //! let encrypted = try session.encrypt(plaintext: data)
 //! ```
 
-#![forbid(unsafe_code)]
+// UniFFI generates #[no_mangle] which triggers unsafe_code lint - allow it
+#![allow(unsafe_code)]
 #![warn(missing_docs, rust_2018_idioms)]
 
 mod error;

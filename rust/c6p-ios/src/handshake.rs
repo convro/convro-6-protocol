@@ -6,11 +6,12 @@ use crate::types::{
     SignedPrekey,
 };
 use c6p_handshake::{
-    Accept as AcceptCore, Offer as OfferCore, PrekeyBundle as PrekeyBundleCore,
+    Accept as AcceptCore, DeviceId, Ed25519PrivateKey, Ed25519PublicKey, Ed25519Signature,
+    Offer as OfferCore, OtpId, PrekeyBundle as PrekeyBundleCore, SessionId, SpkId,
+    X25519PrivateKey, X25519PublicKey,
 };
-use ed25519_dalek::{SigningKey, VerifyingKey};
+use ed25519_dalek::SigningKey;
 use rand::rngs::OsRng;
-use x25519_dalek::{PublicKey as X25519Public, StaticSecret as X25519Secret};
 
 /// Create handshake offer (initiator side)
 ///
@@ -53,49 +54,59 @@ pub fn create_offer(
     bundle_core.validate()?;
 
     // Parse initiator keys
-    let initiator_device_id: [u8; 16] = initiator_identity
+    let initiator_device_id_bytes: [u8; 16] = initiator_identity
         .device_id
         .as_slice()
         .try_into()
         .map_err(|_| C6pError::InvalidDeviceId("Device ID must be 16 bytes".to_string()))?;
+    let initiator_device_id = DeviceId(initiator_device_id_bytes);
 
     let initiator_ik_dh_priv_bytes: [u8; 32] = initiator_identity
         .identity_priv_x25519
         .as_slice()
         .try_into()
         .map_err(|_| C6pError::InvalidKey("X25519 private key must be 32 bytes".to_string()))?;
-    let initiator_ik_dh_priv = X25519Secret::from(initiator_ik_dh_priv_bytes);
+    let initiator_ik_dh_priv = X25519PrivateKey::from_bytes(initiator_ik_dh_priv_bytes);
 
     let initiator_ik_dh_pub_bytes: [u8; 32] = initiator_identity
         .identity_pub_x25519
         .as_slice()
         .try_into()
         .map_err(|_| C6pError::InvalidKey("X25519 public key must be 32 bytes".to_string()))?;
-    let initiator_ik_dh_pub = X25519Public::from(initiator_ik_dh_pub_bytes);
+    let initiator_ik_dh_pub = X25519PublicKey::from_bytes(initiator_ik_dh_pub_bytes);
 
     let initiator_ik_sig_keypair: [u8; 64] = initiator_identity
         .identity_priv_ed25519
         .as_slice()
         .try_into()
         .map_err(|_| C6pError::InvalidKey("Ed25519 keypair must be 64 bytes".to_string()))?;
-    let initiator_ik_sig_priv = SigningKey::from_keypair_bytes(&initiator_ik_sig_keypair)
+    let signing_key = SigningKey::from_keypair_bytes(&initiator_ik_sig_keypair)
         .map_err(|e| C6pError::InvalidKey(format!("Invalid Ed25519 keypair: {}", e)))?;
+
+    // Extract private key (first 32 bytes) and public key (last 32 bytes)
+    let mut initiator_ik_sig_priv_bytes = [0u8; 32];
+    initiator_ik_sig_priv_bytes.copy_from_slice(&initiator_ik_sig_keypair[..32]);
+    let initiator_ik_sig_priv = Ed25519PrivateKey::from_bytes(initiator_ik_sig_priv_bytes);
 
     let initiator_ik_sig_pub_bytes: [u8; 32] = initiator_identity
         .identity_pub_ed25519
         .as_slice()
         .try_into()
         .map_err(|_| C6pError::InvalidKey("Ed25519 public key must be 32 bytes".to_string()))?;
-    let initiator_ik_sig_pub = VerifyingKey::from_bytes(&initiator_ik_sig_pub_bytes)
-        .map_err(|e| C6pError::InvalidKey(format!("Invalid Ed25519 public key: {}", e)))?;
+    let initiator_ik_sig_pub = Ed25519PublicKey::from_bytes(initiator_ik_sig_pub_bytes);
 
     // Generate fresh ephemeral key (CRITICAL: never reuse!)
-    let initiator_ek_priv = X25519Secret::random_from_rng(&mut OsRng);
-    let initiator_ek_pub = X25519Public::from(&initiator_ek_priv);
+    let mut ek_priv_bytes = [0u8; 32];
+    rand::RngCore::fill_bytes(&mut OsRng, &mut ek_priv_bytes);
+    let initiator_ek_priv = X25519PrivateKey::from_bytes(ek_priv_bytes);
+
+    let ek_pub_bytes = x25519_dalek::x25519(ek_priv_bytes, x25519_dalek::X25519_BASEPOINT_BYTES);
+    let initiator_ek_pub = X25519PublicKey::from_bytes(ek_pub_bytes);
 
     // Generate random session ID (8 bytes)
-    let mut session_id = [0u8; 8];
-    rand::RngCore::fill_bytes(&mut OsRng, &mut session_id);
+    let mut session_id_bytes = [0u8; 8];
+    rand::RngCore::fill_bytes(&mut OsRng, &mut session_id_bytes);
+    let session_id = SessionId(session_id_bytes);
 
     // Suite ID: 0x01 = ChaCha20-Poly1305
     let suite_id = 0x01;
@@ -105,12 +116,12 @@ pub fn create_offer(
         &bundle_core,
         session_id,
         initiator_device_id,
-        &initiator_ek_priv,
-        &initiator_ek_pub,
         &initiator_ik_dh_priv,
         &initiator_ik_dh_pub,
         &initiator_ik_sig_priv,
         &initiator_ik_sig_pub,
+        &initiator_ek_priv,
+        &initiator_ek_pub,
         suite_id,
     )?;
 
@@ -120,20 +131,20 @@ pub fn create_offer(
 
     // Convert to bridge type
     Ok(HandshakeOffer {
-        session_id: offer_core.session_id.to_vec(),
-        initiator_device_id: offer_core.initiator_device_id.to_vec(),
-        responder_device_id: offer_core.responder_device_id.to_vec(),
+        session_id: offer_core.session_id.0.to_vec(),
+        initiator_device_id: offer_core.initiator_device_id.0.to_vec(),
+        responder_device_id: offer_core.responder_device_id.0.to_vec(),
         initiator_identity_dh_pub: offer_core.initiator_identity_dh_pub.as_bytes().to_vec(),
         initiator_identity_sig_pub: offer_core.initiator_identity_sig_pub.as_bytes().to_vec(),
         initiator_ephemeral_dh_pub: offer_core.initiator_ephemeral_dh_pub.as_bytes().to_vec(),
-        used_spk_id: offer_core.used_spk_id.to_vec(),
+        used_spk_id: offer_core.used_spk_id.0.to_vec(),
         used_spk_pub: offer_core.used_spk_pub.as_bytes().to_vec(),
-        used_spk_sig: offer_core.used_spk_sig.to_bytes().to_vec(),
-        used_otp_id: offer_core.used_otp_id.map(|id| id.to_vec()),
+        used_spk_sig: offer_core.used_spk_sig.as_bytes().to_vec(),
+        used_otp_id: offer_core.used_otp_id.map(|id| id.0.to_vec()),
         used_otp_pub: offer_core.used_otp_pub.map(|pub_key| pub_key.as_bytes().to_vec()),
-        transcript_hash: offer_core.transcript_hash.to_vec(),
+        transcript_hash: offer_core.transcript_hash.0.to_vec(),
         kc1: offer_core.kc1.to_vec(),
-        offer_signature: offer_core.offer_signature.to_bytes().to_vec(),
+        offer_signature: offer_core.offer_signature.as_bytes().to_vec(),
         serialized,
     })
 }
@@ -184,79 +195,81 @@ pub fn accept_offer(
     let offer_wire: c6p_handshake::OfferWire = serde_json::from_slice(&offer_bytes)
         .map_err(|e| C6pError::SerializationError(format!("Failed to parse offer: {}", e)))?;
 
-    let offer_core = OfferCore::try_from(offer_wire)?;
+    let offer_core = offer_from_wire(offer_wire);
 
     // Parse responder keys
-    let responder_device_id: [u8; 16] = responder_identity
+    let responder_device_id_bytes: [u8; 16] = responder_identity
         .device_id
         .as_slice()
         .try_into()
         .map_err(|_| C6pError::InvalidDeviceId("Device ID must be 16 bytes".to_string()))?;
+    let responder_device_id = DeviceId(responder_device_id_bytes);
 
     let responder_ik_dh_priv_bytes: [u8; 32] = responder_identity
         .identity_priv_x25519
         .as_slice()
         .try_into()
         .map_err(|_| C6pError::InvalidKey("X25519 private key must be 32 bytes".to_string()))?;
-    let responder_ik_dh_priv = X25519Secret::from(responder_ik_dh_priv_bytes);
+    let responder_ik_dh_priv = X25519PrivateKey::from_bytes(responder_ik_dh_priv_bytes);
 
     let responder_ik_dh_pub_bytes: [u8; 32] = responder_identity
         .identity_pub_x25519
         .as_slice()
         .try_into()
         .map_err(|_| C6pError::InvalidKey("X25519 public key must be 32 bytes".to_string()))?;
-    let responder_ik_dh_pub = X25519Public::from(responder_ik_dh_pub_bytes);
+    let responder_ik_dh_pub = X25519PublicKey::from_bytes(responder_ik_dh_pub_bytes);
 
     let responder_ik_sig_pub_bytes: [u8; 32] = responder_identity
         .identity_pub_ed25519
         .as_slice()
         .try_into()
         .map_err(|_| C6pError::InvalidKey("Ed25519 public key must be 32 bytes".to_string()))?;
-    let responder_ik_sig_pub = VerifyingKey::from_bytes(&responder_ik_sig_pub_bytes)
-        .map_err(|e| C6pError::InvalidKey(format!("Invalid Ed25519 public key: {}", e)))?;
+    let responder_ik_sig_pub = Ed25519PublicKey::from_bytes(responder_ik_sig_pub_bytes);
 
     // Parse SPK
-    let spk_id: [u8; 8] = responder_spk
+    let spk_id_bytes: [u8; 8] = responder_spk
         .spk_id
         .as_slice()
         .try_into()
         .map_err(|_| C6pError::InvalidKey("SPK ID must be 8 bytes".to_string()))?;
+    let spk_id = SpkId(spk_id_bytes);
 
     let spk_priv_bytes: [u8; 32] = responder_spk
         .spk_priv
         .as_slice()
         .try_into()
         .map_err(|_| C6pError::InvalidKey("SPK private key must be 32 bytes".to_string()))?;
-    let spk_priv = X25519Secret::from(spk_priv_bytes);
+    let spk_priv = X25519PrivateKey::from_bytes(spk_priv_bytes);
 
     let spk_pub_bytes: [u8; 32] = responder_spk
         .spk_pub
         .as_slice()
         .try_into()
         .map_err(|_| C6pError::InvalidKey("SPK public key must be 32 bytes".to_string()))?;
-    let spk_pub = X25519Public::from(spk_pub_bytes);
+    let spk_pub = X25519PublicKey::from_bytes(spk_pub_bytes);
 
     // Parse OTP if present
     let otp = if let Some(otp) = responder_otp {
-        let otp_id: [u8; 8] = otp
+        let otp_id_bytes: [u8; 8] = otp
             .otp_id
             .as_slice()
             .try_into()
             .map_err(|_| C6pError::InvalidKey("OTP ID must be 8 bytes".to_string()))?;
+        let otp_id = OtpId(otp_id_bytes);
 
         let otp_priv_bytes: [u8; 32] = otp
             .otp_priv
             .as_slice()
             .try_into()
             .map_err(|_| C6pError::InvalidKey("OTP private key must be 32 bytes".to_string()))?;
-        let otp_priv = X25519Secret::from(otp_priv_bytes);
+        let otp_priv = X25519PrivateKey::from_bytes(otp_priv_bytes);
 
         let otp_pub_bytes: [u8; 32] = otp
             .otp_pub
             .as_slice()
             .try_into()
             .map_err(|_| C6pError::InvalidKey("OTP public key must be 32 bytes".to_string()))?;
-        let otp_pub = X25519Public::from(otp_pub_bytes);
+        let otp_pub = X25519PublicKey::from_bytes(otp_pub_bytes);
 
         Some((otp_id, otp_priv, otp_pub))
     } else {
@@ -273,7 +286,7 @@ pub fn accept_offer(
         spk_id,
         &spk_priv,
         &spk_pub,
-        otp.as_ref().map(|(id, priv_key, pub_key)| (*id, *priv_key, *pub_key)),
+        otp,
     )?;
 
     // Serialize accept to wire format (JSON)
@@ -285,7 +298,7 @@ pub fn accept_offer(
     // For now, we'll return it as part of the accept
 
     Ok(HandshakeAccept {
-        session_id: accept_core.session_id.to_vec(),
+        session_id: accept_core.session_id.0.to_vec(),
         kc2: accept_core.kc2.to_vec(),
         accept_signature: vec![], // TODO: Add accept signature to core
         serialized,
@@ -326,7 +339,7 @@ pub fn verify_accept(offer: HandshakeOffer, accept_bytes: Vec<u8>) -> Result<Ses
     let accept_wire: c6p_handshake::AcceptWire = serde_json::from_slice(&accept_bytes)
         .map_err(|e| C6pError::SerializationError(format!("Failed to parse accept: {}", e)))?;
 
-    let accept_core = AcceptCore::try_from(accept_wire)?;
+    let accept_core = accept_from_wire(accept_wire);
 
     // Verify session ID matches
     let offer_session_id: [u8; 8] = offer
@@ -335,7 +348,7 @@ pub fn verify_accept(offer: HandshakeOffer, accept_bytes: Vec<u8>) -> Result<Ses
         .try_into()
         .map_err(|_| C6pError::InvalidInput("Session ID must be 8 bytes".to_string()))?;
 
-    if accept_core.session_id != offer_session_id {
+    if accept_core.session_id.0 != offer_session_id {
         return Err(C6pError::HandshakeFailed(format!(
             "Session ID mismatch: offer={:?}, accept={:?}",
             offer_session_id, accept_core.session_id
@@ -383,46 +396,47 @@ pub fn get_session_keys_responder(accept: HandshakeAccept) -> Result<SessionKeys
 
 // Helper: Convert bridge PrekeyBundle to core PrekeyBundle
 fn convert_bundle_to_core(bundle: PrekeyBundle) -> Result<PrekeyBundleCore> {
-    let responder_device_id: [u8; 16] = bundle
+    let responder_device_id_bytes: [u8; 16] = bundle
         .responder_device_id
         .as_slice()
         .try_into()
         .map_err(|_| C6pError::InvalidDeviceId("Device ID must be 16 bytes".to_string()))?;
+    let responder_device_id = DeviceId(responder_device_id_bytes);
 
     let identity_pub_ed25519_bytes: [u8; 32] = bundle
         .identity_pub_ed25519
         .as_slice()
         .try_into()
         .map_err(|_| C6pError::InvalidKey("Ed25519 public key must be 32 bytes".to_string()))?;
-    let identity_pub_ed25519 = VerifyingKey::from_bytes(&identity_pub_ed25519_bytes)
-        .map_err(|e| C6pError::InvalidKey(format!("Invalid Ed25519 public key: {}", e)))?;
+    let identity_pub_ed25519 = Ed25519PublicKey::from_bytes(identity_pub_ed25519_bytes);
 
     let identity_pub_x25519_bytes: [u8; 32] = bundle
         .identity_pub_x25519
         .as_slice()
         .try_into()
         .map_err(|_| C6pError::InvalidKey("X25519 public key must be 32 bytes".to_string()))?;
-    let identity_pub_x25519 = X25519Public::from(identity_pub_x25519_bytes);
+    let identity_pub_x25519 = X25519PublicKey::from_bytes(identity_pub_x25519_bytes);
 
-    let spk_id: [u8; 8] = bundle
+    let spk_id_bytes: [u8; 8] = bundle
         .spk_id
         .as_slice()
         .try_into()
         .map_err(|_| C6pError::InvalidKey("SPK ID must be 8 bytes".to_string()))?;
+    let spk_id = SpkId(spk_id_bytes);
 
     let spk_pub_bytes: [u8; 32] = bundle
         .spk_pub
         .as_slice()
         .try_into()
         .map_err(|_| C6pError::InvalidKey("SPK public key must be 32 bytes".to_string()))?;
-    let spk_pub = X25519Public::from(spk_pub_bytes);
+    let spk_pub = X25519PublicKey::from_bytes(spk_pub_bytes);
 
     let spk_sig_bytes: [u8; 64] = bundle
         .spk_sig
         .as_slice()
         .try_into()
         .map_err(|_| C6pError::InvalidSignature("SPK signature must be 64 bytes".to_string()))?;
-    let spk_sig = ed25519_dalek::Signature::from_bytes(&spk_sig_bytes);
+    let spk_sig = Ed25519Signature::from_bytes(spk_sig_bytes);
 
     let otp = if let (Some(otp_id), Some(otp_pub)) = (bundle.otp_id, bundle.otp_pub) {
         let otp_id_bytes: [u8; 8] = otp_id
@@ -434,9 +448,8 @@ fn convert_bundle_to_core(bundle: PrekeyBundle) -> Result<PrekeyBundleCore> {
             .as_slice()
             .try_into()
             .map_err(|_| C6pError::InvalidKey("OTP public key must be 32 bytes".to_string()))?;
-        let otp_pub_x25519 = X25519Public::from(otp_pub_bytes);
 
-        Some((otp_id_bytes, otp_pub_x25519))
+        Some((OtpId(otp_id_bytes), X25519PublicKey::from_bytes(otp_pub_bytes)))
     } else {
         None
     };
@@ -450,6 +463,40 @@ fn convert_bundle_to_core(bundle: PrekeyBundle) -> Result<PrekeyBundleCore> {
         spk_sig,
         otp,
     ))
+}
+
+// Helper: Convert OfferWire to Offer
+fn offer_from_wire(wire: c6p_handshake::OfferWire) -> OfferCore {
+    use c6p_crypto::TranscriptHash;
+
+    OfferCore {
+        version: wire.version,
+        suite_id: wire.suite_id,
+        session_id: SessionId(wire.session_id),
+        initiator_device_id: DeviceId(wire.initiator_device_id),
+        responder_device_id: DeviceId(wire.responder_device_id),
+        initiator_identity_dh_pub: X25519PublicKey::from_bytes(wire.initiator_identity_dh_pub),
+        initiator_identity_sig_pub: Ed25519PublicKey::from_bytes(wire.initiator_identity_sig_pub),
+        initiator_ephemeral_dh_pub: X25519PublicKey::from_bytes(wire.initiator_ephemeral_dh_pub),
+        used_spk_id: SpkId(wire.used_spk_id),
+        used_spk_pub: X25519PublicKey::from_bytes(wire.used_spk_pub),
+        used_spk_sig: Ed25519Signature::from_bytes(wire.used_spk_sig),
+        used_otp_id: wire.used_otp_id.map(OtpId),
+        used_otp_pub: wire.used_otp_pub.map(X25519PublicKey::from_bytes),
+        transcript_hash: TranscriptHash(wire.transcript_hash),
+        kc1: wire.kc1,
+        offer_signature: Ed25519Signature::from_bytes(wire.offer_signature),
+    }
+}
+
+// Helper: Convert AcceptWire to Accept
+fn accept_from_wire(wire: c6p_handshake::AcceptWire) -> AcceptCore {
+    AcceptCore {
+        version: wire.version,
+        session_id: SessionId(wire.session_id),
+        responder_device_id: DeviceId(wire.responder_device_id),
+        kc2: wire.kc2,
+    }
 }
 
 #[cfg(test)]

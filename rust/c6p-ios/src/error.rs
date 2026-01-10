@@ -69,8 +69,8 @@ impl From<c6p_identity::IdentityError> for C6pError {
             c6p_identity::IdentityError::InvalidFingerprint(_) => {
                 C6pError::InvalidFingerprint(e.to_string())
             }
-            c6p_identity::IdentityError::InvalidSignature(_) => {
-                C6pError::InvalidSignature(e.to_string())
+            c6p_identity::IdentityError::EncodingError(_) => {
+                C6pError::SerializationError(e.to_string())
             }
         }
     }
@@ -79,13 +79,30 @@ impl From<c6p_identity::IdentityError> for C6pError {
 impl From<c6p_handshake::HandshakeError> for C6pError {
     fn from(e: c6p_handshake::HandshakeError) -> Self {
         match e {
-            c6p_handshake::HandshakeError::InvalidSignature(_) => {
+            c6p_handshake::HandshakeError::InvalidBundle(_) => {
+                C6pError::HandshakeFailed(e.to_string())
+            }
+            c6p_handshake::HandshakeError::InvalidSpkSignature => {
                 C6pError::InvalidSignature(e.to_string())
             }
-            c6p_handshake::HandshakeError::InvalidKey(_) => {
-                C6pError::InvalidKey(e.to_string())
+            c6p_handshake::HandshakeError::InvalidOfferSignature => {
+                C6pError::InvalidSignature(e.to_string())
             }
-            _ => C6pError::HandshakeFailed(e.to_string()),
+            c6p_handshake::HandshakeError::TranscriptMismatch => {
+                C6pError::HandshakeFailed(e.to_string())
+            }
+            c6p_handshake::HandshakeError::KcVerificationFailed(_) => {
+                C6pError::HandshakeFailed(e.to_string())
+            }
+            c6p_handshake::HandshakeError::InvalidWireFormat(_) => {
+                C6pError::HandshakeFailed(e.to_string())
+            }
+            c6p_handshake::HandshakeError::CryptoError(_) => {
+                C6pError::CryptoError(e.to_string())
+            }
+            c6p_handshake::HandshakeError::StateError(_) => {
+                C6pError::HandshakeFailed(e.to_string())
+            }
         }
     }
 }
