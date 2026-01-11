@@ -1,1 +1,21 @@
 rust/target/
+
+# XCFramework build artifacts
+build/
+*.xcframework
+*.xcframework.zip
+
+# Swift Package Manager
+.swiftpm/
+.build/
+xcuserdata/
+*.xcodeproj
+DerivedData/
+
+# macOS
+.DS_Store
+
+# Release artifacts
+checksums.txt
+Package.swift.release
+RELEASE_NOTES.md
