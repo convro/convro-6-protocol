@@ -81,11 +81,11 @@ pub fn version() -> String {
 // ============================================================================
 
 // Identity functions with identity_ prefix
-pub use identity::generate_identity as identity_generate_identity;
-pub use identity::generate_signed_prekey as identity_generate_signed_prekey;
-pub use identity::generate_one_time_prekey as identity_generate_one_time_prekey;
 pub use identity::compute_device_id as identity_compute_device_id;
 pub use identity::compute_fingerprint as identity_compute_fingerprint;
+pub use identity::generate_identity as identity_generate_identity;
+pub use identity::generate_one_time_prekey as identity_generate_one_time_prekey;
+pub use identity::generate_signed_prekey as identity_generate_signed_prekey;
 pub use identity::validate_bundle as identity_validate_bundle;
 
 // Handshake functions with handshake_ prefix - need wrappers for return type
@@ -108,8 +108,12 @@ pub fn handshake_accept_offer(
     responder_otp: Option<OneTimePrekey>,
     offer_bytes: Vec<u8>,
 ) -> Result<AcceptOfferResult> {
-    let (accept, session_keys) =
-        handshake::accept_offer(responder_identity, responder_spk, responder_otp, offer_bytes)?;
+    let (accept, session_keys) = handshake::accept_offer(
+        responder_identity,
+        responder_spk,
+        responder_otp,
+        offer_bytes,
+    )?;
     Ok(AcceptOfferResult {
         accept,
         session_keys,
