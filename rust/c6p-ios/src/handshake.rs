@@ -320,8 +320,8 @@ pub fn accept_offer(
     // Convert to bridge types
     let accept = HandshakeAccept {
         session_id: accept_core.session_id.0.to_vec(),
+        responder_device_id: responder_device_id.0.to_vec(),
         kc2: accept_core.kc2.to_vec(),
-        accept_signature: vec![], // TODO: Add accept signature to core
         serialized,
     };
 

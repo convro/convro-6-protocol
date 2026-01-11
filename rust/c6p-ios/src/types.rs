@@ -134,11 +134,11 @@ pub struct HandshakeAccept {
     /// Session ID (8 bytes)
     pub session_id: Vec<u8>,
 
+    /// Responder device ID (16 bytes)
+    pub responder_device_id: Vec<u8>,
+
     /// Key confirmation tag KC2 (32 bytes)
     pub kc2: Vec<u8>,
-
-    /// Accept signature (64 bytes, Ed25519)
-    pub accept_signature: Vec<u8>,
 
     /// Serialized accept bytes (for sending over network)
     pub serialized: Vec<u8>,
@@ -180,4 +180,28 @@ pub struct EncryptedMessage {
 
     /// Authentication tag (16 bytes, Poly1305)
     pub tag: Vec<u8>,
+}
+
+/// Result of create_offer - contains both offer and session keys
+/// CRITICAL: Store session_keys in iOS Keychain immediately after handshake!
+#[derive(Debug, Clone)]
+pub struct CreateOfferResult {
+    /// Handshake offer to send to responder
+    pub offer: HandshakeOffer,
+
+    /// Session keys derived during handshake
+    /// MUST be stored securely in Keychain
+    pub session_keys: SessionKeys,
+}
+
+/// Result of accept_offer - contains both accept and session keys
+/// CRITICAL: Store session_keys in iOS Keychain immediately after handshake!
+#[derive(Debug, Clone)]
+pub struct AcceptOfferResult {
+    /// Handshake accept to send to initiator
+    pub accept: HandshakeAccept,
+
+    /// Session keys derived during handshake
+    /// MUST be stored securely in Keychain
+    pub session_keys: SessionKeys,
 }
