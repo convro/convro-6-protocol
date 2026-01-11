@@ -63,17 +63,15 @@ impl SessionState {
         let transcript_hash = TranscriptHash([0u8; 32]);
 
         // Parse chain keys
-        let send_chain_key: [u8; 32] = keys
-            .send_chain_key
-            .as_slice()
-            .try_into()
-            .map_err(|_| C6pError::InvalidInput("Send chain key must be 32 bytes".to_string()))?;
+        let send_chain_key: [u8; 32] =
+            keys.send_chain_key.as_slice().try_into().map_err(|_| {
+                C6pError::InvalidInput("Send chain key must be 32 bytes".to_string())
+            })?;
 
-        let recv_chain_key: [u8; 32] = keys
-            .recv_chain_key
-            .as_slice()
-            .try_into()
-            .map_err(|_| C6pError::InvalidInput("Recv chain key must be 32 bytes".to_string()))?;
+        let recv_chain_key: [u8; 32] =
+            keys.recv_chain_key.as_slice().try_into().map_err(|_| {
+                C6pError::InvalidInput("Recv chain key must be 32 bytes".to_string())
+            })?;
 
         // Determine stream directions based on role
         let (send_direction, recv_direction) = if is_initiator {
@@ -195,7 +193,7 @@ impl SessionState {
     /// - Decryption fails (wrong key or corrupted ciphertext)
     /// - Authentication tag invalid
     pub fn decrypt(&self, message: EncryptedMessage) -> Result<Vec<u8>> {
-        let mut recv_stream = self.recv_stream.lock().unwrap();
+        let recv_stream = self.recv_stream.lock().unwrap();
 
         // Build stream context
         let stream_ctx = StreamContext {
@@ -299,7 +297,7 @@ impl SessionState {
     /// - Deserialization fails
     /// - State format is invalid
     /// - Version mismatch
-    pub fn import_state(state_bytes: Vec<u8>) -> Result<Self> {
+    pub fn import_state(_state_bytes: Vec<u8>) -> Result<Self> {
         // TODO: Implement state deserialization
         Err(C6pError::SessionError(
             "import_state not yet implemented".to_string(),
@@ -342,7 +340,7 @@ mod tests {
 
         let encrypted = initiator_session.encrypt(plaintext.clone()).unwrap();
         assert_eq!(encrypted.counter, 0);
-        assert!(encrypted.ciphertext.len() > 0);
+        assert!(!encrypted.ciphertext.is_empty());
         assert_eq!(encrypted.tag.len(), 16);
 
         let decrypted = responder_session.decrypt(encrypted).unwrap();

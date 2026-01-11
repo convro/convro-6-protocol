@@ -49,6 +49,8 @@
 
 // UniFFI generates #[no_mangle] which triggers unsafe_code lint - allow it
 #![allow(unsafe_code)]
+// UniFFI generated code has empty lines after doc comments - allow it
+#![allow(clippy::empty_line_after_doc_comments)]
 #![warn(missing_docs, rust_2018_idioms)]
 
 mod error;

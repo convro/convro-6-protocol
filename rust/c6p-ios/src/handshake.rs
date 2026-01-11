@@ -80,7 +80,7 @@ pub fn create_offer(
         .as_slice()
         .try_into()
         .map_err(|_| C6pError::InvalidKey("Ed25519 keypair must be 64 bytes".to_string()))?;
-    let signing_key = SigningKey::from_keypair_bytes(&initiator_ik_sig_keypair)
+    let _signing_key = SigningKey::from_keypair_bytes(&initiator_ik_sig_keypair)
         .map_err(|e| C6pError::InvalidKey(format!("Invalid Ed25519 keypair: {}", e)))?;
 
     // Extract private key (first 32 bytes) and public key (last 32 bytes)
@@ -141,7 +141,9 @@ pub fn create_offer(
         used_spk_pub: offer_core.used_spk_pub.as_bytes().to_vec(),
         used_spk_sig: offer_core.used_spk_sig.as_bytes().to_vec(),
         used_otp_id: offer_core.used_otp_id.map(|id| id.0.to_vec()),
-        used_otp_pub: offer_core.used_otp_pub.map(|pub_key| pub_key.as_bytes().to_vec()),
+        used_otp_pub: offer_core
+            .used_otp_pub
+            .map(|pub_key| pub_key.as_bytes().to_vec()),
         transcript_hash: offer_core.transcript_hash.0.to_vec(),
         kc1: offer_core.kc1.to_vec(),
         offer_signature: offer_core.offer_signature.as_bytes().to_vec(),
@@ -207,11 +209,10 @@ pub fn accept_offer(
         .map_err(|e| C6pError::SerializationError(format!("Failed to parse offer: {}", e)))?;
 
     // Parse SPK signature from responder's bundle
-    let spk_sig_bytes: [u8; 64] = responder_spk
-        .spk_sig
-        .as_slice()
-        .try_into()
-        .map_err(|_| C6pError::InvalidSignature("SPK signature must be 64 bytes".to_string()))?;
+    let spk_sig_bytes: [u8; 64] =
+        responder_spk.spk_sig.as_slice().try_into().map_err(|_| {
+            C6pError::InvalidSignature("SPK signature must be 64 bytes".to_string())
+        })?;
     let spk_sig = Ed25519Signature::from_bytes(spk_sig_bytes);
 
     // Parse OTP public key if present
@@ -274,32 +275,30 @@ pub fn accept_offer(
     let spk_pub = X25519PublicKey::from_bytes(spk_pub_bytes);
 
     // Parse OTP if present
-    let otp = if let Some(otp) = responder_otp {
-        let otp_id_bytes: [u8; 8] = otp
-            .otp_id
-            .as_slice()
-            .try_into()
-            .map_err(|_| C6pError::InvalidKey("OTP ID must be 8 bytes".to_string()))?;
-        let otp_id = OtpId(otp_id_bytes);
+    let otp =
+        if let Some(otp) = responder_otp {
+            let otp_id_bytes: [u8; 8] = otp
+                .otp_id
+                .as_slice()
+                .try_into()
+                .map_err(|_| C6pError::InvalidKey("OTP ID must be 8 bytes".to_string()))?;
+            let otp_id = OtpId(otp_id_bytes);
 
-        let otp_priv_bytes: [u8; 32] = otp
-            .otp_priv
-            .as_slice()
-            .try_into()
-            .map_err(|_| C6pError::InvalidKey("OTP private key must be 32 bytes".to_string()))?;
-        let otp_priv = X25519PrivateKey::from_bytes(otp_priv_bytes);
+            let otp_priv_bytes: [u8; 32] = otp.otp_priv.as_slice().try_into().map_err(|_| {
+                C6pError::InvalidKey("OTP private key must be 32 bytes".to_string())
+            })?;
+            let otp_priv = X25519PrivateKey::from_bytes(otp_priv_bytes);
 
-        let otp_pub_bytes: [u8; 32] = otp
-            .otp_pub
-            .as_slice()
-            .try_into()
-            .map_err(|_| C6pError::InvalidKey("OTP public key must be 32 bytes".to_string()))?;
-        let otp_pub = X25519PublicKey::from_bytes(otp_pub_bytes);
+            let otp_pub_bytes: [u8; 32] =
+                otp.otp_pub.as_slice().try_into().map_err(|_| {
+                    C6pError::InvalidKey("OTP public key must be 32 bytes".to_string())
+                })?;
+            let otp_pub = X25519PublicKey::from_bytes(otp_pub_bytes);
 
-        Some((otp_id, otp_priv, otp_pub))
-    } else {
-        None
-    };
+            Some((otp_id, otp_priv, otp_pub))
+        } else {
+            None
+        };
 
     // Construct accept
     let (accept_core, handshake_output) = AcceptCore::construct(
@@ -442,7 +441,6 @@ pub fn verify_accept(
     Ok(())
 }
 
-
 // Helper: Convert bridge PrekeyBundle to core PrekeyBundle
 fn convert_bundle_to_core(bundle: PrekeyBundle) -> Result<PrekeyBundleCore> {
     let responder_device_id_bytes: [u8; 16] = bundle
@@ -480,11 +478,10 @@ fn convert_bundle_to_core(bundle: PrekeyBundle) -> Result<PrekeyBundleCore> {
         .map_err(|_| C6pError::InvalidKey("SPK public key must be 32 bytes".to_string()))?;
     let spk_pub = X25519PublicKey::from_bytes(spk_pub_bytes);
 
-    let spk_sig_bytes: [u8; 64] = bundle
-        .spk_sig
-        .as_slice()
-        .try_into()
-        .map_err(|_| C6pError::InvalidSignature("SPK signature must be 64 bytes".to_string()))?;
+    let spk_sig_bytes: [u8; 64] =
+        bundle.spk_sig.as_slice().try_into().map_err(|_| {
+            C6pError::InvalidSignature("SPK signature must be 64 bytes".to_string())
+        })?;
     let spk_sig = Ed25519Signature::from_bytes(spk_sig_bytes);
 
     let otp = if let (Some(otp_id), Some(otp_pub)) = (bundle.otp_id, bundle.otp_pub) {
@@ -498,7 +495,10 @@ fn convert_bundle_to_core(bundle: PrekeyBundle) -> Result<PrekeyBundleCore> {
             .try_into()
             .map_err(|_| C6pError::InvalidKey("OTP public key must be 32 bytes".to_string()))?;
 
-        Some((OtpId(otp_id_bytes), X25519PublicKey::from_bytes(otp_pub_bytes)))
+        Some((
+            OtpId(otp_id_bytes),
+            X25519PublicKey::from_bytes(otp_pub_bytes),
+        ))
     } else {
         None
     };
@@ -534,9 +534,9 @@ fn offer_from_wire(
         initiator_ephemeral_dh_pub: X25519PublicKey::from_bytes(wire.initiator_ephemeral_dh_pub),
         used_spk_id: SpkId(wire.used_signed_prekey_id),
         used_spk_pub: X25519PublicKey::from_bytes(wire.used_signed_prekey_public_key_x25519),
-        used_spk_sig: spk_sig,  // From bundle, not in wire
+        used_spk_sig: spk_sig, // From bundle, not in wire
         used_otp_id: wire.used_one_time_prekey_id.map(OtpId),
-        used_otp_pub: otp_pub,  // From bundle, not in wire
+        used_otp_pub: otp_pub, // From bundle, not in wire
         transcript_hash: TranscriptHash(wire.transcript_hash),
         kc1: wire.kc1,
         offer_signature: Ed25519Signature::from_bytes(wire.offer_signature_ed25519),
@@ -626,7 +626,7 @@ mod tests {
         // Initiator creates offer
         let (offer, initiator_keys) = create_offer(initiator.clone(), bundle).unwrap();
 
-        assert_eq!(offer.used_otp_id.is_some(), true); // 4DH used
+        assert!(offer.used_otp_id.is_some()); // 4DH used
 
         // Responder accepts offer
         let (accept, responder_keys) = accept_offer(

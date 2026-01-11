@@ -29,10 +29,8 @@ pub fn generate_identity() -> Result<DeviceIdentity> {
     // Generate X25519 key pair for DH operations
     let mut x25519_priv_bytes = [0u8; 32];
     rand::RngCore::fill_bytes(&mut OsRng, &mut x25519_priv_bytes);
-    let x25519_pub_bytes = x25519_dalek::x25519(
-        x25519_priv_bytes,
-        x25519_dalek::X25519_BASEPOINT_BYTES,
-    );
+    let x25519_pub_bytes =
+        x25519_dalek::x25519(x25519_priv_bytes, x25519_dalek::X25519_BASEPOINT_BYTES);
 
     // Derive device ID from Ed25519 public key
     let device_id = DeviceId::from_ed25519_public_key(verifying_key.as_bytes())?;
@@ -72,10 +70,7 @@ pub fn generate_signed_prekey(identity: DeviceIdentity) -> Result<SignedPrekey> 
     // Generate fresh X25519 key pair for SPK
     let mut spk_priv_bytes = [0u8; 32];
     rand::RngCore::fill_bytes(&mut OsRng, &mut spk_priv_bytes);
-    let spk_pub_bytes = x25519_dalek::x25519(
-        spk_priv_bytes,
-        x25519_dalek::X25519_BASEPOINT_BYTES,
-    );
+    let spk_pub_bytes = x25519_dalek::x25519(spk_priv_bytes, x25519_dalek::X25519_BASEPOINT_BYTES);
 
     // Generate random SPK ID (8 bytes)
     let mut spk_id = [0u8; 8];
@@ -124,10 +119,7 @@ pub fn generate_one_time_prekey() -> Result<OneTimePrekey> {
     // Generate fresh X25519 key pair
     let mut otp_priv_bytes = [0u8; 32];
     rand::RngCore::fill_bytes(&mut OsRng, &mut otp_priv_bytes);
-    let otp_pub_bytes = x25519_dalek::x25519(
-        otp_priv_bytes,
-        x25519_dalek::X25519_BASEPOINT_BYTES,
-    );
+    let otp_pub_bytes = x25519_dalek::x25519(otp_priv_bytes, x25519_dalek::X25519_BASEPOINT_BYTES);
 
     // Generate random OTP ID (8 bytes)
     let mut otp_id = [0u8; 8];
@@ -227,9 +219,9 @@ pub fn validate_bundle(bundle: PrekeyBundle) -> Result<()> {
     msg.extend_from_slice(&bundle.spk_id);
     msg.extend_from_slice(&bundle.spk_pub);
 
-    verifying_key
-        .verify_strict(&msg, &signature)
-        .map_err(|e| C6pError::InvalidSignature(format!("SPK signature verification failed: {}", e)))?;
+    verifying_key.verify_strict(&msg, &signature).map_err(|e| {
+        C6pError::InvalidSignature(format!("SPK signature verification failed: {}", e))
+    })?;
 
     Ok(())
 }
