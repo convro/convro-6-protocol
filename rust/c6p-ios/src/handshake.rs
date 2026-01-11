@@ -46,7 +46,7 @@ use rand::rngs::OsRng;
 pub fn create_offer(
     initiator_identity: DeviceIdentity,
     responder_bundle: PrekeyBundle,
-) -> Result<HandshakeOffer> {
+) -> Result<(HandshakeOffer, SessionKeys)> {
     // Convert bridge types to core types
     let bundle_core = convert_bundle_to_core(responder_bundle)?;
 
@@ -129,8 +129,8 @@ pub fn create_offer(
     let serialized = serde_json::to_vec(&c6p_handshake::OfferWire::from(&offer_core))
         .map_err(|e| C6pError::SerializationError(format!("Failed to serialize offer: {}", e)))?;
 
-    // Convert to bridge type
-    Ok(HandshakeOffer {
+    // Convert to bridge types
+    let offer = HandshakeOffer {
         session_id: offer_core.session_id.0.to_vec(),
         initiator_device_id: offer_core.initiator_device_id.0.to_vec(),
         responder_device_id: offer_core.responder_device_id.0.to_vec(),
@@ -146,7 +146,18 @@ pub fn create_offer(
         kc1: offer_core.kc1.to_vec(),
         offer_signature: offer_core.offer_signature.as_bytes().to_vec(),
         serialized,
-    })
+    };
+
+    let session_keys = SessionKeys {
+        session_id: offer_core.session_id.0.to_vec(),
+        root_key: handshake_output.root_key.to_vec(),
+        kc_key: handshake_output.kc_key.to_vec(),
+        send_chain_key: handshake_output.send_chain_key.to_vec(),
+        recv_chain_key: handshake_output.recv_chain_key.to_vec(),
+        session_binding: handshake_output.session_binding.to_vec(),
+    };
+
+    Ok((offer, session_keys))
 }
 
 /// Accept handshake offer (responder side)
@@ -190,12 +201,26 @@ pub fn accept_offer(
     responder_spk: SignedPrekey,
     responder_otp: Option<OneTimePrekey>,
     offer_bytes: Vec<u8>,
-) -> Result<HandshakeAccept> {
+) -> Result<(HandshakeAccept, SessionKeys)> {
     // Deserialize offer
     let offer_wire: c6p_handshake::OfferWire = serde_json::from_slice(&offer_bytes)
         .map_err(|e| C6pError::SerializationError(format!("Failed to parse offer: {}", e)))?;
 
-    let offer_core = offer_from_wire(offer_wire);
+    // Parse SPK signature from responder's bundle
+    let spk_sig_bytes: [u8; 64] = responder_spk
+        .spk_sig
+        .as_slice()
+        .try_into()
+        .map_err(|_| C6pError::InvalidSignature("SPK signature must be 64 bytes".to_string()))?;
+    let spk_sig = Ed25519Signature::from_bytes(spk_sig_bytes);
+
+    // Parse OTP public key if present
+    let otp_pub = responder_otp.as_ref().and_then(|otp| {
+        let bytes: [u8; 32] = otp.otp_pub.as_slice().try_into().ok()?;
+        Some(X25519PublicKey::from_bytes(bytes))
+    });
+
+    let offer_core = offer_from_wire(offer_wire, spk_sig, otp_pub);
 
     // Parse responder keys
     let responder_device_id_bytes: [u8; 16] = responder_identity
@@ -293,40 +318,45 @@ pub fn accept_offer(
     let serialized = serde_json::to_vec(&c6p_handshake::AcceptWire::from(&accept_core))
         .map_err(|e| C6pError::SerializationError(format!("Failed to serialize accept: {}", e)))?;
 
-    // Store session keys in accept (we'll need them for get_session_keys_responder)
-    // Note: In a real implementation, you'd store handshake_output somewhere
-    // For now, we'll return it as part of the accept
-
-    Ok(HandshakeAccept {
+    // Convert to bridge types
+    let accept = HandshakeAccept {
         session_id: accept_core.session_id.0.to_vec(),
         kc2: accept_core.kc2.to_vec(),
         accept_signature: vec![], // TODO: Add accept signature to core
         serialized,
-    })
+    };
+
+    let session_keys = SessionKeys {
+        session_id: accept_core.session_id.0.to_vec(),
+        root_key: handshake_output.root_key.to_vec(),
+        kc_key: handshake_output.kc_key.to_vec(),
+        send_chain_key: handshake_output.send_chain_key.to_vec(),
+        recv_chain_key: handshake_output.recv_chain_key.to_vec(),
+        session_binding: handshake_output.session_binding.to_vec(),
+    };
+
+    Ok((accept, session_keys))
 }
 
-/// Verify accept and derive session keys (initiator side)
+/// Verify accept and validate key confirmation (initiator side)
 ///
-/// After receiving the accept from the responder, verify KC2 and extract session keys.
+/// After receiving the accept from the responder, verify KC2.
 ///
 /// # Arguments
 ///
-/// * `offer` - Original offer sent to responder (contains internal state)
+/// * `offer` - Original offer sent to responder
 /// * `accept_bytes` - Serialized accept bytes received from responder
+/// * `session_keys` - Session keys from create_offer (contains kc_key)
 ///
 /// # Returns
 ///
-/// SessionKeys containing:
-/// - session_id
-/// - root_key
-/// - send_chain_key (I2R)
-/// - recv_chain_key (R2I)
-/// - session_binding
+/// () on success - session_keys are already valid, just verified
 ///
 /// # Security
 ///
-/// - Verifies KC2 matches expected value
+/// - Verifies KC2 matches expected HMAC value
 /// - Validates session ID matches offer
+/// - Constant-time comparison for KC2
 ///
 /// # Errors
 ///
@@ -334,7 +364,14 @@ pub fn accept_offer(
 /// - Accept deserialization fails
 /// - KC2 verification fails
 /// - Session ID mismatch
-pub fn verify_accept(offer: HandshakeOffer, accept_bytes: Vec<u8>) -> Result<SessionKeys> {
+pub fn verify_accept(
+    offer: HandshakeOffer,
+    accept_bytes: Vec<u8>,
+    session_keys: SessionKeys,
+) -> Result<()> {
+    use c6p_crypto::TranscriptHash;
+    use c6p_handshake::compute_kc2;
+
     // Deserialize accept
     let accept_wire: c6p_handshake::AcceptWire = serde_json::from_slice(&accept_bytes)
         .map_err(|e| C6pError::SerializationError(format!("Failed to parse accept: {}", e)))?;
@@ -355,44 +392,56 @@ pub fn verify_accept(offer: HandshakeOffer, accept_bytes: Vec<u8>) -> Result<Ses
         )));
     }
 
-    // TODO: Implement KC2 verification
-    // For now, we'll just return placeholder session keys
-    // In a real implementation, this would verify KC2 and extract the keys
-    // from the offer's internal state
+    // Compute expected KC2
+    let kc_key: [u8; 32] = session_keys
+        .kc_key
+        .as_slice()
+        .try_into()
+        .map_err(|_| C6pError::InvalidInput("KC key must be 32 bytes".to_string()))?;
 
-    Err(C6pError::HandshakeFailed(
-        "verify_accept not yet fully implemented - need to store handshake output".to_string(),
-    ))
+    let initiator_device_id: [u8; 16] = offer
+        .initiator_device_id
+        .as_slice()
+        .try_into()
+        .map_err(|_| C6pError::InvalidInput("Device ID must be 16 bytes".to_string()))?;
+
+    let responder_device_id: [u8; 16] = offer
+        .responder_device_id
+        .as_slice()
+        .try_into()
+        .map_err(|_| C6pError::InvalidInput("Device ID must be 16 bytes".to_string()))?;
+
+    let transcript_hash_bytes: [u8; 32] = offer
+        .transcript_hash
+        .as_slice()
+        .try_into()
+        .map_err(|_| C6pError::InvalidInput("Transcript hash must be 32 bytes".to_string()))?;
+
+    // Extract suite_id from offer (ChaCha20-Poly1305 = 0x01)
+    let suite_id = 0x01u16;
+
+    let expected_kc2 = compute_kc2(
+        &kc_key,
+        &SessionId(offer_session_id),
+        &DeviceId(initiator_device_id),
+        &DeviceId(responder_device_id),
+        &TranscriptHash(transcript_hash_bytes),
+        suite_id,
+    );
+
+    // Constant-time comparison
+    use subtle::ConstantTimeEq;
+    let kc2_valid: bool = accept_core.kc2.ct_eq(&expected_kc2).into();
+
+    if !kc2_valid {
+        return Err(C6pError::HandshakeFailed(
+            "KC2 verification failed - possible MITM or corrupted accept".to_string(),
+        ));
+    }
+
+    Ok(())
 }
 
-/// Get session keys after accepting (responder side)
-///
-/// Extract session keys from the accept response.
-///
-/// # Arguments
-///
-/// * `accept` - Accept response returned from accept_offer
-///
-/// # Returns
-///
-/// SessionKeys containing:
-/// - session_id
-/// - root_key
-/// - send_chain_key (R2I)
-/// - recv_chain_key (I2R)
-/// - session_binding
-///
-/// # Errors
-///
-/// Returns error if internal state is missing
-pub fn get_session_keys_responder(accept: HandshakeAccept) -> Result<SessionKeys> {
-    // TODO: Implement session key extraction
-    // For now, return an error since we need to properly store the handshake output
-    Err(C6pError::HandshakeFailed(
-        "get_session_keys_responder not yet fully implemented - need to store handshake output"
-            .to_string(),
-    ))
-}
 
 // Helper: Convert bridge PrekeyBundle to core PrekeyBundle
 fn convert_bundle_to_core(bundle: PrekeyBundle) -> Result<PrekeyBundleCore> {
@@ -466,7 +515,12 @@ fn convert_bundle_to_core(bundle: PrekeyBundle) -> Result<PrekeyBundleCore> {
 }
 
 // Helper: Convert OfferWire to Offer
-fn offer_from_wire(wire: c6p_handshake::OfferWire) -> OfferCore {
+// Note: Reconstructs fields from responder's bundle data
+fn offer_from_wire(
+    wire: c6p_handshake::OfferWire,
+    spk_sig: Ed25519Signature,
+    otp_pub: Option<X25519PublicKey>,
+) -> OfferCore {
     use c6p_crypto::TranscriptHash;
 
     OfferCore {
@@ -478,21 +532,20 @@ fn offer_from_wire(wire: c6p_handshake::OfferWire) -> OfferCore {
         initiator_identity_dh_pub: X25519PublicKey::from_bytes(wire.initiator_identity_dh_pub),
         initiator_identity_sig_pub: Ed25519PublicKey::from_bytes(wire.initiator_identity_sig_pub),
         initiator_ephemeral_dh_pub: X25519PublicKey::from_bytes(wire.initiator_ephemeral_dh_pub),
-        used_spk_id: SpkId(wire.used_spk_id),
-        used_spk_pub: X25519PublicKey::from_bytes(wire.used_spk_pub),
-        used_spk_sig: Ed25519Signature::from_bytes(wire.used_spk_sig),
-        used_otp_id: wire.used_otp_id.map(OtpId),
-        used_otp_pub: wire.used_otp_pub.map(X25519PublicKey::from_bytes),
+        used_spk_id: SpkId(wire.used_signed_prekey_id),
+        used_spk_pub: X25519PublicKey::from_bytes(wire.used_signed_prekey_public_key_x25519),
+        used_spk_sig: spk_sig,  // From bundle, not in wire
+        used_otp_id: wire.used_one_time_prekey_id.map(OtpId),
+        used_otp_pub: otp_pub,  // From bundle, not in wire
         transcript_hash: TranscriptHash(wire.transcript_hash),
         kc1: wire.kc1,
-        offer_signature: Ed25519Signature::from_bytes(wire.offer_signature),
+        offer_signature: Ed25519Signature::from_bytes(wire.offer_signature_ed25519),
     }
 }
 
 // Helper: Convert AcceptWire to Accept
 fn accept_from_wire(wire: c6p_handshake::AcceptWire) -> AcceptCore {
     AcceptCore {
-        version: wire.version,
         session_id: SessionId(wire.session_id),
         responder_device_id: DeviceId(wire.responder_device_id),
         kc2: wire.kc2,
@@ -526,14 +579,14 @@ mod tests {
         };
 
         // Initiator creates offer
-        let offer = create_offer(initiator.clone(), bundle).unwrap();
+        let (offer, initiator_keys) = create_offer(initiator.clone(), bundle).unwrap();
 
         assert_eq!(offer.session_id.len(), 8);
         assert_eq!(offer.initiator_device_id, initiator.device_id);
         assert_eq!(offer.responder_device_id, responder.device_id);
 
         // Responder accepts offer
-        let accept = accept_offer(
+        let (accept, responder_keys) = accept_offer(
             responder.clone(),
             responder_spk,
             None,
@@ -542,6 +595,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(accept.session_id, offer.session_id);
+
+        // Verify session keys were returned
+        assert_eq!(initiator_keys.session_id, offer.session_id);
+        assert_eq!(responder_keys.session_id, accept.session_id);
     }
 
     #[test]
@@ -567,12 +624,12 @@ mod tests {
         };
 
         // Initiator creates offer
-        let offer = create_offer(initiator.clone(), bundle).unwrap();
+        let (offer, initiator_keys) = create_offer(initiator.clone(), bundle).unwrap();
 
         assert_eq!(offer.used_otp_id.is_some(), true); // 4DH used
 
         // Responder accepts offer
-        let accept = accept_offer(
+        let (accept, responder_keys) = accept_offer(
             responder.clone(),
             responder_spk,
             Some(responder_otp),
@@ -581,5 +638,9 @@ mod tests {
         .unwrap();
 
         assert_eq!(accept.session_id, offer.session_id);
+
+        // Verify session keys were returned
+        assert_eq!(initiator_keys.session_id, offer.session_id);
+        assert_eq!(responder_keys.session_id, accept.session_id);
     }
 }

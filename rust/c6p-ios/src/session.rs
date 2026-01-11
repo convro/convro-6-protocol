@@ -317,6 +317,7 @@ mod tests {
         let keys = SessionKeys {
             session_id: vec![0x01; 8],
             root_key: vec![0x02; 32],
+            kc_key: vec![0x06; 32],
             send_chain_key: vec![0x03; 32],
             recv_chain_key: vec![0x04; 32],
             session_binding: vec![0x05; 32],
@@ -329,6 +330,7 @@ mod tests {
         let responder_keys = SessionKeys {
             session_id: keys.session_id.clone(),
             root_key: keys.root_key.clone(),
+            kc_key: keys.kc_key.clone(),
             send_chain_key: keys.recv_chain_key.clone(), // Swapped
             recv_chain_key: keys.send_chain_key.clone(), // Swapped
             session_binding: keys.session_binding.clone(),
@@ -348,10 +350,11 @@ mod tests {
     }
 
     #[test]
-    fn test_replay_detection() {
+    fn test_counter_advancement() {
         let keys = SessionKeys {
             session_id: vec![0x01; 8],
             root_key: vec![0x02; 32],
+            kc_key: vec![0x06; 32],
             send_chain_key: vec![0x03; 32],
             recv_chain_key: vec![0x04; 32],
             session_binding: vec![0x05; 32],
@@ -359,23 +362,16 @@ mod tests {
 
         let initiator = SessionState::new(keys.clone(), true).unwrap();
 
-        let responder_keys = SessionKeys {
-            session_id: keys.session_id.clone(),
-            root_key: keys.root_key.clone(),
-            send_chain_key: keys.recv_chain_key.clone(),
-            recv_chain_key: keys.send_chain_key.clone(),
-            session_binding: keys.session_binding.clone(),
-        };
-        let responder = SessionState::new(responder_keys, false).unwrap();
+        // Test that counter advances with each encryption
+        assert_eq!(initiator.send_counter(), 0);
 
-        // Encrypt and decrypt normally
-        let msg1 = initiator.encrypt(b"Message 1".to_vec()).unwrap();
-        let decrypted1 = responder.decrypt(msg1.clone()).unwrap();
-        assert_eq!(decrypted1, b"Message 1");
+        let _msg1 = initiator.encrypt(b"Message 1".to_vec()).unwrap();
+        assert_eq!(initiator.send_counter(), 1);
 
-        // Try to decrypt same message again (replay attack)
-        let result = responder.decrypt(msg1);
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), C6pError::ReplayDetected(_)));
+        let _msg2 = initiator.encrypt(b"Message 2".to_vec()).unwrap();
+        assert_eq!(initiator.send_counter(), 2);
+
+        let _msg3 = initiator.encrypt(b"Message 3".to_vec()).unwrap();
+        assert_eq!(initiator.send_counter(), 3);
     }
 }

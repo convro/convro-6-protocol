@@ -145,13 +145,19 @@ pub struct HandshakeAccept {
 }
 
 /// Session keys after successful handshake
+///
+/// SECURITY: Store these in iOS Keychain with appropriate protection level
 #[derive(Debug, Clone)]
 pub struct SessionKeys {
     /// Session ID (8 bytes)
     pub session_id: Vec<u8>,
 
-    /// Root key (32 bytes)
+    /// Root key (32 bytes) - for future ratcheting
     pub root_key: Vec<u8>,
+
+    /// KC key (32 bytes) - for key confirmation verification
+    /// Used by initiator to verify KC2 from responder
+    pub kc_key: Vec<u8>,
 
     /// Send chain key (32 bytes)
     pub send_chain_key: Vec<u8>,
@@ -159,7 +165,7 @@ pub struct SessionKeys {
     /// Receive chain key (32 bytes)
     pub recv_chain_key: Vec<u8>,
 
-    /// Session binding (32 bytes)
+    /// Session binding (32 bytes) - for nonce derivation
     pub session_binding: Vec<u8>,
 }
 

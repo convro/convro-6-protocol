@@ -24,6 +24,7 @@ uniffi = { version = "0.28", features = ["cli"] }
 # Utilities
 thiserror.workspace = true
 hex.workspace = true
+subtle = "2.6"
 
 # Crypto (for key generation in FFI wrapper)
 ed25519-dalek.workspace = true

@@ -3,7 +3,7 @@
 use crate::error::{C6pError, Result};
 use crate::types::{DeviceIdentity, OneTimePrekey, PrekeyBundle, SignedPrekey};
 use c6p_identity::{DeviceId, Fingerprint};
-use ed25519_dalek::{SigningKey, VerifyingKey};
+use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use rand::rngs::OsRng;
 
 /// Generate a new device identity
@@ -35,10 +35,10 @@ pub fn generate_identity() -> Result<DeviceIdentity> {
     );
 
     // Derive device ID from Ed25519 public key
-    let device_id = DeviceId::from_ed25519_public_key(verifying_key.as_bytes());
+    let device_id = DeviceId::from_ed25519_public_key(verifying_key.as_bytes())?;
 
     // Derive human-readable fingerprint
-    let fingerprint = Fingerprint::from_ed25519_public_key(verifying_key.as_bytes());
+    let fingerprint = Fingerprint::from_ed25519_public_key(verifying_key.as_bytes())?;
 
     Ok(DeviceIdentity {
         device_id: device_id.0.to_vec(),
@@ -159,7 +159,7 @@ pub fn compute_device_id(ed25519_pub: Vec<u8>) -> Result<Vec<u8>> {
         .try_into()
         .map_err(|_| C6pError::InvalidKey("Ed25519 public key must be 32 bytes".to_string()))?;
 
-    let device_id = DeviceId::from_ed25519_public_key(&pub_bytes);
+    let device_id = DeviceId::from_ed25519_public_key(&pub_bytes)?;
     Ok(device_id.0.to_vec())
 }
 
@@ -182,7 +182,7 @@ pub fn compute_fingerprint(ed25519_pub: Vec<u8>) -> Result<String> {
         .try_into()
         .map_err(|_| C6pError::InvalidKey("Ed25519 public key must be 32 bytes".to_string()))?;
 
-    let fingerprint = Fingerprint::from_ed25519_public_key(&pub_bytes);
+    let fingerprint = Fingerprint::from_ed25519_public_key(&pub_bytes)?;
     Ok(fingerprint.to_base64url())
 }
 
