@@ -7,6 +7,7 @@ pub mod models;
 pub mod repositories;
 pub mod services;
 pub mod utils;
+pub mod websocket;
 
 // Re-exports for convenience
 pub use config::Settings;
