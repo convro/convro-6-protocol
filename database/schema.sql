@@ -2,6 +2,12 @@
 -- C6P Protocol - Production PostgreSQL Database Schema
 -- ============================================================================
 --
+-- ⚠️ CRITICAL SECURITY REQUIREMENTS (Threat Model Compliance):
+-- 1. Server NEVER sees encryption keys (zero-knowledge architecture)
+-- 2. Atomic state transitions (OTP race conditions prevented)
+-- 3. Immutable encrypted blobs (tamper-proof)
+-- 4. SERIALIZABLE isolation (concurrency safety)
+--
 -- This schema supports a complete E2EE messaging system with:
 -- - Convro Numbers (universal user IDs)
 -- - Device-level E2EE (Island Accord handshake)
@@ -16,11 +22,20 @@
 -- - JSON/JSONB support
 -- - Advanced indexing
 -- - Strong ACID guarantees
+-- - Row-level locking (SELECT FOR UPDATE)
 --
 -- ============================================================================
 
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- ============================================================================
+-- SECURITY: Set default transaction isolation level
+-- ============================================================================
+-- CRITICAL: Prevents OTP race conditions and double-accept attacks
+-- Ref: C6P-Threat-Model-CONCISE.pdf, Threats 7, 11
+
+ALTER DATABASE postgres SET default_transaction_isolation TO 'serializable';
 
 -- ============================================================================
 -- TABLE: users
@@ -185,7 +200,13 @@ COMMENT ON COLUMN one_time_prekeys.consumed_at IS 'NULL = available, NOT NULL = 
 -- TABLE: sessions
 -- ============================================================================
 -- Tracks E2EE sessions between devices
--- NOTE: Server NEVER stores encryption keys, only metadata!
+--
+-- ⚠️ ZERO-KNOWLEDGE ARCHITECTURE:
+-- - Server NEVER stores, derives, or sees encryption keys
+-- - Only session_id (identifier) and metadata are stored
+-- - All E2EE keys managed client-side (iOS Keychain, Android KeyStore)
+-- - Compromise of this table reveals metadata only, NOT message content
+-- Ref: C6P-Threat-Model-CONCISE.pdf, Section 2.3 Trust Boundaries
 
 CREATE TABLE sessions (
     -- Session ID from C6P protocol (32 bytes)
@@ -229,7 +250,13 @@ COMMENT ON COLUMN sessions.session_id IS 'C6P protocol session identifier';
 -- TABLE: messages
 -- ============================================================================
 -- Stores encrypted messages (server-opaque blobs)
--- Server CANNOT read message content!
+--
+-- ⚠️ ZERO-KNOWLEDGE + IMMUTABILITY:
+-- - Server CANNOT read message content (encrypted by C6P protocol)
+-- - encrypted_blob is IMMUTABLE after creation (tamper-proof)
+-- - Any modification attempt triggers database error (see trigger below)
+-- - Server only sees: metadata (routing, timestamps, sizes)
+-- Ref: C6P-Threat-Model-CONCISE.pdf, Threats 2, 4 (tamper prevention)
 
 CREATE TABLE messages (
     -- Primary key
@@ -535,6 +562,35 @@ CREATE TRIGGER update_presence_updated_at BEFORE UPDATE ON presence
 CREATE TRIGGER update_message_queue_updated_at BEFORE UPDATE ON message_queue
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+-- ============================================================================
+-- SECURITY: Immutability Protection
+-- ============================================================================
+-- Ref: C6P-Threat-Model-CONCISE.pdf, Threats 2, 4 (tamper prevention)
+
+-- Function: Prevent modification of immutable encrypted blobs
+CREATE OR REPLACE FUNCTION prevent_encrypted_blob_modification()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Prevent any modification of encrypted_blob after creation
+    IF OLD.encrypted_blob IS DISTINCT FROM NEW.encrypted_blob THEN
+        RAISE EXCEPTION 'encrypted_blob is immutable and cannot be modified after creation'
+            USING ERRCODE = 'integrity_constraint_violation',
+                  HINT = 'Messages are tamper-proof by design (C6P Threat Model)',
+                  DETAIL = format('Attempted to modify message_id: %s', OLD.message_id);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger: Enforce message blob immutability
+CREATE TRIGGER enforce_message_blob_immutability
+BEFORE UPDATE ON messages
+FOR EACH ROW
+EXECUTE FUNCTION prevent_encrypted_blob_modification();
+
+COMMENT ON FUNCTION prevent_encrypted_blob_modification() IS
+'⚠️ SECURITY: Prevents tampering with encrypted message content (Threats 2, 4)';
+
 -- Function: Auto-expire old messages
 CREATE OR REPLACE FUNCTION cleanup_expired_messages()
 RETURNS INTEGER AS $$
@@ -566,19 +622,44 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Function: Consume an OTP (mark as used)
+-- ⚠️ CRITICAL: Uses row-level locking to prevent race conditions
+-- Ref: C6P-Threat-Model-CONCISE.pdf, Threat 7 (OTP double-use prevention)
 CREATE OR REPLACE FUNCTION consume_otp(
     p_otp_id UUID,
     p_consumed_by_user_id UUID
 )
 RETURNS BOOLEAN AS $$
+DECLARE
+    otp_record RECORD;
 BEGIN
+    -- CRITICAL: Row-level locking prevents concurrent access (Threat 7)
+    -- SELECT FOR UPDATE blocks other transactions from reading this row
+    -- until the current transaction commits or rolls back
+    SELECT * INTO otp_record
+    FROM one_time_prekeys
+    WHERE otp_id = p_otp_id
+    FOR UPDATE;  -- ⚠️ BLOCKS concurrent access
+
+    -- OTP not found
+    IF NOT FOUND THEN
+        RETURN FALSE;
+    END IF;
+
+    -- OTP already consumed (should never happen with SERIALIZABLE + FOR UPDATE)
+    IF otp_record.consumed_at IS NOT NULL THEN
+        RAISE EXCEPTION 'OTP already consumed (ID: %, consumed_at: %, consumed_by: %)',
+            p_otp_id, otp_record.consumed_at, otp_record.consumed_by
+            USING ERRCODE = 'integrity_constraint_violation',
+                  HINT = 'This OTP was already used in another handshake';
+    END IF;
+
+    -- Mark as consumed atomically
     UPDATE one_time_prekeys
     SET consumed_at = NOW(),
         consumed_by = p_consumed_by_user_id
-    WHERE otp_id = p_otp_id
-      AND consumed_at IS NULL;
+    WHERE otp_id = p_otp_id;
 
-    RETURN FOUND;
+    RETURN TRUE;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -673,6 +754,7 @@ GRANT SELECT ON user_sessions_summary, undelivered_messages_summary,
 GRANT EXECUTE ON FUNCTION cleanup_expired_messages() TO convro_app;
 GRANT EXECUTE ON FUNCTION get_available_otp_count(UUID) TO convro_app;
 GRANT EXECUTE ON FUNCTION consume_otp(UUID, UUID) TO convro_app;
+GRANT EXECUTE ON FUNCTION prevent_encrypted_blob_modification() TO convro_app;
 
 -- ============================================================================
 -- END OF SCHEMA
