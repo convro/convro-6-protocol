@@ -60,6 +60,10 @@ rand = "0.8"
 http = "1"
 http-body-util = "0.1"
 
+# Encoding
+base64 = "0.21"
+hex = "0.4"
+
 [dev-dependencies]
 # Testing
 tokio-test = "0.4"

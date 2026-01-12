@@ -1,9 +1,11 @@
-use axum::{routing::get, Router};
+use axum::{middleware, routing::get, Router};
 use std::net::SocketAddr;
 use tower_http::{compression::CompressionLayer, trace::TraceLayer};
 
 use convro_server::{
-    api, config::Settings, db, errors::AppResult, services::AuthService,
+    api, config::Settings, db, errors::AppResult,
+    middleware as app_middleware,
+    services::{AuthService, DeviceService, MessageService, PrekeyService},
 };
 
 #[tokio::main]
@@ -52,14 +54,22 @@ async fn main() -> AppResult<()> {
 
     // Create services
     let auth_service = AuthService::new(db_pool.clone());
-
-    // Build application state
-    let app_state = api::auth::AppState { auth_service };
+    let device_service = DeviceService::new(db_pool.clone());
+    let prekey_service = PrekeyService::new(db_pool.clone());
+    let message_service = MessageService::new(db_pool.clone());
 
     // Build router
     let app = Router::new()
         .route("/health", get(health_check))
-        .nest("/v1", api_routes(app_state))
+        .nest(
+            "/v1",
+            api_routes(
+                auth_service,
+                device_service,
+                prekey_service,
+                message_service,
+            ),
+        )
         .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http());
 
@@ -72,6 +82,21 @@ async fn main() -> AppResult<()> {
         })?;
 
     tracing::info!("🌐 Server listening on http://{}", addr);
+    tracing::info!("📡 Available endpoints:");
+    tracing::info!("  - POST   /v1/auth/register");
+    tracing::info!("  - POST   /v1/auth/login");
+    tracing::info!("  - POST   /v1/auth/refresh");
+    tracing::info!("  - POST   /v1/auth/logout");
+    tracing::info!("  - POST   /v1/devices");
+    tracing::info!("  - GET    /v1/devices");
+    tracing::info!("  - DELETE /v1/devices/:id");
+    tracing::info!("  - POST   /v1/prekeys");
+    tracing::info!("  - GET    /v1/prekeys/:convro_number");
+    tracing::info!("  - GET    /v1/prekeys/health");
+    tracing::info!("  - POST   /v1/messages");
+    tracing::info!("  - GET    /v1/messages/inbox");
+    tracing::info!("  - POST   /v1/messages/:id/delivered");
+    tracing::info!("  - GET    /v1/messages/history");
     tracing::info!("✅ Convro Server is ready!");
 
     let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
@@ -88,15 +113,30 @@ async fn main() -> AppResult<()> {
 }
 
 /// Build API routes
-fn api_routes(state: api::auth::AppState) -> Router {
-    Router::new().merge(api::auth::router(state))
-    // Additional routes will be added here:
-    // .merge(api::users::router(state))
-    // .merge(api::devices::router(state))
-    // .merge(api::prekeys::router(state))
-    // .merge(api::messages::router(state))
-    // .merge(api::contacts::router(state))
-    // .merge(api::presence::router(state))
+fn api_routes(
+    auth_service: AuthService,
+    device_service: DeviceService,
+    prekey_service: PrekeyService,
+    message_service: MessageService,
+) -> Router {
+    // Public routes (no auth)
+    let public_routes = api::auth_router(api::auth::AppState { auth_service });
+
+    // Protected routes (require JWT)
+    let protected_routes = Router::new()
+        .merge(api::devices_router(api::devices::AppState {
+            device_service,
+        }))
+        .merge(api::prekeys_router(api::prekeys::AppState {
+            prekey_service,
+        }))
+        .merge(api::messages_router(api::messages::AppState {
+            message_service,
+        }))
+        .layer(middleware::from_fn(app_middleware::require_auth));
+
+    // Combine public + protected
+    Router::new().merge(public_routes).merge(protected_routes)
 }
 
 /// Health check endpoint
