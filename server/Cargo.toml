@@ -10,7 +10,7 @@ description = "Convro E2EE messaging server (Rust + Axum)"
 axum = { version = "0.7", features = ["macros", "ws"] }
 axum-extra = { version = "0.9", features = ["typed-header"] }
 tower = "0.4"
-tower-http = { version = "0.5", features = ["trace", "cors", "compression", "fs"] }
+tower-http = { version = "0.5", features = ["trace", "cors", "compression-gzip", "fs"] }
 hyper = "1.1"
 
 # Async runtime
@@ -19,7 +19,7 @@ tokio-tungstenite = "0.21"
 futures = "0.3"
 
 # Database
-sqlx = { version = "0.7", features = ["runtime-tokio", "postgres", "uuid", "chrono", "json", "macros"] }
+sqlx = { version = "0.7", features = ["runtime-tokio", "postgres", "uuid", "chrono", "json"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

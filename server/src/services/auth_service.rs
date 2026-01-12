@@ -111,13 +111,14 @@ impl AuthService {
         }
 
         // Generate new access token
+        let username = user.username.clone();
         let access_token = jwt::encode_access_token(
             user.user_id,
             user.convro_number,
             user.username,
         )?;
 
-        tracing::debug!("Access token refreshed for user: {}", user.username);
+        tracing::debug!("Access token refreshed for user: {}", username);
 
         Ok(access_token)
     }

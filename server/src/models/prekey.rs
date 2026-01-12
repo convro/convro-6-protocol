@@ -31,7 +31,7 @@ pub struct UploadPrekeysRequest {
 }
 
 /// Signed Prekey DTO (hex-encoded)
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Serialize, Deserialize, Validate)]
 pub struct SignedPrekeyDto {
     pub spk_id: i32,
 
@@ -45,7 +45,7 @@ pub struct SignedPrekeyDto {
 }
 
 /// One-Time Prekey DTO (hex-encoded)
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Serialize, Deserialize, Validate)]
 pub struct OneTimePrekeyDto {
     pub otp_id: i32,
 

@@ -28,8 +28,7 @@ impl DeviceRepository {
         device_os_version: Option<String>,
         app_version: Option<String>,
     ) -> AppResult<Device> {
-        let device = sqlx::query_as!(
-            Device,
+        let device = sqlx::query_as::<_, Device>(
             r#"
             INSERT INTO device_identities (
                 user_id,
@@ -56,14 +55,14 @@ impl DeviceRepository {
                 is_active,
                 updated_at
             "#,
-            user_id,
-            device_id,
-            identity_key,
-            device_name,
-            device_platform,
-            device_os_version,
-            app_version,
         )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(identity_key)
+        .bind(device_name)
+        .bind(device_platform)
+        .bind(device_os_version)
+        .bind(app_version)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| {
@@ -86,8 +85,7 @@ impl DeviceRepository {
 
     /// List devices for user
     pub async fn list_by_user(&self, user_id: Uuid) -> AppResult<Vec<Device>> {
-        let devices = sqlx::query_as!(
-            Device,
+        let devices = sqlx::query_as::<_, Device>(
             r#"
             SELECT
                 device_identity_id,
@@ -106,8 +104,8 @@ impl DeviceRepository {
             WHERE user_id = $1
             ORDER BY registered_at DESC
             "#,
-            user_id
         )
+        .bind(user_id)
         .fetch_all(&self.pool)
         .await?;
 
@@ -116,8 +114,7 @@ impl DeviceRepository {
 
     /// Get device by ID
     pub async fn find_by_id(&self, device_identity_id: Uuid) -> AppResult<Option<Device>> {
-        let device = sqlx::query_as!(
-            Device,
+        let device = sqlx::query_as::<_, Device>(
             r#"
             SELECT
                 device_identity_id,
@@ -135,8 +132,8 @@ impl DeviceRepository {
             FROM device_identities
             WHERE device_identity_id = $1
             "#,
-            device_identity_id
         )
+        .bind(device_identity_id)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -145,14 +142,14 @@ impl DeviceRepository {
 
     /// Update last_seen timestamp
     pub async fn update_last_seen(&self, device_identity_id: Uuid) -> AppResult<()> {
-        sqlx::query!(
+        sqlx::query(
             r#"
             UPDATE device_identities
             SET last_seen = NOW()
             WHERE device_identity_id = $1
             "#,
-            device_identity_id
         )
+        .bind(device_identity_id)
         .execute(&self.pool)
         .await?;
 
@@ -161,15 +158,15 @@ impl DeviceRepository {
 
     /// Deactivate device
     pub async fn deactivate(&self, device_identity_id: Uuid, user_id: Uuid) -> AppResult<()> {
-        let result = sqlx::query!(
+        let result = sqlx::query(
             r#"
             UPDATE device_identities
             SET is_active = FALSE, updated_at = NOW()
             WHERE device_identity_id = $1 AND user_id = $2
             "#,
-            device_identity_id,
-            user_id
         )
+        .bind(device_identity_id)
+        .bind(user_id)
         .execute(&self.pool)
         .await?;
 
@@ -184,14 +181,14 @@ impl DeviceRepository {
 
     /// Check if user has any active devices
     pub async fn has_active_devices(&self, user_id: Uuid) -> AppResult<bool> {
-        let count: i64 = sqlx::query_scalar!(
+        let count: i64 = sqlx::query_scalar(
             r#"
-            SELECT COUNT(*) as "count!"
+            SELECT COUNT(*) as "count"
             FROM device_identities
             WHERE user_id = $1 AND is_active = TRUE
             "#,
-            user_id
         )
+        .bind(user_id)
         .fetch_one(&self.pool)
         .await?;
 

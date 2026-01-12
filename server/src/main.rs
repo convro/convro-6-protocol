@@ -3,13 +3,13 @@ use std::net::SocketAddr;
 use tower_http::{compression::CompressionLayer, trace::TraceLayer};
 
 use convro_server::{
-    api, config::Settings, db, errors::AppResult,
+    api, config::Settings, db,
     middleware as app_middleware,
     services::{AuthService, DeviceService, MessageService, PrekeyService},
 };
 
 #[tokio::main]
-async fn main() -> AppResult<()> {
+async fn main() -> anyhow::Result<()> {
     // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -43,7 +43,7 @@ async fn main() -> AppResult<()> {
 
     // Run database migrations
     tracing::info!("🔄 Running database migrations...");
-    sqlx::migrate!("../../database")
+    sqlx::migrate!("../database/migrations")
         .run(&db_pool)
         .await
         .map_err(|e| {

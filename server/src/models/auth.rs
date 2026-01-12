@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 /// JWT Claims (re-exported from utils for convenience)
 pub use crate::utils::jwt::Claims;

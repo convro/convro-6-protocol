@@ -1,4 +1,4 @@
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 use crate::{
@@ -25,8 +25,7 @@ impl UserRepository {
         convro_number: String,
         display_name: Option<String>,
     ) -> AppResult<User> {
-        let user = sqlx::query_as!(
-            User,
+        let user = sqlx::query_as::<_, User>(
             r#"
             INSERT INTO users (username, password_hash, convro_number, display_name, account_status)
             VALUES ($1, $2, $3, $4, 'active')
@@ -41,11 +40,11 @@ impl UserRepository {
                 last_login,
                 updated_at
             "#,
-            username,
-            password_hash,
-            convro_number,
-            display_name,
         )
+        .bind(&username)
+        .bind(&password_hash)
+        .bind(&convro_number)
+        .bind(&display_name)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| {
@@ -64,8 +63,7 @@ impl UserRepository {
 
     /// Find user by username
     pub async fn find_by_username(&self, username: &str) -> AppResult<Option<User>> {
-        let user = sqlx::query_as!(
-            User,
+        let user = sqlx::query_as::<_, User>(
             r#"
             SELECT
                 user_id,
@@ -80,8 +78,8 @@ impl UserRepository {
             FROM users
             WHERE username = $1
             "#,
-            username
         )
+        .bind(username)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -90,8 +88,7 @@ impl UserRepository {
 
     /// Find user by Convro Number
     pub async fn find_by_convro_number(&self, convro_number: &str) -> AppResult<Option<User>> {
-        let user = sqlx::query_as!(
-            User,
+        let user = sqlx::query_as::<_, User>(
             r#"
             SELECT
                 user_id,
@@ -106,8 +103,8 @@ impl UserRepository {
             FROM users
             WHERE convro_number = $1
             "#,
-            convro_number
         )
+        .bind(convro_number)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -116,8 +113,7 @@ impl UserRepository {
 
     /// Find user by ID
     pub async fn find_by_id(&self, user_id: Uuid) -> AppResult<Option<User>> {
-        let user = sqlx::query_as!(
-            User,
+        let user = sqlx::query_as::<_, User>(
             r#"
             SELECT
                 user_id,
@@ -132,8 +128,8 @@ impl UserRepository {
             FROM users
             WHERE user_id = $1
             "#,
-            user_id
         )
+        .bind(user_id)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -142,32 +138,21 @@ impl UserRepository {
 
     /// Check if Convro Number is available
     pub async fn is_convro_number_available(&self, convro_number: &str) -> AppResult<bool> {
-        let count: i64 = sqlx::query_scalar!(
-            r#"
-            SELECT COUNT(*) as "count!"
-            FROM users
-            WHERE convro_number = $1
-            "#,
-            convro_number
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let row = sqlx::query("SELECT COUNT(*) FROM users WHERE convro_number = $1")
+            .bind(convro_number)
+            .fetch_one(&self.pool)
+            .await?;
 
+        let count: i64 = row.try_get(0)?;
         Ok(count == 0)
     }
 
     /// Update last_login timestamp
     pub async fn update_last_login(&self, user_id: Uuid) -> AppResult<()> {
-        sqlx::query!(
-            r#"
-            UPDATE users
-            SET last_login = NOW()
-            WHERE user_id = $1
-            "#,
-            user_id
-        )
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE users SET last_login = NOW() WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }
@@ -178,8 +163,7 @@ impl UserRepository {
         user_id: Uuid,
         display_name: Option<String>,
     ) -> AppResult<User> {
-        let user = sqlx::query_as!(
-            User,
+        let user = sqlx::query_as::<_, User>(
             r#"
             UPDATE users
             SET display_name = $2, updated_at = NOW()
@@ -195,9 +179,9 @@ impl UserRepository {
                 last_login,
                 updated_at
             "#,
-            user_id,
-            display_name
         )
+        .bind(user_id)
+        .bind(&display_name)
         .fetch_one(&self.pool)
         .await?;
 

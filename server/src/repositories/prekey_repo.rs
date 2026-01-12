@@ -27,7 +27,7 @@ impl PrekeyRepository {
         let mut tx = self.pool.begin().await?;
 
         // Insert signed prekey
-        let bundle_id = sqlx::query_scalar!(
+        let bundle_id: Uuid = sqlx::query_scalar(
             r#"
             INSERT INTO prekey_bundles (
                 device_identity_id,
@@ -40,12 +40,12 @@ impl PrekeyRepository {
             VALUES ($1, $2, $3, $4, $5, TRUE)
             RETURNING bundle_id
             "#,
-            device_identity_id,
-            signed_prekey.public_key,
-            signed_prekey.signature,
-            signed_prekey.spk_id,
-            signed_prekey.expires_at,
         )
+        .bind(device_identity_id)
+        .bind(signed_prekey.public_key)
+        .bind(signed_prekey.signature)
+        .bind(signed_prekey.spk_id)
+        .bind(signed_prekey.expires_at)
         .fetch_one(&mut *tx)
         .await
         .map_err(|e| {
@@ -61,7 +61,7 @@ impl PrekeyRepository {
 
         // Insert one-time prekeys
         for otp in one_time_prekeys {
-            sqlx::query!(
+            sqlx::query(
                 r#"
                 INSERT INTO one_time_prekeys (
                     device_identity_id,
@@ -70,10 +70,10 @@ impl PrekeyRepository {
                 )
                 VALUES ($1, $2, $3)
                 "#,
-                device_identity_id,
-                otp.public_key,
-                otp.otp_id,
             )
+            .bind(device_identity_id)
+            .bind(otp.public_key)
+            .bind(otp.otp_id)
             .execute(&mut *tx)
             .await?;
         }
@@ -92,8 +92,7 @@ impl PrekeyRepository {
     /// Fetch prekey bundle for handshake (includes OTP reservation)
     pub async fn fetch_bundle(&self, convro_number: &str) -> AppResult<Option<PrekeyBundle>> {
         // This query matches the one in database schema (with LATERAL join for OTP)
-        let result = sqlx::query_as!(
-            PrekeyBundle,
+        let result = sqlx::query_as::<_, PrekeyBundle>(
             r#"
             SELECT
                 u.user_id,
@@ -122,8 +121,8 @@ impl PrekeyRepository {
               AND pb.is_active = TRUE
             LIMIT 1
             "#,
-            convro_number
         )
+        .bind(convro_number)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -137,13 +136,13 @@ impl PrekeyRepository {
     /// Consume OTP (atomic operation with SELECT FOR UPDATE)
     /// This uses the database function from schema.sql
     pub async fn consume_otp(&self, otp_id: Uuid, consumed_by: Uuid) -> AppResult<bool> {
-        let result = sqlx::query_scalar!(
+        let result: bool = sqlx::query_scalar(
             r#"
-            SELECT consume_otp($1, $2) as "consumed!"
+            SELECT consume_otp($1, $2) as "consumed"
             "#,
-            otp_id,
-            consumed_by,
         )
+        .bind(otp_id)
+        .bind(consumed_by)
         .fetch_one(&self.pool)
         .await?;
 
@@ -158,38 +157,37 @@ impl PrekeyRepository {
 
     /// Get available OTP count for device
     pub async fn get_available_otp_count(&self, device_identity_id: Uuid) -> AppResult<i64> {
-        let count = sqlx::query_scalar!(
+        let count: i64 = sqlx::query_scalar(
             r#"
-            SELECT get_available_otp_count($1) as "count!"
+            SELECT get_available_otp_count($1) as "count"
             "#,
-            device_identity_id,
         )
+        .bind(device_identity_id)
         .fetch_one(&self.pool)
         .await?;
 
-        Ok(count as i64)
+        Ok(count)
     }
 
     /// Get prekey health status for all user devices
     pub async fn get_prekey_health(&self, user_id: Uuid) -> AppResult<Vec<PrekeyHealthStatus>> {
-        let results = sqlx::query_as!(
-            PrekeyHealthStatus,
+        let results = sqlx::query_as::<_, PrekeyHealthStatus>(
             r#"
             SELECT
                 d.device_identity_id,
                 d.device_name,
-                pb.bundle_id IS NOT NULL as "has_signed_prekey!",
+                pb.bundle_id IS NOT NULL as "has_signed_prekey",
                 pb.expires_at as spk_expires_at,
-                COUNT(otp.otp_id) FILTER (WHERE otp.consumed_at IS NULL) as "available_otps!",
-                COUNT(otp.otp_id) FILTER (WHERE otp.consumed_at IS NOT NULL) as "consumed_otps!"
+                COUNT(otp.otp_id) FILTER (WHERE otp.consumed_at IS NULL) as "available_otps",
+                COUNT(otp.otp_id) FILTER (WHERE otp.consumed_at IS NOT NULL) as "consumed_otps"
             FROM device_identities d
             LEFT JOIN prekey_bundles pb ON d.device_identity_id = pb.device_identity_id AND pb.is_active = TRUE
             LEFT JOIN one_time_prekeys otp ON d.device_identity_id = otp.device_identity_id
             WHERE d.user_id = $1 AND d.is_active = TRUE
             GROUP BY d.device_identity_id, d.device_name, pb.bundle_id, pb.expires_at
             "#,
-            user_id
         )
+        .bind(user_id)
         .fetch_all(&self.pool)
         .await?;
 

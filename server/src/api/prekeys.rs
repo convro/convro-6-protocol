@@ -30,12 +30,15 @@ pub fn router(state: AppState) -> Router {
 /// POST /prekeys - Upload prekeys
 async fn upload_prekeys(
     State(state): State<AppState>,
-    claims: Claims, // From JWT middleware
+    _claims: Claims, // From JWT middleware
     Json(req): Json<UploadPrekeysRequest>,
 ) -> AppResult<(StatusCode, Json<UploadPrekeysResponse>)> {
     // Validate request
     req.validate()
         .map_err(|e| AppError::ValidationError(e.to_string()))?;
+
+    // Store count before moving
+    let otps_count = req.one_time_prekeys.len() as i32;
 
     // Upload prekeys
     let bundle_id = state
@@ -48,7 +51,7 @@ async fn upload_prekeys(
         Json(UploadPrekeysResponse {
             bundle_id,
             device_identity_id: req.device_identity_id,
-            otps_uploaded: req.one_time_prekeys.len() as i32,
+            otps_uploaded: otps_count,
         }),
     ))
 }
@@ -56,7 +59,7 @@ async fn upload_prekeys(
 /// GET /prekeys/:convro_number - Fetch prekey bundle
 async fn fetch_bundle(
     State(state): State<AppState>,
-    claims: Claims, // Authenticated user fetching bundle
+    _claims: Claims, // Authenticated user fetching bundle
     Path(convro_number): Path<String>,
 ) -> AppResult<Json<PrekeyBundleResponse>> {
     // Fetch bundle

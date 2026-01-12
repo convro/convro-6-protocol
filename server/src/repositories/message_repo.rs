@@ -28,8 +28,7 @@ impl MessageRepository {
         message_type: String,
         encrypted_blob: Vec<u8>,
     ) -> AppResult<Message> {
-        let message = sqlx::query_as!(
-            Message,
+        let message = sqlx::query_as::<_, Message>(
             r#"
             INSERT INTO messages (
                 from_user_id,
@@ -62,14 +61,14 @@ impl MessageRepository {
                 expires_at,
                 updated_at
             "#,
-            from_user_id,
-            to_user_id,
-            from_convro_number,
-            to_convro_number,
-            session_id,
-            message_type,
-            encrypted_blob,
         )
+        .bind(from_user_id)
+        .bind(to_user_id)
+        .bind(from_convro_number)
+        .bind(to_convro_number)
+        .bind(session_id)
+        .bind(message_type)
+        .bind(encrypted_blob)
         .fetch_one(&self.pool)
         .await?;
 
@@ -91,20 +90,19 @@ impl MessageRepository {
         offset: i64,
     ) -> AppResult<(Vec<Message>, i64)> {
         // Get total count
-        let total: i64 = sqlx::query_scalar!(
+        let total: i64 = sqlx::query_scalar(
             r#"
-            SELECT COUNT(*) as "count!"
+            SELECT COUNT(*) as "count"
             FROM messages
             WHERE to_user_id = $1 AND delivered_at IS NULL
             "#,
-            user_id
         )
+        .bind(user_id)
         .fetch_one(&self.pool)
         .await?;
 
         // Get messages
-        let messages = sqlx::query_as!(
-            Message,
+        let messages = sqlx::query_as::<_, Message>(
             r#"
             SELECT
                 message_id,
@@ -128,10 +126,10 @@ impl MessageRepository {
             ORDER BY created_at ASC
             LIMIT $2 OFFSET $3
             "#,
-            user_id,
-            limit,
-            offset
         )
+        .bind(user_id)
+        .bind(limit)
+        .bind(offset)
         .fetch_all(&self.pool)
         .await?;
 
@@ -140,7 +138,7 @@ impl MessageRepository {
 
     /// Mark message as delivered
     pub async fn mark_as_delivered(&self, message_id: Uuid, user_id: Uuid) -> AppResult<()> {
-        let result = sqlx::query!(
+        let result = sqlx::query(
             r#"
             UPDATE messages
             SET delivered_at = NOW(),
@@ -150,9 +148,9 @@ impl MessageRepository {
               AND to_user_id = $2
               AND delivered_at IS NULL
             "#,
-            message_id,
-            user_id
         )
+        .bind(message_id)
+        .bind(user_id)
         .execute(&self.pool)
         .await?;
 
@@ -169,8 +167,7 @@ impl MessageRepository {
 
     /// Get message by ID
     pub async fn find_by_id(&self, message_id: Uuid) -> AppResult<Option<Message>> {
-        let message = sqlx::query_as!(
-            Message,
+        let message = sqlx::query_as::<_, Message>(
             r#"
             SELECT
                 message_id,
@@ -192,8 +189,8 @@ impl MessageRepository {
             FROM messages
             WHERE message_id = $1
             "#,
-            message_id
         )
+        .bind(message_id)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -209,22 +206,21 @@ impl MessageRepository {
         offset: i64,
     ) -> AppResult<(Vec<Message>, i64)> {
         // Get total count
-        let total: i64 = sqlx::query_scalar!(
+        let total: i64 = sqlx::query_scalar(
             r#"
-            SELECT COUNT(*) as "count!"
+            SELECT COUNT(*) as "count"
             FROM messages
             WHERE session_id = $1
               AND (from_user_id = $2 OR to_user_id = $2)
             "#,
-            session_id,
-            user_id
         )
+        .bind(session_id.clone())
+        .bind(user_id)
         .fetch_one(&self.pool)
         .await?;
 
         // Get messages
-        let messages = sqlx::query_as!(
-            Message,
+        let messages = sqlx::query_as::<_, Message>(
             r#"
             SELECT
                 message_id,
@@ -249,11 +245,11 @@ impl MessageRepository {
             ORDER BY created_at DESC
             LIMIT $3 OFFSET $4
             "#,
-            session_id,
-            user_id,
-            limit,
-            offset
         )
+        .bind(session_id)
+        .bind(user_id)
+        .bind(limit)
+        .bind(offset)
         .fetch_all(&self.pool)
         .await?;
 
@@ -262,9 +258,9 @@ impl MessageRepository {
 
     /// Cleanup expired messages (for background job)
     pub async fn cleanup_expired(&self) -> AppResult<i64> {
-        let result = sqlx::query_scalar!(
+        let result: i64 = sqlx::query_scalar(
             r#"
-            SELECT cleanup_expired_messages() as "deleted!"
+            SELECT cleanup_expired_messages() as "deleted"
             "#
         )
         .fetch_one(&self.pool)
