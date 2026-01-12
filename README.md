@@ -6,7 +6,7 @@
 
 **Production-grade end-to-end encrypted messaging protocol**
 
-C6P (Convro 6 Protocol) is a modern, audit-ready protocol for end-to-end encrypted messaging with authenticated prekey handshakes, per-message forward secrecy, and replay resistance. Designed for security-critical applications requiring cryptographic assurance.
+C6P (Convro 6 Protocol) is a modern, audit-ready protocol for end-to-end encrypted messaging with authenticated prekey handshakes, per-message forward secrecy, and replay protection. Designed for security-critical applications requiring cryptographic assurance.
 
 ---
 
