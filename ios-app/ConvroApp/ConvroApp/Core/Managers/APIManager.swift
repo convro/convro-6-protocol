@@ -1,109 +1,458 @@
 import Foundation
+import C6PProtocol
 
 // MARK: - API Manager
-/// REST API client for Convro server
+/// REST API client for Convro server (18 endpoints)
 @MainActor
 class APIManager: ObservableObject {
     // MARK: - Singleton
     static let shared = APIManager()
 
     // MARK: - Properties
-    private let baseURL = "https://api.convro.app/v1"
+    private let baseURL = URL(string: "https://api.convro.app/v1")!
+    private let client: APIClient
     private var accessToken: String?
     private var refreshToken: String?
 
     private init() {
-        loadTokens()
+        self.client = APIClient(baseURL: baseURL)
+        Task {
+            await loadTokens()
+        }
     }
 
-    // MARK: - Authentication
-    func register(username: String, password: String, displayName: String) async throws -> User {
-        // TODO: POST /auth/register
-        fatalError("Not implemented")
+    // MARK: - Authentication (4 endpoints)
+
+    /// POST /auth/register - Register new user
+    func register(
+        username: String,
+        password: String,
+        displayName: String,
+        deviceIdentity: C6PProtocol.DeviceIdentity,
+        signedPrekey: C6PProtocol.SignedPrekey,
+        oneTimePrekeys: [C6PProtocol.OneTimePrekey]
+    ) async throws -> AuthResponse {
+        let body = RegisterRequest(
+            username: username,
+            password: password,
+            displayName: displayName,
+            deviceId: deviceIdentity.deviceId.toHexString(),
+            identityPubEd25519: deviceIdentity.identityPubEd25519.toHexString(),
+            identityPubX25519: deviceIdentity.identityPubX25519.toHexString(),
+            spkId: signedPrekey.spkId.toHexString(),
+            spkPub: signedPrekey.spkPub.toHexString(),
+            spkSig: signedPrekey.spkSig.toHexString(),
+            oneTimePrekeys: oneTimePrekeys.map { otp in
+                OneTimePrekeyData(
+                    otpId: otp.otpId.toHexString(),
+                    otpPub: otp.otpPub.toHexString()
+                )
+            }
+        )
+
+        let request = APIRequest(endpoint: .register, body: body)
+        let response: AuthResponse = try await client.execute(request)
+
+        // Save tokens
+        accessToken = response.accessToken
+        refreshToken = response.refreshToken
+        await saveTokens()
+        client.setAuthToken(response.accessToken)
+
+        return response
     }
 
-    func login(username: String, password: String) async throws -> User {
-        // TODO: POST /auth/login
-        fatalError("Not implemented")
+    /// POST /auth/login - Login existing user
+    func login(username: String, password: String) async throws -> AuthResponse {
+        let body = LoginRequest(username: username, password: password)
+        let request = APIRequest(endpoint: .login, body: body)
+        let response: AuthResponse = try await client.execute(request)
+
+        // Save tokens
+        accessToken = response.accessToken
+        refreshToken = response.refreshToken
+        await saveTokens()
+        client.setAuthToken(response.accessToken)
+
+        return response
     }
 
+    /// POST /auth/refresh - Refresh access token
+    func refreshAccessToken() async throws -> TokenRefreshResponse {
+        guard let refreshToken = refreshToken else {
+            throw APIError.unauthorized
+        }
+
+        let body = RefreshRequest(refreshToken: refreshToken)
+        let request = APIRequest(endpoint: .refresh, body: body)
+        let response: TokenRefreshResponse = try await client.execute(request)
+
+        // Update access token
+        accessToken = response.accessToken
+        await saveTokens()
+        client.setAuthToken(response.accessToken)
+
+        return response
+    }
+
+    /// POST /auth/logout - Logout current session
     func logout() async throws {
-        // TODO: POST /auth/logout
-        clearTokens()
+        if accessToken != nil {
+            let request = APIRequest(endpoint: .logout)
+            try? await client.executeVoid(request)
+        }
+
+        // Clear tokens
+        await clearTokens()
     }
 
-    func refreshAccessToken() async throws {
-        // TODO: POST /auth/refresh
-        fatalError("Not implemented")
+    // MARK: - Devices (3 endpoints)
+
+    /// POST /devices - Register device identity
+    func registerDevice(
+        deviceIdentity: C6PProtocol.DeviceIdentity,
+        signedPrekey: C6PProtocol.SignedPrekey,
+        oneTimePrekeys: [C6PProtocol.OneTimePrekey]
+    ) async throws -> Device {
+        let body = RegisterDeviceRequest(
+            deviceId: deviceIdentity.deviceId.toHexString(),
+            deviceName: "iOS Device",
+            platform: "iOS",
+            identityPubEd25519: deviceIdentity.identityPubEd25519.toHexString(),
+            identityPubX25519: deviceIdentity.identityPubX25519.toHexString(),
+            spkId: signedPrekey.spkId.toHexString(),
+            spkPub: signedPrekey.spkPub.toHexString(),
+            spkSig: signedPrekey.spkSig.toHexString(),
+            oneTimePrekeys: oneTimePrekeys.map { otp in
+                OneTimePrekeyData(
+                    otpId: otp.otpId.toHexString(),
+                    otpPub: otp.otpPub.toHexString()
+                )
+            }
+        )
+
+        let request = APIRequest(endpoint: .registerDevice, body: body)
+        return try await client.execute(request)
     }
 
-    // MARK: - Devices
-    func registerDevice(_ identity: DeviceIdentity) async throws {
-        // TODO: POST /devices
-        fatalError("Not implemented")
-    }
-
+    /// GET /devices - List all devices for current user
     func listDevices() async throws -> [Device] {
-        // TODO: GET /devices
-        fatalError("Not implemented")
+        let request = APIRequest(endpoint: .listDevices)
+        let response: DevicesResponse = try await client.execute(request)
+        return response.devices
     }
 
-    // MARK: - Prekeys
-    func uploadPrekeys(_ bundle: PrekeyBundle) async throws {
-        // TODO: POST /prekeys
-        fatalError("Not implemented")
+    /// DELETE /devices/:id - Deactivate device
+    func deactivateDevice(deviceId: UUID) async throws {
+        let request = APIRequest(endpoint: .deactivateDevice(deviceId))
+        try await client.executeVoid(request)
     }
 
-    func fetchPrekeyBundle(convroNumber: String) async throws -> PrekeyBundle {
-        // TODO: GET /prekeys/:convro_number
-        fatalError("Not implemented")
+    // MARK: - Prekeys (3 endpoints)
+
+    /// POST /prekeys - Upload prekeys for device
+    func uploadPrekeys(
+        signedPrekey: C6PProtocol.SignedPrekey,
+        oneTimePrekeys: [C6PProtocol.OneTimePrekey]
+    ) async throws {
+        let body = UploadPrekeysRequest(
+            spkId: signedPrekey.spkId.toHexString(),
+            spkPub: signedPrekey.spkPub.toHexString(),
+            spkSig: signedPrekey.spkSig.toHexString(),
+            oneTimePrekeys: oneTimePrekeys.map { otp in
+                OneTimePrekeyData(
+                    otpId: otp.otpId.toHexString(),
+                    otpPub: otp.otpPub.toHexString()
+                )
+            }
+        )
+
+        let request = APIRequest(endpoint: .uploadPrekeys, body: body)
+        try await client.executeVoid(request)
     }
 
-    // MARK: - Messages
-    func sendMessage(toConvroNumber: String, encryptedEnvelope: Data) async throws -> Message {
-        // TODO: POST /messages
-        fatalError("Not implemented")
+    /// GET /prekeys/:convro_number - Fetch prekey bundle for initiating handshake
+    func fetchPrekeyBundle(convroNumber: String) async throws -> PrekeyBundleResponse {
+        let request = APIRequest(endpoint: .fetchPrekeyBundle(convroNumber))
+        return try await client.execute(request)
     }
 
-    func fetchInbox() async throws -> [Message] {
-        // TODO: GET /messages/inbox
-        fatalError("Not implemented")
+    /// GET /prekeys/health - Get prekey pool health status
+    func getPrekeyHealth() async throws -> PrekeyHealthResponse {
+        let request = APIRequest(endpoint: .prekeyHealth)
+        return try await client.execute(request)
     }
 
-    func markAsDelivered(messageId: String) async throws {
-        // TODO: POST /messages/:id/delivered
-        fatalError("Not implemented")
+    // MARK: - Messages (3 endpoints)
+
+    /// POST /messages - Send sealed sender message (64KB envelope)
+    func sendMessage(toConvroNumber: String, encryptedEnvelope: Data) async throws -> MessageResponse {
+        // encryptedEnvelope is already 64KB padded + base64 encoded from MessageEncryptionService
+        let envelopeString = String(data: encryptedEnvelope, encoding: .utf8) ?? ""
+
+        let body = SendMessageRequest(
+            recipientConvroNumber: toConvroNumber,
+            encryptedEnvelope: envelopeString
+        )
+
+        let request = APIRequest(endpoint: .sendMessage, body: body)
+        return try await client.execute(request)
     }
 
-    // MARK: - Conversations
-    func fetchConversations() async throws -> [Conversation] {
-        // TODO: GET /conversations
-        fatalError("Not implemented")
+    /// GET /messages/inbox - Fetch pending sealed sender messages
+    func fetchInbox() async throws -> [InboxMessage] {
+        let request = APIRequest(endpoint: .fetchInbox)
+        let response: InboxResponse = try await client.execute(request)
+        return response.messages
     }
 
-    // MARK: - Contacts
-    func addContact(convroNumber: String, displayName: String) async throws -> Contact {
-        // TODO: POST /contacts
-        fatalError("Not implemented")
+    /// POST /messages/:id/delivered - Mark message as delivered
+    func markAsDelivered(messageId: UUID) async throws {
+        let request = APIRequest(endpoint: .markDelivered(messageId))
+        try await client.executeVoid(request)
     }
 
-    func listContacts() async throws -> [Contact] {
-        // TODO: GET /contacts
-        fatalError("Not implemented")
+    // MARK: - Conversations (1 endpoint)
+
+    /// GET /conversations - List all conversations for current user
+    func fetchConversations() async throws -> [ConversationResponse] {
+        let request = APIRequest(endpoint: .listConversations)
+        let response: ConversationsResponse = try await client.execute(request)
+        return response.conversations
+    }
+
+    // MARK: - Contacts (4 endpoints)
+
+    /// POST /contacts - Add new contact
+    func addContact(convroNumber: String, displayName: String?) async throws -> ContactResponse {
+        let body = AddContactRequest(
+            convroNumber: convroNumber,
+            displayName: displayName
+        )
+
+        let request = APIRequest(endpoint: .addContact, body: body)
+        return try await client.execute(request)
+    }
+
+    /// GET /contacts - List all contacts
+    func listContacts() async throws -> [ContactResponse] {
+        let request = APIRequest(endpoint: .listContacts)
+        let response: ContactsResponse = try await client.execute(request)
+        return response.contacts
+    }
+
+    /// POST /contacts/:id/verify - Verify contact's fingerprint
+    func verifyContact(contactId: UUID, verified: Bool) async throws {
+        let body = VerifyContactRequest(verified: verified)
+        let request = APIRequest(endpoint: .verifyContact(contactId), body: body)
+        try await client.executeVoid(request)
+    }
+
+    /// DELETE /contacts/:id - Delete contact
+    func deleteContact(contactId: UUID) async throws {
+        let request = APIRequest(endpoint: .deleteContact(contactId))
+        try await client.executeVoid(request)
     }
 
     // MARK: - Token Management
-    private func loadTokens() {
-        // TODO: Load from Keychain
+
+    private func loadTokens() async {
+        do {
+            self.accessToken = try KeychainManager.shared.retrieveString(forKey: "access_token")
+            self.refreshToken = try KeychainManager.shared.retrieveString(forKey: "refresh_token")
+
+            if let token = accessToken {
+                client.setAuthToken(token)
+            }
+        } catch {
+            // No tokens found, user needs to login
+            self.accessToken = nil
+            self.refreshToken = nil
+        }
     }
 
-    private func saveTokens() {
-        // TODO: Save to Keychain
+    private func saveTokens() async {
+        if let accessToken = accessToken {
+            try? KeychainManager.shared.saveString(accessToken, forKey: "access_token")
+        }
+        if let refreshToken = refreshToken {
+            try? KeychainManager.shared.saveString(refreshToken, forKey: "refresh_token")
+        }
     }
 
-    private func clearTokens() {
+    private func clearTokens() async {
         accessToken = nil
         refreshToken = nil
-        // TODO: Delete from Keychain
+        client.clearAuthToken()
+
+        try? KeychainManager.shared.delete(forKey: "access_token")
+        try? KeychainManager.shared.delete(forKey: "refresh_token")
     }
+}
+
+// MARK: - Request Models
+
+private struct RegisterRequest: Encodable {
+    let username: String
+    let password: String
+    let displayName: String
+    let deviceId: String
+    let identityPubEd25519: String
+    let identityPubX25519: String
+    let spkId: String
+    let spkPub: String
+    let spkSig: String
+    let oneTimePrekeys: [OneTimePrekeyData]
+}
+
+private struct LoginRequest: Encodable {
+    let username: String
+    let password: String
+}
+
+private struct RefreshRequest: Encodable {
+    let refreshToken: String
+}
+
+private struct RegisterDeviceRequest: Encodable {
+    let deviceId: String
+    let deviceName: String
+    let platform: String
+    let identityPubEd25519: String
+    let identityPubX25519: String
+    let spkId: String
+    let spkPub: String
+    let spkSig: String
+    let oneTimePrekeys: [OneTimePrekeyData]
+}
+
+private struct UploadPrekeysRequest: Encodable {
+    let spkId: String
+    let spkPub: String
+    let spkSig: String
+    let oneTimePrekeys: [OneTimePrekeyData]
+}
+
+private struct OneTimePrekeyData: Codable {
+    let otpId: String
+    let otpPub: String
+}
+
+private struct SendMessageRequest: Encodable {
+    let recipientConvroNumber: String
+    let encryptedEnvelope: String
+}
+
+private struct AddContactRequest: Encodable {
+    let convroNumber: String
+    let displayName: String?
+}
+
+private struct VerifyContactRequest: Encodable {
+    let verified: Bool
+}
+
+// MARK: - Response Models
+
+struct AuthResponse: Codable {
+    let user: UserData
+    let accessToken: String
+    let refreshToken: String
+    let convroNumber: String
+}
+
+struct UserData: Codable {
+    let id: UUID
+    let username: String
+    let displayName: String
+    let convroNumber: String
+    let createdAt: Date
+}
+
+struct TokenRefreshResponse: Codable {
+    let accessToken: String
+}
+
+struct DevicesResponse: Codable {
+    let devices: [Device]
+}
+
+struct PrekeyBundleResponse: Codable {
+    let responderDeviceId: String
+    let identityPubEd25519: String
+    let identityPubX25519: String
+    let spkId: String
+    let spkPub: String
+    let spkSig: String
+    let otpId: String?
+    let otpPub: String?
+
+    /// Convert to C6P PrekeyBundle for handshake
+    func toPrekeyBundle() throws -> C6PProtocol.PrekeyBundle {
+        return C6PProtocol.PrekeyBundle(
+            responderDeviceId: try hexToBytes(responderDeviceId),
+            identityPubEd25519: try hexToBytes(identityPubEd25519),
+            identityPubX25519: try hexToBytes(identityPubX25519),
+            spkId: try hexToBytes(spkId),
+            spkPub: try hexToBytes(spkPub),
+            spkSig: try hexToBytes(spkSig),
+            otpId: try otpId.map { try hexToBytes($0) },
+            otpPub: try otpPub.map { try hexToBytes($0) }
+        )
+    }
+
+    private func hexToBytes(_ hex: String) throws -> [UInt8] {
+        return try C6PManager.shared.hexToBytes(hex)
+    }
+}
+
+struct PrekeyHealthResponse: Codable {
+    let devices: [DevicePrekeyHealth]
+}
+
+struct DevicePrekeyHealth: Codable {
+    let deviceId: String
+    let oneTimePrekeyCount: Int
+    let status: String
+}
+
+struct MessageResponse: Codable {
+    let messageId: UUID
+    let createdAt: Date
+}
+
+struct InboxResponse: Codable {
+    let messages: [InboxMessage]
+}
+
+struct InboxMessage: Codable {
+    let messageId: UUID
+    let encryptedEnvelope: String
+    let createdAt: Date
+}
+
+struct ConversationsResponse: Codable {
+    let conversations: [ConversationResponse]
+}
+
+struct ConversationResponse: Codable {
+    let conversationId: UUID
+    let participantConvroNumber: String
+    let participantDisplayName: String?
+    let lastMessageAt: Date?
+    let unreadCount: Int
+}
+
+struct ContactsResponse: Codable {
+    let contacts: [ContactResponse]
+}
+
+struct ContactResponse: Codable {
+    let contactId: UUID
+    let convroNumber: String
+    let displayName: String?
+    let identityPubEd25519: String
+    let fingerprint: String
+    let verified: Bool
+    let createdAt: Date
 }
