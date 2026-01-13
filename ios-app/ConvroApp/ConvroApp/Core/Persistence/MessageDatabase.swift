@@ -1,39 +1,68 @@
 import CoreData
 
 // MARK: - Message Database
-/// Local message cache using Core Data
+/// Local message cache for conversations
+/// TODO: Implement Core Data entities when data model is finalized
+@MainActor
 class MessageDatabase {
     // MARK: - Singleton
     static let shared = MessageDatabase()
 
+    // MARK: - Properties
     private let context: NSManagedObjectContext
+    private var messageCache: [String: [Message]] = [:] // conversationId -> messages
 
     private init() {
         self.context = CoreDataStack.shared.viewContext
     }
 
     // MARK: - Save
-    func save(_ message: Message) throws {
-        // TODO: Convert Message to NSManagedObject
-        // TODO: Save to Core Data
-        fatalError("Not implemented")
+
+    /// Save message to local cache
+    func saveMessage(_ message: Message) async {
+        let conversationId = message.conversationId?.uuidString ?? "unknown"
+
+        if messageCache[conversationId] == nil {
+            messageCache[conversationId] = []
+        }
+
+        messageCache[conversationId]?.append(message)
+        print("💾 Message saved to conversation: \(conversationId)")
+
+        // TODO: Persist to Core Data when entity model is defined
     }
 
     // MARK: - Fetch
-    func fetchMessages(forConversation conversationId: String) throws -> [Message] {
-        // TODO: Fetch from Core Data
-        // TODO: Convert to Message models
-        fatalError("Not implemented")
+
+    /// Fetch messages for conversation
+    func fetchMessages(forConversation conversationId: String) async -> [Message] {
+        return messageCache[conversationId] ?? []
+    }
+
+    /// Fetch all messages
+    func fetchAllMessages() async -> [Message] {
+        return messageCache.values.flatMap { $0 }
     }
 
     // MARK: - Delete
-    func deleteMessage(_ messageId: UUID) throws {
-        // TODO: Delete from Core Data
-        fatalError("Not implemented")
+
+    /// Delete message by ID
+    func deleteMessage(_ messageId: UUID) async {
+        for (conversationId, messages) in messageCache {
+            messageCache[conversationId] = messages.filter { $0.id != messageId }
+        }
+        print("🗑️  Message deleted: \(messageId)")
     }
 
-    func deleteAllMessages() throws {
-        // TODO: Batch delete all messages
-        fatalError("Not implemented")
+    /// Delete all messages for conversation
+    func deleteMessages(forConversation conversationId: String) async {
+        messageCache.removeValue(forKey: conversationId)
+        print("🗑️  All messages deleted for conversation: \(conversationId)")
+    }
+
+    /// Delete all messages (logout)
+    func deleteAllMessages() async {
+        messageCache.removeAll()
+        print("🗑️  All messages deleted")
     }
 }
