@@ -5,7 +5,7 @@ use tower_http::{compression::CompressionLayer, trace::TraceLayer};
 use convro_server::{
     api, config::Settings, db,
     middleware as app_middleware,
-    services::{AuthService, DeviceService, MessageService, PrekeyService},
+    services::{AuthService, ConversationService, DeviceService, MessageService, PrekeyService, SealedMessageService},
 };
 
 #[tokio::main]
@@ -57,6 +57,8 @@ async fn main() -> anyhow::Result<()> {
     let device_service = DeviceService::new(db_pool.clone());
     let prekey_service = PrekeyService::new(db_pool.clone());
     let message_service = MessageService::new(db_pool.clone());
+    let conversation_service = ConversationService::new(db_pool.clone());
+    let sealed_message_service = SealedMessageService::new(db_pool.clone());
 
     // Build router
     let app = Router::new()
@@ -68,6 +70,8 @@ async fn main() -> anyhow::Result<()> {
                 device_service,
                 prekey_service,
                 message_service,
+                conversation_service,
+                sealed_message_service,
             ),
         )
         .layer(CompressionLayer::new())
@@ -97,6 +101,10 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("  - GET    /v1/messages/inbox");
     tracing::info!("  - POST   /v1/messages/:id/delivered");
     tracing::info!("  - GET    /v1/messages/history");
+    tracing::info!("  - GET    /v1/conversations");
+    tracing::info!("  - POST   /v1/messages/sealed");
+    tracing::info!("  - GET    /v1/messages/sealed/inbox");
+    tracing::info!("  - POST   /v1/messages/sealed/:id/delivered");
     tracing::info!("✅ Convro Server is ready!");
 
     let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
@@ -118,6 +126,8 @@ fn api_routes(
     device_service: DeviceService,
     prekey_service: PrekeyService,
     message_service: MessageService,
+    conversation_service: ConversationService,
+    sealed_message_service: SealedMessageService,
 ) -> Router {
     // Public routes (no auth)
     let public_routes = api::auth_router(api::auth::AppState { auth_service });
@@ -132,6 +142,12 @@ fn api_routes(
         }))
         .merge(api::messages_router(api::messages::AppState {
             message_service,
+        }))
+        .merge(api::conversations_router(api::conversations::AppState {
+            conversation_service,
+        }))
+        .merge(api::sealed_messages_router(api::sealed_messages::AppState {
+            sealed_message_service,
         }))
         .layer(middleware::from_fn(app_middleware::require_auth));
 
