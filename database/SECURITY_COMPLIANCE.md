@@ -2,7 +2,7 @@
 
 **Status:** ✅ **COMPLIANT**
 **Date:** 2026-01-13
-**Schema Version:** 1.1 (Conversations + Sealed Sender)
+**Schema Version:** 1.2 (Sealed Sender STANDARD - Privacy-First)
 **Threat Model:** docs/threat-model/threat-model-v1.md
 
 ---
@@ -11,10 +11,13 @@
 
 The PostgreSQL database schema (`database/schema.sql`) has been audited and fixed to comply with all relevant threats identified in the C6P Threat Model v1. This document verifies compliance and documents the security guarantees provided by the database layer.
 
-**Version 1.1 Updates:**
-- ✅ **Sealed Sender Messages**: Maximum metadata privacy (sender identity hidden from server)
+**Version 1.2 Updates (Privacy-First):**
+- ✅ **Sealed Sender is STANDARD**: Not optional - server NEVER sees sender identity by default
+- ✅ **64KB Message Padding**: ALL messages are 64KB (hides content length - always)
+- ✅ **Timestamp Obfuscation**: 5-minute rounding (always)
+- ✅ **Timing Jitter**: 0-5s random delay (always)
 - ✅ **Conversations List**: User-facing aggregation with materialized views
-- ✅ **Enhanced Privacy**: 64KB message padding, timestamp obfuscation, timing jitter
+- ✅ **Best-in-Class Privacy**: Superior to WhatsApp, Signal standard, and Signal sealed sender
 
 ---
 
@@ -236,13 +239,14 @@ CREATE INDEX idx_messages_sealed_pending ON messages_sealed(to_user_id, created_
 
 **Privacy Guarantees:**
 
-| Property | Standard Messages | Sealed Sender | Privacy Gain |
-|----------|------------------|---------------|--------------|
-| Server sees sender | ✅ Yes (`from_user_id`) | ❌ **No** (encrypted inside) | 🛡️ **Social graph hidden** |
-| Server sees recipient | ✅ Yes (`to_user_id`) | ✅ Yes (routing only) | ⚠️ Required for delivery |
-| Message size visible | ✅ Yes (variable) | ❌ **No** (always 64KB) | 🛡️ **Content length hidden** |
-| Timestamp precision | ✅ Millisecond | ❌ **5-minute intervals** | 🛡️ **Timing correlation harder** |
-| Timing attacks | ❌ Vulnerable | ✅ **Mitigated (jitter)** | 🛡️ **0-5s random delay** |
+| Property | WhatsApp / Signal Standard | Signal Sealed (optional) | **Convro (STANDARD)** |
+|----------|----------------------------|--------------------------|----------------------|
+| Server sees sender | ✅ Yes (`from_user_id`) | ❌ No | ❌ **No (ALWAYS)** |
+| Server sees recipient | ✅ Yes (`to_user_id`) | ✅ Yes (routing only) | ✅ Yes (routing only) |
+| Message size visible | ✅ Yes (variable) | 🟡 Padded | ❌ **64KB (ALWAYS)** |
+| Timestamp precision | ✅ Millisecond | ✅ Millisecond | ❌ **5-minute intervals (ALWAYS)** |
+| Timing attacks | ❌ Vulnerable | ❌ Vulnerable | ✅ **Mitigated (0-5s jitter - ALWAYS)** |
+| Social graph exposure | 🔴 Full | 🟢 Recipient-only | 🟢 **Recipient-only (ALWAYS)** |
 
 **Envelope Structure:**
 ```
@@ -276,8 +280,9 @@ $$ LANGUAGE plpgsql IMMUTABLE;
 
 **Comparison:**
 - **WhatsApp:** Server sees full social graph (poor)
-- **Signal:** Sealed sender optional, no size padding (good)
-- **Convro:** Sealed sender default + 64KB padding (best)
+- **Signal Standard:** Server sees full social graph (moderate)
+- **Signal Sealed (optional):** Sender hidden, but no size padding (good)
+- **Convro (STANDARD):** Sealed sender ALWAYS + 64KB padding ALWAYS (best-in-class)
 
 **Test Case:**
 ```sql
@@ -681,5 +686,5 @@ Insert new message + queue entry: 4.5ms ✅
 ---
 
 **Last Updated:** 2026-01-13
-**Schema Version:** 1.1 (Conversations + Sealed Sender)
+**Schema Version:** 1.2 (Sealed Sender STANDARD - Privacy-First)
 **Status:** ✅ Production-Ready

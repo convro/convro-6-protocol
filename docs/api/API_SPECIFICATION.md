@@ -1,6 +1,6 @@
-# Convro API Specification v1.1
+# Convro API Specification v1.2
 
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Base URL:** `https://api.convro.app/v1`
 **Protocol:** REST + WebSocket
 **Authentication:** JWT (Bearer token)
@@ -14,15 +14,14 @@
 2. [User Management](#2-user-management)
 3. [Device Management](#3-device-management)
 4. [Prekey Operations](#4-prekey-operations)
-5. [Messaging](#5-messaging)
+5. [Messaging (Sealed Sender - DEFAULT)](#5-messaging)
 6. [Conversations](#6-conversations)
-7. [Sealed Sender Messages](#7-sealed-sender-messages)
-8. [Contacts](#8-contacts)
-9. [Presence](#9-presence)
-10. [WebSocket Protocol](#10-websocket-protocol)
-11. [Error Codes](#11-error-codes)
-12. [Rate Limiting](#12-rate-limiting)
-13. [Security](#13-security)
+7. [Contacts](#7-contacts)
+8. [Presence](#8-presence)
+9. [WebSocket Protocol](#9-websocket-protocol)
+10. [Error Codes](#10-error-codes)
+11. [Rate Limiting](#11-rate-limiting)
+12. [Security](#12-security)
 
 ---
 
@@ -470,9 +469,18 @@ Authorization: Bearer {access_token}
 
 ## 5. Messaging
 
-### 5.1 Send Message
+**⚠️ IMPORTANT - Default Privacy Mode:**
+- **Convro uses Sealed Sender as STANDARD** (not optional)
+- Server NEVER sees sender identity (best-in-class privacy)
+- All messages are 64KB (hides content length)
+- Timestamps obfuscated to 5-minute intervals
+- Legacy standard mode available for compatibility only
 
-Sends encrypted message (handshake offer, accept, or encrypted message).
+---
+
+### 5.1 Send Message (Sealed Sender - DEFAULT)
+
+Sends sealed sender message where sender identity is hidden from server.
 
 **Endpoint:** `POST /messages`
 
@@ -485,43 +493,43 @@ Authorization: Bearer {access_token}
 ```json
 {
   "to_convro_number": "+99 654 321",
-  "message_type": "encrypted_message",
-  "session_id": "abcdef1234567890...",
-  "encrypted_blob": "base64_encrypted_data_here...",
-  "metadata": {
-    "content_type": "text",
-    "size_bytes": 1024
-  }
+  "encrypted_envelope": "base64_encoded_64kb_envelope_here..."
 }
 ```
 
-**Message Types:**
-- `handshake_offer`: Initial handshake offer
-- `handshake_accept`: Handshake accept response
-- `encrypted_message`: Regular encrypted message
+**Envelope Format (STANDARD):**
+- Total size: **Exactly 64KB (65536 bytes)** - ALWAYS
+- Structure: `[4-byte length prefix][actual encrypted data][zero padding]`
+- Encryption: AEAD (AES-256-GCM or ChaCha20-Poly1305)
+- Contains: `from_user_id` + `message_content` + `timestamp` (all encrypted)
+- Sender identity encrypted INSIDE envelope (server cannot see)
 
 **Response:** `201 Created`
 ```json
 {
-  "message_id": "aa0e8400-e29b-41d4-a716-446655440007",
-  "from_convro_number": "+99 123 456",
-  "to_convro_number": "+99 654 321",
-  "message_type": "encrypted_message",
-  "created_at": "2026-01-12T11:05:00Z",
-  "delivery_status": "pending"
+  "message_id": "bb0e8400-e29b-41d4-a716-446655440009",
+  "delivery_status": "pending",
+  "created_at": "2026-01-12T11:05:00Z"
 }
 ```
 
+**Notes:**
+- `created_at` is **obfuscated** (rounded to 5-minute intervals)
+- Server applies **timing jitter** (0-5 second delay) before delivery
+- Sender identity is **NOT** stored in database
+- **This is the STANDARD way to send messages in Convro**
+
 **Errors:**
-- `404` - Recipient not found
-- `413` - Message too large (max 10MB)
+- `400` - Invalid base64 encoding or envelope not exactly 64KB
+- `404` - Recipient Convro Number not found
+- `413` - Payload exceeds 64KB limit
 - `429` - Rate limit exceeded
 
 ---
 
 ### 5.2 Fetch Inbox
 
-Retrieves undelivered messages for authenticated user.
+Retrieves pending sealed sender messages for authenticated user.
 
 **Endpoint:** `GET /messages/inbox`
 
@@ -539,26 +547,42 @@ Authorization: Bearer {access_token}
 {
   "messages": [
     {
-      "message_id": "aa0e8400-e29b-41d4-a716-446655440007",
-      "from_convro_number": "+99 654 321",
-      "to_convro_number": "+99 123 456",
-      "message_type": "encrypted_message",
-      "session_id": "abcdef1234567890...",
-      "encrypted_blob": "base64_encrypted_data...",
-      "created_at": "2026-01-12T11:05:00Z"
+      "message_id": "bb0e8400-e29b-41d4-a716-446655440009",
+      "encrypted_envelope": "base64_encoded_64kb_envelope...",
+      "created_at": "2026-01-12T11:05:00Z",
+      "delivery_status": "pending"
+    },
+    {
+      "message_id": "cc0e8400-e29b-41d4-a716-446655440010",
+      "encrypted_envelope": "base64_encoded_64kb_envelope...",
+      "created_at": "2026-01-12T11:00:00Z",
+      "delivery_status": "pending"
     }
   ],
-  "total": 1,
+  "total": 2,
   "limit": 50,
   "offset": 0
 }
 ```
 
+**Client-Side Processing:**
+1. Download encrypted envelopes
+2. Try decrypting with all active session keys
+3. Extract sender identity from decrypted envelope
+4. Verify AEAD authentication tag
+5. Mark as delivered after successful decryption
+
+**Notes:**
+- Server has **no knowledge** of message sender (standard behavior)
+- Client must try multiple session keys to find correct one
+- Failed decryption = message not for this user (or corrupted)
+- Only `pending` messages are returned
+
 ---
 
 ### 5.3 Mark Message as Delivered
 
-Acknowledges message delivery (removes from inbox).
+Acknowledges receipt of message (removes from inbox).
 
 **Endpoint:** `POST /messages/{message_id}/delivered`
 
@@ -567,48 +591,64 @@ Acknowledges message delivery (removes from inbox).
 Authorization: Bearer {access_token}
 ```
 
+**Path Parameters:**
+- `message_id`: UUID of the message
+
 **Response:** `204 No Content`
 
 **Errors:**
 - `404` - Message not found or already delivered
+- `403` - Message does not belong to authenticated user
+
+**Notes:**
+- Once marked as delivered, message cannot be re-fetched
+- Server automatically deletes delivered messages after 30 days
+- Undelivered messages expire after 30 days and are deleted
 
 ---
 
-### 5.4 Get Message History
+### 5.4 Privacy Guarantees (STANDARD)
 
-Retrieves message history for a session (for debugging/admin).
+**What the Server Knows:**
+- ✅ Recipient Convro Number (for routing)
+- ✅ Approximate timestamp (5-minute intervals)
+- ✅ Message count per recipient
 
-**Endpoint:** `GET /messages/history?session_id={session_id}`
+**What the Server Does NOT Know:**
+- ❌ Sender identity (encrypted inside envelope)
+- ❌ Actual message size (always 64KB)
+- ❌ Precise timestamp (obfuscated to 5-min buckets)
+- ❌ Message content (E2EE)
+- ❌ Relationship between sender and recipient
 
-**Headers:**
-```
-Authorization: Bearer {access_token}
-```
+**Comparison Table:**
 
-**Query Parameters:**
-- `session_id` (required): Session ID (hex string)
-- `limit` (optional): Max messages (default: 50)
-- `offset` (optional): Pagination offset
+| Feature | WhatsApp | Signal | **Convro (STANDARD)** |
+|---------|----------|--------|----------------------|
+| Server sees sender | ✅ Yes | ❌ No (optional) | ❌ **No (always)** |
+| Server sees recipient | ✅ Yes | ✅ Yes | ✅ Yes (routing only) |
+| Message size visible | ✅ Yes | ✅ Yes | ❌ **No (64KB always)** |
+| Timestamp precision | ✅ Millisecond | ✅ Millisecond | ❌ **5-minute intervals** |
+| Timing jitter | ❌ No | ❌ No | ✅ **0-5s random delay** |
 
-**Response:** `200 OK`
-```json
-{
-  "session_id": "abcdef1234567890...",
-  "messages": [
-    {
-      "message_id": "aa0e8400-e29b-41d4-a716-446655440007",
-      "from_convro_number": "+99 123 456",
-      "to_convro_number": "+99 654 321",
-      "message_type": "encrypted_message",
-      "created_at": "2026-01-12T11:05:00Z",
-      "delivered_at": "2026-01-12T11:05:30Z"
-    }
-  ],
-  "total": 15,
-  "limit": 50,
-  "offset": 0
-}
-```
+**Convro = Best-in-class privacy by default**
+
+---
+
+### 5.5 Legacy Standard Mode (Compatibility Only)
+
+**⚠️ NOT RECOMMENDED** - Use only for backwards compatibility with older clients.
+
+For legacy clients that cannot handle 64KB envelopes, a compatibility mode exists at:
+- `POST /messages/legacy` (standard messages with `from_user_id` visible)
+- `GET /messages/legacy/inbox` (fetch legacy messages)
+
+**Privacy degradation in legacy mode:**
+- ❌ Server sees sender identity
+- ❌ Variable message sizes leak content length
+- ❌ Millisecond-precision timestamps enable correlation
+
+**Recommendation:** Migrate all clients to sealed sender (standard) as soon as possible
 
 ---
 
@@ -678,185 +718,9 @@ Authorization: Bearer {access_token}
 
 ---
 
-## 7. Sealed Sender Messages
+## 7. Contacts
 
-**Privacy Mode:** Sealed sender messages hide sender identity from the server for maximum privacy.
-
-**Key Features:**
-- ✅ Sender identity encrypted inside envelope (server only sees recipient)
-- ✅ Fixed 64KB message size (hides actual content length)
-- ✅ Timestamp obfuscation (rounded to 5-minute intervals)
-- ✅ Timing jitter (random 0-5 second delivery delay)
-
-**Comparison:**
-
-| Feature | Standard Messages | Sealed Sender | Signal |
-|---------|------------------|---------------|--------|
-| Server sees sender | ✅ Yes | ❌ No | ❌ No (optional) |
-| Server sees recipient | ✅ Yes | ✅ Yes (routing only) | ✅ Yes |
-| Message size visible | ✅ Yes | ❌ No (64KB padding) | ✅ Yes |
-| Timestamp precision | ✅ Millisecond | ❌ 5-minute intervals | ✅ Millisecond |
-
----
-
-### 7.1 Send Sealed Message
-
-Sends a sealed sender message where the sender identity is hidden from the server.
-
-**Endpoint:** `POST /messages/sealed`
-
-**Headers:**
-```
-Authorization: Bearer {access_token}
-```
-
-**Request:**
-```json
-{
-  "to_convro_number": "+99 654 321",
-  "encrypted_envelope": "base64_encoded_64kb_envelope_here..."
-}
-```
-
-**Envelope Format:**
-- Total size: **Exactly 64KB (65536 bytes)**
-- Structure: `[4-byte length prefix][actual encrypted data][zero padding]`
-- Encryption: AEAD (AES-256-GCM or ChaCha20-Poly1305)
-- Contains: `from_user_id` + `message_content` + `timestamp` (all encrypted)
-
-**Response:** `201 Created`
-```json
-{
-  "message_id": "bb0e8400-e29b-41d4-a716-446655440009",
-  "delivery_status": "pending",
-  "created_at": "2026-01-12T11:05:00Z"
-}
-```
-
-**Notes:**
-- `created_at` is **obfuscated** (rounded to 5-minute intervals)
-- Server applies **timing jitter** (0-5 second delay) before delivery
-- Sender identity is **NOT** stored in database
-- Message is routed to recipient's sealed inbox
-
-**Errors:**
-- `400` - Invalid base64 encoding or envelope not exactly 64KB
-- `404` - Recipient Convro Number not found
-- `413` - Payload exceeds 64KB limit
-- `429` - Rate limit exceeded
-
----
-
-### 7.2 Fetch Sealed Inbox
-
-Retrieves pending sealed sender messages for authenticated user.
-
-**Endpoint:** `GET /messages/sealed/inbox`
-
-**Headers:**
-```
-Authorization: Bearer {access_token}
-```
-
-**Query Parameters:**
-- `limit` (optional): Max messages to return (default: 50, max: 100)
-- `offset` (optional): Pagination offset (default: 0)
-
-**Response:** `200 OK`
-```json
-{
-  "messages": [
-    {
-      "message_id": "bb0e8400-e29b-41d4-a716-446655440009",
-      "encrypted_envelope": "base64_encoded_64kb_envelope...",
-      "created_at": "2026-01-12T11:05:00Z",
-      "delivery_status": "pending"
-    },
-    {
-      "message_id": "cc0e8400-e29b-41d4-a716-446655440010",
-      "encrypted_envelope": "base64_encoded_64kb_envelope...",
-      "created_at": "2026-01-12T11:00:00Z",
-      "delivery_status": "pending"
-    }
-  ],
-  "total": 2,
-  "limit": 50,
-  "offset": 0
-}
-```
-
-**Client-Side Processing:**
-1. Download encrypted envelopes
-2. Try decrypting with all active session keys
-3. Extract sender identity from decrypted envelope
-4. Verify AEAD authentication tag
-5. Mark as delivered after successful decryption
-
-**Notes:**
-- Server has **no knowledge** of message sender
-- Client must try multiple session keys to find correct one
-- Failed decryption = message not for this user (or corrupted)
-- Only `pending` messages are returned
-
----
-
-### 7.3 Mark Sealed Message as Delivered
-
-Acknowledges receipt of sealed message (removes from inbox).
-
-**Endpoint:** `POST /messages/sealed/{message_id}/delivered`
-
-**Headers:**
-```
-Authorization: Bearer {access_token}
-```
-
-**Path Parameters:**
-- `message_id`: UUID of the sealed message
-
-**Response:** `204 No Content`
-
-**Errors:**
-- `404` - Message not found or already delivered
-- `403` - Message does not belong to authenticated user
-
-**Notes:**
-- Once marked as delivered, message cannot be re-fetched
-- Server automatically deletes delivered messages after 30 days
-- Undelivered messages expire after 30 days and are deleted
-
----
-
-### 7.4 Privacy Guarantees
-
-**What the Server Knows (Sealed Sender):**
-- ✅ Recipient Convro Number (for routing)
-- ✅ Approximate timestamp (5-minute intervals)
-- ✅ Message count per recipient
-
-**What the Server Does NOT Know:**
-- ❌ Sender identity
-- ❌ Actual message size (always 64KB)
-- ❌ Precise timestamp (obfuscated)
-- ❌ Message content (encrypted)
-- ❌ Relationship between sender and recipient
-
-**Threat Model:**
-- **Malicious Server:** Cannot build social graph from sealed sender messages
-- **Network Observer:** Cannot infer message size (all messages are 64KB)
-- **Timing Attacks:** Mitigated by 5-minute timestamp rounding + random jitter
-- **Traffic Analysis:** Partially mitigated (size hidden, timing obfuscated)
-
-**Limitations:**
-- Recipient identity must be visible for routing
-- Global passive adversary can still perform traffic correlation
-- Recommend using Tor/VPN for network-level anonymity
-
----
-
-## 8. Contacts
-
-### 8.1 Add Contact
+### 7.1 Add Contact
 
 Adds user to contact list (by Convro Number).
 
@@ -894,7 +758,7 @@ Authorization: Bearer {access_token}
 
 ---
 
-### 8.2 List Contacts
+### 7.2 List Contacts
 
 Returns user's contact list.
 
@@ -923,7 +787,7 @@ Authorization: Bearer {access_token}
 
 ---
 
-### 8.3 Verify Contact
+### 7.3 Verify Contact
 
 Marks contact as verified (after out-of-band fingerprint check).
 
@@ -945,7 +809,7 @@ Authorization: Bearer {access_token}
 
 ---
 
-### 8.4 Remove Contact
+### 7.4 Remove Contact
 
 Removes contact from list.
 
@@ -960,9 +824,9 @@ Authorization: Bearer {access_token}
 
 ---
 
-## 9. Presence
+## 8. Presence
 
-### 9.1 Update Presence
+### 8.1 Update Presence
 
 Updates user's online/offline status.
 
@@ -997,7 +861,7 @@ Authorization: Bearer {access_token}
 
 ---
 
-### 9.2 Get Contact Presence
+### 8.2 Get Contact Presence
 
 Returns presence status for contacts.
 
@@ -1031,9 +895,9 @@ Authorization: Bearer {access_token}
 
 ---
 
-## 10. WebSocket Protocol
+## 9. WebSocket Protocol
 
-### 10.1 Connection
+### 9.1 Connection
 
 **URL:** `wss://ws.convro.app/v1/stream`
 
@@ -1064,7 +928,7 @@ Authorization: Bearer {access_token}
 
 ---
 
-### 10.2 Heartbeat
+### 9.2 Heartbeat
 
 Client must send heartbeat every 30 seconds to keep connection alive.
 
@@ -1088,7 +952,7 @@ Client must send heartbeat every 30 seconds to keep connection alive.
 
 ---
 
-### 10.3 Message Delivery
+### 9.3 Message Delivery
 
 **Server → Client** (new message):
 ```json
@@ -1114,7 +978,7 @@ Client must send heartbeat every 30 seconds to keep connection alive.
 
 ---
 
-### 10.4 Typing Indicator
+### 9.4 Typing Indicator
 
 **Client → Server:**
 ```json
@@ -1138,7 +1002,7 @@ Client must send heartbeat every 30 seconds to keep connection alive.
 
 ---
 
-### 10.5 Presence Updates
+### 9.5 Presence Updates
 
 **Server → Client** (contact came online):
 ```json
@@ -1152,7 +1016,7 @@ Client must send heartbeat every 30 seconds to keep connection alive.
 
 ---
 
-### 10.6 Error Handling
+### 9.6 Error Handling
 
 **Server → Client:**
 ```json
@@ -1166,7 +1030,7 @@ Client must send heartbeat every 30 seconds to keep connection alive.
 
 ---
 
-### 10.7 Disconnection
+### 9.7 Disconnection
 
 **Client → Server:**
 ```json
@@ -1188,7 +1052,7 @@ Server then closes WebSocket connection.
 
 ---
 
-## 11. Error Codes
+## 10. Error Codes
 
 ### HTTP Status Codes
 
@@ -1251,9 +1115,9 @@ Server then closes WebSocket connection.
 
 ---
 
-## 12. Rate Limiting
+## 11. Rate Limiting
 
-### 12.1 Rate Limit Rules
+### 11.1 Rate Limit Rules
 
 | Endpoint | Limit | Window | Scope |
 |----------|-------|--------|-------|
@@ -1268,7 +1132,7 @@ Server then closes WebSocket connection.
 
 ---
 
-### 12.2 Rate Limit Headers
+### 11.2 Rate Limit Headers
 
 **Response Headers:**
 ```
@@ -1295,9 +1159,9 @@ Retry-After: 45
 
 ---
 
-## 13. Security
+## 12. Security
 
-### 13.1 TLS Requirements
+### 12.1 TLS Requirements
 
 - **Minimum TLS version:** TLS 1.3
 - **Cipher suites:** Only AEAD ciphers (ChaCha20-Poly1305, AES-256-GCM)
@@ -1305,7 +1169,7 @@ Retry-After: 45
 
 ---
 
-### 13.2 JWT Token Format
+### 12.2 JWT Token Format
 
 **Access Token Payload:**
 ```json
@@ -1326,7 +1190,7 @@ Retry-After: 45
 
 ---
 
-### 13.3 Request Signing (Optional)
+### 12.3 Request Signing (Optional)
 
 For high-security endpoints, requests can be signed with HMAC-SHA256.
 
@@ -1346,7 +1210,7 @@ signature = HMAC-SHA256(
 
 ---
 
-### 13.4 CORS Policy
+### 12.4 CORS Policy
 
 **Allowed Origins:**
 - `https://app.convro.app` (web app)
@@ -1363,7 +1227,7 @@ signature = HMAC-SHA256(
 
 ---
 
-### 13.5 Content Security Policy
+### 12.5 Content Security Policy
 
 **Recommended CSP Header:**
 ```
@@ -1378,7 +1242,7 @@ Content-Security-Policy: default-src 'self';
 
 ## 12. Examples
 
-### 12.1 Complete Handshake Flow
+### 11.1 Complete Handshake Flow
 
 **Alice initiates handshake with Bob:**
 
@@ -1484,7 +1348,7 @@ let verified = try handshake_verify_accept(
 
 ---
 
-### 12.2 Sending Encrypted Message
+### 11.2 Sending Encrypted Message
 
 **Alice sends message to Bob:**
 
@@ -1548,6 +1412,7 @@ Interactive docs:
 |---------|------|---------|
 | 1.0.0 | 2026-01-12 | Initial API specification |
 | 1.1.0 | 2026-01-13 | Added Conversations (§6) + Sealed Sender Messages (§7) |
+| 1.2.0 | 2026-01-13 | **BREAKING:** Sealed sender is now STANDARD (not optional). Default `/messages` endpoint uses sealed sender. Privacy-first by default. |
 
 ---
 
