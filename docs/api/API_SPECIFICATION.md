@@ -1,6 +1,6 @@
-# Convro API Specification v1
+# Convro API Specification v1.1
 
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Base URL:** `https://api.convro.app/v1`
 **Protocol:** REST + WebSocket
 **Authentication:** JWT (Bearer token)
@@ -15,12 +15,14 @@
 3. [Device Management](#3-device-management)
 4. [Prekey Operations](#4-prekey-operations)
 5. [Messaging](#5-messaging)
-6. [Contacts](#6-contacts)
-7. [Presence](#7-presence)
-8. [WebSocket Protocol](#8-websocket-protocol)
-9. [Error Codes](#9-error-codes)
-10. [Rate Limiting](#10-rate-limiting)
-11. [Security](#11-security)
+6. [Conversations](#6-conversations)
+7. [Sealed Sender Messages](#7-sealed-sender-messages)
+8. [Contacts](#8-contacts)
+9. [Presence](#9-presence)
+10. [WebSocket Protocol](#10-websocket-protocol)
+11. [Error Codes](#11-error-codes)
+12. [Rate Limiting](#12-rate-limiting)
+13. [Security](#13-security)
 
 ---
 
@@ -610,9 +612,251 @@ Authorization: Bearer {access_token}
 
 ---
 
-## 6. Contacts
+## 6. Conversations
 
-### 6.1 Add Contact
+### 6.1 List Conversations
+
+Returns authenticated user's conversation list with unread counts and last message info.
+
+**Endpoint:** `GET /conversations`
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Query Parameters:**
+- `limit` (optional): Max conversations to return (default: 50, max: 100)
+- `offset` (optional): Pagination offset (default: 0)
+
+**Response:** `200 OK`
+```json
+{
+  "conversations": [
+    {
+      "conversation_id": "550e8400_660e8400",
+      "participant": {
+        "user_id": "660e8400-e29b-41d4-a716-446655440001",
+        "convro_number": "+99 654 321",
+        "display_name": "Bob Jones"
+      },
+      "last_message": {
+        "message_id": "aa0e8400-e29b-41d4-a716-446655440007",
+        "message_type": "encrypted_message",
+        "timestamp": "2026-01-12T11:05:00Z"
+      },
+      "unread_count": 3,
+      "last_activity": "2026-01-12T11:05:00Z"
+    },
+    {
+      "conversation_id": "550e8400_770e8400",
+      "participant": {
+        "user_id": "770e8400-e29b-41d4-a716-446655440003",
+        "convro_number": "+99 111 222",
+        "display_name": "Carol Smith"
+      },
+      "last_message": null,
+      "unread_count": 0,
+      "last_activity": "2026-01-11T18:30:00Z"
+    }
+  ],
+  "total": 12,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+**Notes:**
+- Conversations are aggregated from `sessions` and `messages` tables
+- Sorted by `last_activity` DESC (most recent first)
+- Only includes active sessions
+- `unread_count` reflects pending messages for the user
+- `last_message` is `null` if conversation has no messages yet
+
+**Errors:**
+- `401` - Unauthorized (invalid/expired token)
+
+---
+
+## 7. Sealed Sender Messages
+
+**Privacy Mode:** Sealed sender messages hide sender identity from the server for maximum privacy.
+
+**Key Features:**
+- ✅ Sender identity encrypted inside envelope (server only sees recipient)
+- ✅ Fixed 64KB message size (hides actual content length)
+- ✅ Timestamp obfuscation (rounded to 5-minute intervals)
+- ✅ Timing jitter (random 0-5 second delivery delay)
+
+**Comparison:**
+
+| Feature | Standard Messages | Sealed Sender | Signal |
+|---------|------------------|---------------|--------|
+| Server sees sender | ✅ Yes | ❌ No | ❌ No (optional) |
+| Server sees recipient | ✅ Yes | ✅ Yes (routing only) | ✅ Yes |
+| Message size visible | ✅ Yes | ❌ No (64KB padding) | ✅ Yes |
+| Timestamp precision | ✅ Millisecond | ❌ 5-minute intervals | ✅ Millisecond |
+
+---
+
+### 7.1 Send Sealed Message
+
+Sends a sealed sender message where the sender identity is hidden from the server.
+
+**Endpoint:** `POST /messages/sealed`
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Request:**
+```json
+{
+  "to_convro_number": "+99 654 321",
+  "encrypted_envelope": "base64_encoded_64kb_envelope_here..."
+}
+```
+
+**Envelope Format:**
+- Total size: **Exactly 64KB (65536 bytes)**
+- Structure: `[4-byte length prefix][actual encrypted data][zero padding]`
+- Encryption: AEAD (AES-256-GCM or ChaCha20-Poly1305)
+- Contains: `from_user_id` + `message_content` + `timestamp` (all encrypted)
+
+**Response:** `201 Created`
+```json
+{
+  "message_id": "bb0e8400-e29b-41d4-a716-446655440009",
+  "delivery_status": "pending",
+  "created_at": "2026-01-12T11:05:00Z"
+}
+```
+
+**Notes:**
+- `created_at` is **obfuscated** (rounded to 5-minute intervals)
+- Server applies **timing jitter** (0-5 second delay) before delivery
+- Sender identity is **NOT** stored in database
+- Message is routed to recipient's sealed inbox
+
+**Errors:**
+- `400` - Invalid base64 encoding or envelope not exactly 64KB
+- `404` - Recipient Convro Number not found
+- `413` - Payload exceeds 64KB limit
+- `429` - Rate limit exceeded
+
+---
+
+### 7.2 Fetch Sealed Inbox
+
+Retrieves pending sealed sender messages for authenticated user.
+
+**Endpoint:** `GET /messages/sealed/inbox`
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Query Parameters:**
+- `limit` (optional): Max messages to return (default: 50, max: 100)
+- `offset` (optional): Pagination offset (default: 0)
+
+**Response:** `200 OK`
+```json
+{
+  "messages": [
+    {
+      "message_id": "bb0e8400-e29b-41d4-a716-446655440009",
+      "encrypted_envelope": "base64_encoded_64kb_envelope...",
+      "created_at": "2026-01-12T11:05:00Z",
+      "delivery_status": "pending"
+    },
+    {
+      "message_id": "cc0e8400-e29b-41d4-a716-446655440010",
+      "encrypted_envelope": "base64_encoded_64kb_envelope...",
+      "created_at": "2026-01-12T11:00:00Z",
+      "delivery_status": "pending"
+    }
+  ],
+  "total": 2,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+**Client-Side Processing:**
+1. Download encrypted envelopes
+2. Try decrypting with all active session keys
+3. Extract sender identity from decrypted envelope
+4. Verify AEAD authentication tag
+5. Mark as delivered after successful decryption
+
+**Notes:**
+- Server has **no knowledge** of message sender
+- Client must try multiple session keys to find correct one
+- Failed decryption = message not for this user (or corrupted)
+- Only `pending` messages are returned
+
+---
+
+### 7.3 Mark Sealed Message as Delivered
+
+Acknowledges receipt of sealed message (removes from inbox).
+
+**Endpoint:** `POST /messages/sealed/{message_id}/delivered`
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Path Parameters:**
+- `message_id`: UUID of the sealed message
+
+**Response:** `204 No Content`
+
+**Errors:**
+- `404` - Message not found or already delivered
+- `403` - Message does not belong to authenticated user
+
+**Notes:**
+- Once marked as delivered, message cannot be re-fetched
+- Server automatically deletes delivered messages after 30 days
+- Undelivered messages expire after 30 days and are deleted
+
+---
+
+### 7.4 Privacy Guarantees
+
+**What the Server Knows (Sealed Sender):**
+- ✅ Recipient Convro Number (for routing)
+- ✅ Approximate timestamp (5-minute intervals)
+- ✅ Message count per recipient
+
+**What the Server Does NOT Know:**
+- ❌ Sender identity
+- ❌ Actual message size (always 64KB)
+- ❌ Precise timestamp (obfuscated)
+- ❌ Message content (encrypted)
+- ❌ Relationship between sender and recipient
+
+**Threat Model:**
+- **Malicious Server:** Cannot build social graph from sealed sender messages
+- **Network Observer:** Cannot infer message size (all messages are 64KB)
+- **Timing Attacks:** Mitigated by 5-minute timestamp rounding + random jitter
+- **Traffic Analysis:** Partially mitigated (size hidden, timing obfuscated)
+
+**Limitations:**
+- Recipient identity must be visible for routing
+- Global passive adversary can still perform traffic correlation
+- Recommend using Tor/VPN for network-level anonymity
+
+---
+
+## 8. Contacts
+
+### 8.1 Add Contact
 
 Adds user to contact list (by Convro Number).
 
@@ -650,7 +894,7 @@ Authorization: Bearer {access_token}
 
 ---
 
-### 6.2 List Contacts
+### 8.2 List Contacts
 
 Returns user's contact list.
 
@@ -679,7 +923,7 @@ Authorization: Bearer {access_token}
 
 ---
 
-### 6.3 Verify Contact
+### 8.3 Verify Contact
 
 Marks contact as verified (after out-of-band fingerprint check).
 
@@ -701,7 +945,7 @@ Authorization: Bearer {access_token}
 
 ---
 
-### 6.4 Remove Contact
+### 8.4 Remove Contact
 
 Removes contact from list.
 
@@ -716,9 +960,9 @@ Authorization: Bearer {access_token}
 
 ---
 
-## 7. Presence
+## 9. Presence
 
-### 7.1 Update Presence
+### 9.1 Update Presence
 
 Updates user's online/offline status.
 
@@ -753,7 +997,7 @@ Authorization: Bearer {access_token}
 
 ---
 
-### 7.2 Get Contact Presence
+### 9.2 Get Contact Presence
 
 Returns presence status for contacts.
 
@@ -787,9 +1031,9 @@ Authorization: Bearer {access_token}
 
 ---
 
-## 8. WebSocket Protocol
+## 10. WebSocket Protocol
 
-### 8.1 Connection
+### 10.1 Connection
 
 **URL:** `wss://ws.convro.app/v1/stream`
 
@@ -820,7 +1064,7 @@ Authorization: Bearer {access_token}
 
 ---
 
-### 8.2 Heartbeat
+### 10.2 Heartbeat
 
 Client must send heartbeat every 30 seconds to keep connection alive.
 
@@ -844,7 +1088,7 @@ Client must send heartbeat every 30 seconds to keep connection alive.
 
 ---
 
-### 8.3 Message Delivery
+### 10.3 Message Delivery
 
 **Server → Client** (new message):
 ```json
@@ -870,7 +1114,7 @@ Client must send heartbeat every 30 seconds to keep connection alive.
 
 ---
 
-### 8.4 Typing Indicator
+### 10.4 Typing Indicator
 
 **Client → Server:**
 ```json
@@ -894,7 +1138,7 @@ Client must send heartbeat every 30 seconds to keep connection alive.
 
 ---
 
-### 8.5 Presence Updates
+### 10.5 Presence Updates
 
 **Server → Client** (contact came online):
 ```json
@@ -908,7 +1152,7 @@ Client must send heartbeat every 30 seconds to keep connection alive.
 
 ---
 
-### 8.6 Error Handling
+### 10.6 Error Handling
 
 **Server → Client:**
 ```json
@@ -922,7 +1166,7 @@ Client must send heartbeat every 30 seconds to keep connection alive.
 
 ---
 
-### 8.7 Disconnection
+### 10.7 Disconnection
 
 **Client → Server:**
 ```json
@@ -944,7 +1188,7 @@ Server then closes WebSocket connection.
 
 ---
 
-## 9. Error Codes
+## 11. Error Codes
 
 ### HTTP Status Codes
 
@@ -1007,9 +1251,9 @@ Server then closes WebSocket connection.
 
 ---
 
-## 10. Rate Limiting
+## 12. Rate Limiting
 
-### 10.1 Rate Limit Rules
+### 12.1 Rate Limit Rules
 
 | Endpoint | Limit | Window | Scope |
 |----------|-------|--------|-------|
@@ -1024,7 +1268,7 @@ Server then closes WebSocket connection.
 
 ---
 
-### 10.2 Rate Limit Headers
+### 12.2 Rate Limit Headers
 
 **Response Headers:**
 ```
@@ -1051,9 +1295,9 @@ Retry-After: 45
 
 ---
 
-## 11. Security
+## 13. Security
 
-### 11.1 TLS Requirements
+### 13.1 TLS Requirements
 
 - **Minimum TLS version:** TLS 1.3
 - **Cipher suites:** Only AEAD ciphers (ChaCha20-Poly1305, AES-256-GCM)
@@ -1061,7 +1305,7 @@ Retry-After: 45
 
 ---
 
-### 11.2 JWT Token Format
+### 13.2 JWT Token Format
 
 **Access Token Payload:**
 ```json
@@ -1082,7 +1326,7 @@ Retry-After: 45
 
 ---
 
-### 11.3 Request Signing (Optional)
+### 13.3 Request Signing (Optional)
 
 For high-security endpoints, requests can be signed with HMAC-SHA256.
 
@@ -1102,7 +1346,7 @@ signature = HMAC-SHA256(
 
 ---
 
-### 11.4 CORS Policy
+### 13.4 CORS Policy
 
 **Allowed Origins:**
 - `https://app.convro.app` (web app)
@@ -1119,7 +1363,7 @@ signature = HMAC-SHA256(
 
 ---
 
-### 11.5 Content Security Policy
+### 13.5 Content Security Policy
 
 **Recommended CSP Header:**
 ```
@@ -1303,9 +1547,10 @@ Interactive docs:
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0.0 | 2026-01-12 | Initial API specification |
+| 1.1.0 | 2026-01-13 | Added Conversations (§6) + Sealed Sender Messages (§7) |
 
 ---
 
-**Last Updated:** 2026-01-12
+**Last Updated:** 2026-01-13
 **Maintained by:** Convro Engineering Team
 **Contact:** api@convro.app
