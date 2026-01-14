@@ -83,10 +83,13 @@ class DeviceIdentityManager: ObservableObject {
         // Save to Keychain
         try await KeychainManager.shared.saveSignedPrekey(newSPK)
 
-        // TODO: Upload to server via APIManager when ready
-        // PUT /prekeys/signed
+        // Upload to server (with empty OTP array for rotation)
+        try await APIManager.shared.uploadPrekeys(
+            signedPrekey: newSPK,
+            oneTimePrekeys: []
+        )
 
-        print("✅ Signed prekey rotated")
+        print("✅ Signed prekey rotated and uploaded")
     }
 
     /// Generate and upload new one-time prekeys (replenishment)
@@ -97,10 +100,16 @@ class DeviceIdentityManager: ObservableObject {
 
         let otps = try (0..<count).map { _ in try C6PManager.shared.generateOneTimePrekey() }
 
-        // TODO: Upload to server via APIManager when ready
-        // POST /prekeys/one-time
+        // Load current SPK from Keychain
+        let currentSPK = try await KeychainManager.shared.loadSignedPrekey()
 
-        print("✅ Generated \(count) new one-time prekeys")
+        // Upload OTPs with current SPK to server
+        try await APIManager.shared.uploadPrekeys(
+            signedPrekey: currentSPK,
+            oneTimePrekeys: otps
+        )
+
+        print("✅ Generated and uploaded \(count) new one-time prekeys")
     }
 
     /// Delete device identity (logout/unregister)
