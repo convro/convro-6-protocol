@@ -297,6 +297,29 @@ class APIManager: ObservableObject {
         return try await client.execute(request)
     }
 
+    // MARK: - Push Notifications (2 endpoints)
+
+    /// POST /push/register - Register APNs device token
+    func registerPushToken(deviceToken: String) async throws {
+        let body = RegisterPushTokenRequest(
+            deviceToken: deviceToken,
+            platform: "ios"
+        )
+
+        let request = APIRequest(endpoint: .registerPushToken, body: body)
+        try await client.executeVoid(request)
+    }
+
+    /// POST /push/unregister - Unregister APNs device token
+    func unregisterPushToken(deviceToken: String) async throws {
+        let body = UnregisterPushTokenRequest(
+            deviceToken: deviceToken
+        )
+
+        let request = APIRequest(endpoint: .unregisterPushToken, body: body)
+        try await client.executeVoid(request)
+    }
+
     // MARK: - Token Management
 
     private func loadTokens() async {
@@ -427,6 +450,15 @@ private struct VerifyContactRequest: Encodable {
 private struct UpdatePresenceRequest: Encodable {
     let status: String
     let wsConnectionId: String?
+}
+
+private struct RegisterPushTokenRequest: Encodable {
+    let deviceToken: String
+    let platform: String
+}
+
+private struct UnregisterPushTokenRequest: Encodable {
+    let deviceToken: String
 }
 
 // MARK: - Response Models

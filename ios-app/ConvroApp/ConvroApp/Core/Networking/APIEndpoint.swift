@@ -40,6 +40,10 @@ enum APIEndpoint {
     case updatePresence
     case getContactPresence
 
+    // Push Notifications
+    case registerPushToken
+    case unregisterPushToken
+
     // MARK: - Path
     var path: String {
         switch self {
@@ -72,6 +76,9 @@ enum APIEndpoint {
 
         case .updatePresence: return "/presence"
         case .getContactPresence: return "/presence"
+
+        case .registerPushToken: return "/push/register"
+        case .unregisterPushToken: return "/push/unregister"
         }
     }
 
@@ -81,7 +88,7 @@ enum APIEndpoint {
         case .register, .login, .refresh, .logout,
              .registerDevice, .uploadPrekeys, .sendMessage,
              .markDelivered, .addContact, .verifyContact,
-             .updatePresence:
+             .updatePresence, .registerPushToken, .unregisterPushToken:
             return .post
 
         case .getUserProfile, .listDevices, .fetchPrekeyBundle, .prekeyHealth,
