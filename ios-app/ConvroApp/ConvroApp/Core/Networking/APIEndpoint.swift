@@ -36,6 +36,10 @@ enum APIEndpoint {
     case verifyContact(UUID)
     case deleteContact(UUID)
 
+    // Presence
+    case updatePresence
+    case getContactPresence
+
     // MARK: - Path
     var path: String {
         switch self {
@@ -65,6 +69,9 @@ enum APIEndpoint {
         case .listContacts: return "/contacts"
         case .verifyContact(let id): return "/contacts/\(id)/verify"
         case .deleteContact(let id): return "/contacts/\(id)"
+
+        case .updatePresence: return "/presence"
+        case .getContactPresence: return "/presence"
         }
     }
 
@@ -73,11 +80,13 @@ enum APIEndpoint {
         switch self {
         case .register, .login, .refresh, .logout,
              .registerDevice, .uploadPrekeys, .sendMessage,
-             .markDelivered, .addContact, .verifyContact:
+             .markDelivered, .addContact, .verifyContact,
+             .updatePresence:
             return .post
 
         case .getUserProfile, .listDevices, .fetchPrekeyBundle, .prekeyHealth,
-             .fetchInbox, .listConversations, .listContacts:
+             .fetchInbox, .listConversations, .listContacts,
+             .getContactPresence:
             return .get
 
         case .updateUserProfile:

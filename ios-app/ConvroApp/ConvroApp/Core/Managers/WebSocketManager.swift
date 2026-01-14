@@ -12,6 +12,7 @@ class WebSocketManager: NSObject, ObservableObject {
     @Published var connectionState: ConnectionState = .disconnected
     @Published var incomingMessages = PassthroughSubject<InboxMessage, Never>()
     @Published var typingIndicators = PassthroughSubject<TypingIndicator, Never>()
+    @Published var presenceUpdates = PassthroughSubject<PresenceUpdate, Never>()
 
     private var client: WebSocketClient?
     private let url = URL(string: "wss://ws.convro.app/v1/stream")!
@@ -111,8 +112,11 @@ class WebSocketManager: NSObject, ObservableObject {
                 }
 
             case "presence":
-                // TODO: Handle presence updates
-                print("👤 Presence update received")
+                if let payload = message.payload {
+                    let presence = try decoder.decode(PresenceUpdate.self, from: payload)
+                    presenceUpdates.send(presence)
+                    print("👤 Presence update: \(presence.convroNumber) is \(presence.status)")
+                }
 
             case "pong":
                 // Heartbeat response
@@ -202,4 +206,11 @@ struct TypingIndicator: Codable {
 private struct TypingIndicatorPayload: Codable {
     let conversationId: UUID
     let isTyping: Bool
+}
+
+// MARK: - Presence Update
+struct PresenceUpdate: Codable {
+    let convroNumber: String
+    let status: String
+    let timestamp: Date
 }

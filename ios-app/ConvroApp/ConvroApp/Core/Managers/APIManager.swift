@@ -275,6 +275,28 @@ class APIManager: ObservableObject {
         try await client.executeVoid(request)
     }
 
+    // MARK: - Presence (2 endpoints)
+
+    /// POST /presence - Update user's presence status
+    func updatePresence(status: String, wsConnectionId: String?) async throws -> PresenceResponse {
+        let body = UpdatePresenceRequest(
+            status: status,
+            wsConnectionId: wsConnectionId
+        )
+
+        let request = APIRequest(endpoint: .updatePresence, body: body)
+        return try await client.execute(request)
+    }
+
+    /// GET /presence?convro_numbers={numbers} - Get presence for contacts
+    func getContactPresence(convroNumbers: [String]) async throws -> ContactPresenceResponse {
+        let numbersParam = convroNumbers.joined(separator: ",")
+        let queryItems = [URLQueryItem(name: "convro_numbers", value: numbersParam)]
+
+        let request = APIRequest(endpoint: .getContactPresence, queryItems: queryItems)
+        return try await client.execute(request)
+    }
+
     // MARK: - Token Management
 
     private func loadTokens() async {
@@ -402,6 +424,11 @@ private struct VerifyContactRequest: Encodable {
     let verified: Bool
 }
 
+private struct UpdatePresenceRequest: Encodable {
+    let status: String
+    let wsConnectionId: String?
+}
+
 // MARK: - Response Models
 
 struct AuthResponse: Codable {
@@ -525,4 +552,20 @@ struct ContactResponse: Codable {
     let fingerprint: String
     let verified: Bool
     let createdAt: Date
+}
+
+struct PresenceResponse: Codable {
+    let userId: UUID
+    let status: String
+    let updatedAt: Date
+}
+
+struct ContactPresenceResponse: Codable {
+    let presence: [ContactPresenceInfo]
+}
+
+struct ContactPresenceInfo: Codable {
+    let convroNumber: String
+    let status: String
+    let lastSeen: Date
 }
