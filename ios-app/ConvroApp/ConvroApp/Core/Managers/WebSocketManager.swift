@@ -2,7 +2,7 @@ import Foundation
 import Combine
 
 // MARK: - WebSocket Manager
-/// Real-time messaging via WebSocket
+/// Real-time messaging via WebSocket (presence, new messages, typing indicators)
 @MainActor
 class WebSocketManager: NSObject, ObservableObject {
     // MARK: - Singleton
@@ -10,9 +10,10 @@ class WebSocketManager: NSObject, ObservableObject {
 
     // MARK: - Properties
     @Published var connectionState: ConnectionState = .disconnected
-    @Published var incomingMessages = PassthroughSubject<Message, Never>()
+    @Published var incomingMessages = PassthroughSubject<InboxMessage, Never>()
+    @Published var typingIndicators = PassthroughSubject<TypingIndicator, Never>()
 
-    private var webSocketTask: URLSessionWebSocketTask?
+    private var client: WebSocketClient?
     private let url = URL(string: "wss://ws.convro.app/v1/stream")!
 
     private override init() {
@@ -20,48 +21,185 @@ class WebSocketManager: NSObject, ObservableObject {
     }
 
     // MARK: - Connection Management
+
+    /// Connect to WebSocket with JWT token
     func connect(accessToken: String) {
-        // TODO: Connect to WebSocket
-        // TODO: Send authenticate message
-        fatalError("Not implemented")
+        guard connectionState != .connected && connectionState != .connecting else {
+            return
+        }
+
+        connectionState = .connecting
+
+        client = WebSocketClient(url: url, authToken: accessToken)
+
+        client?.onConnect = { [weak self] in
+            Task { @MainActor in
+                self?.connectionState = .connected
+                print("✅ WebSocket Manager: Connected")
+            }
+        }
+
+        client?.onDisconnect = { [weak self] error in
+            Task { @MainActor in
+                if let error = error {
+                    self?.connectionState = .error(error.localizedDescription)
+                } else {
+                    self?.connectionState = .disconnected
+                }
+                print("⚠️ WebSocket Manager: Disconnected")
+            }
+        }
+
+        client?.onMessage = { [weak self] data in
+            Task { @MainActor in
+                self?.handleIncomingData(data)
+            }
+        }
+
+        client?.onError = { [weak self] error in
+            Task { @MainActor in
+                self?.connectionState = .error(error.localizedDescription)
+                print("❌ WebSocket Manager: Error - \(error)")
+            }
+        }
+
+        client?.connect()
     }
 
+    /// Disconnect from WebSocket
     func disconnect() {
-        // TODO: Send disconnect message
-        // TODO: Close WebSocket
-        fatalError("Not implemented")
+        client?.disconnect()
+        client = nil
+        connectionState = .disconnected
+    }
+
+    /// Reconnect after disconnect
+    func reconnect(accessToken: String) {
+        disconnect()
+        connectionState = .reconnecting
+
+        // Wait 2 seconds before reconnecting
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            await connect(accessToken: accessToken)
+        }
     }
 
     // MARK: - Message Handling
-    private func receiveMessage() {
-        // TODO: Receive WebSocket messages
-        // TODO: Parse and publish to incomingMessages
-        fatalError("Not implemented")
+
+    /// Handle incoming WebSocket data
+    private func handleIncomingData(_ data: Data) {
+        do {
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            decoder.dateDecodingStrategy = .iso8601
+
+            let message = try decoder.decode(WebSocketMessage.self, from: data)
+
+            switch message.type {
+            case "new_message":
+                if let payload = message.payload {
+                    let inboxMsg = try decoder.decode(InboxMessage.self, from: payload)
+                    incomingMessages.send(inboxMsg)
+                    print("📨 New message received: \(inboxMsg.messageId)")
+                }
+
+            case "typing":
+                if let payload = message.payload {
+                    let typing = try decoder.decode(TypingIndicator.self, from: payload)
+                    typingIndicators.send(typing)
+                }
+
+            case "presence":
+                // TODO: Handle presence updates
+                print("👤 Presence update received")
+
+            case "pong":
+                // Heartbeat response
+                break
+
+            default:
+                print("⚠️ Unknown WebSocket message type: \(message.type)")
+            }
+
+        } catch {
+            print("❌ Failed to decode WebSocket message: \(error)")
+        }
     }
 
+    /// Send WebSocket message
     func sendMessage(_ message: WebSocketMessage) {
-        // TODO: Encode and send via WebSocket
-        fatalError("Not implemented")
+        do {
+            try client?.sendJSON(message)
+        } catch {
+            print("❌ Failed to send WebSocket message: \(error)")
+        }
     }
 
-    // MARK: - Heartbeat
-    private func startHeartbeat() {
-        // TODO: Send ping every 30 seconds
-        fatalError("Not implemented")
+    /// Send typing indicator
+    func sendTypingIndicator(conversationId: UUID, isTyping: Bool) {
+        let message = WebSocketMessage(
+            type: "typing",
+            payload: try? JSONEncoder().encode(TypingIndicatorPayload(
+                conversationId: conversationId,
+                isTyping: isTyping
+            ))
+        )
+        sendMessage(message)
+    }
+
+    /// Subscribe to conversation updates
+    func subscribeToConversation(conversationId: UUID) {
+        let message = WebSocketMessage(
+            type: "subscribe",
+            payload: try? JSONEncoder().encode(["conversation_id": conversationId.uuidString])
+        )
+        sendMessage(message)
     }
 }
 
 // MARK: - Connection State
-enum ConnectionState {
+enum ConnectionState: Equatable {
     case disconnected
     case connecting
     case connected
     case reconnecting
     case error(String)
+
+    static func == (lhs: ConnectionState, rhs: ConnectionState) -> Bool {
+        switch (lhs, rhs) {
+        case (.disconnected, .disconnected),
+             (.connecting, .connecting),
+             (.connected, .connected),
+             (.reconnecting, .reconnecting):
+            return true
+        case (.error, .error):
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 // MARK: - WebSocket Message
 struct WebSocketMessage: Codable {
     let type: String
-    // TODO: Add other fields
+    let payload: Data?
+
+    init(type: String, payload: Data? = nil) {
+        self.type = type
+        self.payload = payload
+    }
+}
+
+// MARK: - Typing Indicator
+struct TypingIndicator: Codable {
+    let conversationId: UUID
+    let participantConvroNumber: String
+    let isTyping: Bool
+}
+
+private struct TypingIndicatorPayload: Codable {
+    let conversationId: UUID
+    let isTyping: Bool
 }

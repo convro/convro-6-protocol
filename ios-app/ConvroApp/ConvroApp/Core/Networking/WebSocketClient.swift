@@ -6,6 +6,7 @@ class WebSocketClient: NSObject {
     private var webSocketTask: URLSessionWebSocketTask?
     private let url: URL
     private var pingTimer: Timer?
+    private var authToken: String?
 
     // Callbacks
     var onConnect: (() -> Void)?
@@ -14,24 +15,35 @@ class WebSocketClient: NSObject {
     var onError: ((Error) -> Void)?
 
     // MARK: - Initialization
-    init(url: URL) {
+    init(url: URL, authToken: String? = nil) {
         self.url = url
+        self.authToken = authToken
         super.init()
     }
 
     // MARK: - Connection
     func connect() {
+        var request = URLRequest(url: url)
+
+        // Add JWT token if available
+        if let token = authToken {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
         let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
-        webSocketTask = session.webSocketTask(with: url)
+        webSocketTask = session.webSocketTask(with: request)
         webSocketTask?.resume()
         receiveMessage()
         startPing()
+
+        print("🔌 WebSocket connecting to: \(url)")
     }
 
     func disconnect() {
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         pingTimer?.invalidate()
         pingTimer = nil
+        print("🔌 WebSocket disconnected")
     }
 
     // MARK: - Send
@@ -45,7 +57,9 @@ class WebSocketClient: NSObject {
     }
 
     func sendJSON<T: Encodable>(_ value: T) throws {
-        let data = try JSONEncoder().encode(value)
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        let data = try encoder.encode(value)
         send(data)
     }
 
@@ -76,20 +90,27 @@ class WebSocketClient: NSObject {
         pingTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             self?.webSocketTask?.sendPing { error in
                 if let error = error {
-                    print("Ping error: \(error)")
+                    print("❌ Ping error: \(error)")
                 }
             }
         }
+    }
+
+    // MARK: - Authentication
+    func setAuthToken(_ token: String) {
+        self.authToken = token
     }
 }
 
 // MARK: - URLSessionWebSocketDelegate
 extension WebSocketClient: URLSessionWebSocketDelegate {
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
+        print("✅ WebSocket connected")
         onConnect?()
     }
 
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
+        print("⚠️ WebSocket closed: \(closeCode)")
         onDisconnect?(nil)
     }
 }
