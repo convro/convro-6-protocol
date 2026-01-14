@@ -54,19 +54,22 @@ class DeviceIdentityManager: ObservableObject {
         // Save SPK to Keychain
         try await KeychainManager.shared.saveSignedPrekey(spk)
 
-        // Register with API (will be implemented when APIManager is ready)
-        // For now, mark as registered locally
+        // Register with Convro server
+        let response = try await APIManager.shared.register(
+            username: username,
+            password: password,
+            displayName: displayName,
+            deviceIdentity: identity,
+            signedPrekey: spk,
+            oneTimePrekeys: otps
+        )
+
+        // Mark as registered
         self.isRegistered = true
 
-        // TODO: Call APIManager.shared.register() when APIManager is implemented
-        // This will send:
-        // - username, password, displayName
-        // - device_id (from identity)
-        // - identity_pub_ed25519, identity_pub_x25519
-        // - signed prekey bundle (spk_id, spk_pub, spk_sig)
-        // - one-time prekeys array
-
-        print("✅ Device identity ready for registration")
+        print("✅ Device registered: \(response.user.convroNumber)")
+        print("   Username: \(response.user.username)")
+        print("   Display name: \(response.user.displayName)")
     }
 
     /// Generate and upload new signed prekey (rotation)

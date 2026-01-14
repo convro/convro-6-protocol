@@ -16,33 +16,53 @@ class HandshakeCoordinator: ObservableObject {
         handshakeState = .fetchingPrekeys
 
         // Step 1: Fetch contact's prekey bundle from server
-        // TODO: Implement when APIManager is ready
-        // let prekeyBundle = try await APIManager.shared.fetchPrekeyBundle(convroNumber: contact.convroNumber)
-
-        // For now, throw error until API is implemented
-        throw HandshakeError.apiNotImplemented("Fetch prekey bundle not yet implemented")
+        let prekeyBundleResponse = try await APIManager.shared.fetchPrekeyBundle(convroNumber: contact.convroNumber)
+        let prekeyBundle = try prekeyBundleResponse.toPrekeyBundle()
 
         // Step 2: Create handshake offer
-        // handshakeState = .creatingOffer
-        // let result = try C6PManager.shared.createHandshakeOffer(responderBundle: prekeyBundle)
+        handshakeState = .creatingOffer
+        let result = try C6PManager.shared.createHandshakeOffer(responderBundle: prekeyBundle)
 
         // Step 3: Send offer to server (server forwards to contact)
-        // handshakeState = .sendingOffer
-        // try await APIManager.shared.sendHandshakeOffer(
-        //     toConvroNumber: contact.convroNumber,
-        //     offer: result.offer
-        // )
+        handshakeState = .sendingOffer
+
+        // Serialize offer to bytes for sending
+        let offerBytes = serializeHandshakeOffer(result.offer)
+        let offerData = Data(offerBytes)
+
+        // Send via messages endpoint with handshake type
+        _ = try await APIManager.shared.sendMessage(
+            toConvroNumber: contact.convroNumber,
+            encryptedEnvelope: offerData
+        )
 
         // Step 4: Wait for accept message (received via WebSocket or polling)
-        // handshakeState = .waitingForAccept
-        // This would be handled by WebSocketManager or polling logic
+        handshakeState = .waitingForAccept
+        print("✅ Handshake offer sent to \(contact.convroNumber)")
+        print("⏳ Waiting for accept message...")
+        // Note: Accept is handled by WebSocketManager → ChatViewModel
 
         // Step 5: Verify accept (when received)
         // This is called separately via verifyHandshakeAccept()
 
         // Return session ID
-        // let sessionId = result.offer.sessionId.toHexString()
-        // return sessionId
+        let sessionId = result.offer.sessionId.toHexString()
+        return sessionId
+    }
+
+    /// Serialize HandshakeOffer to bytes
+    private func serializeHandshakeOffer(_ offer: C6PProtocol.HandshakeOffer) -> [UInt8] {
+        // Simple serialization - concatenate all fields
+        var bytes: [UInt8] = []
+        bytes.append(contentsOf: offer.sessionId)
+        bytes.append(contentsOf: offer.initiatorDeviceId)
+        bytes.append(contentsOf: offer.responderDeviceId)
+        bytes.append(contentsOf: offer.initiatorIdentityDhPub)
+        bytes.append(contentsOf: offer.initiatorIdentitySigPub)
+        bytes.append(contentsOf: offer.initiatorEphemeralDhPub)
+        bytes.append(contentsOf: offer.kc1)
+        bytes.append(contentsOf: offer.offerSignature)
+        return bytes
     }
 
     /// Initiator: Verify accept message from responder
@@ -88,20 +108,42 @@ class HandshakeCoordinator: ObservableObject {
         // Step 3: Send accept message to server (server forwards to initiator)
         handshakeState = .sendingOffer // Reusing state for "sending accept"
 
-        // TODO: Implement when APIManager is ready
-        // try await APIManager.shared.sendHandshakeAccept(
-        //     toSessionId: result.accept.sessionId,
-        //     accept: result.accept
-        // )
+        // Serialize accept to bytes for sending
+        let acceptBytes = serializeHandshakeAccept(result.accept)
+        let acceptData = Data(acceptBytes)
 
-        // For now, just mark as completed locally
+        // Extract recipient from accept (initiator's device ID)
+        // Note: Server needs to route to initiator - we'll use the session binding
+        // For now, send to known contact (this would come from the offer)
+        // In production, server routes based on session_id
+        _ = try await APIManager.shared.sendMessage(
+            toConvroNumber: "", // Server routes by session_id in accept
+            encryptedEnvelope: acceptData
+        )
+
+        // Mark as completed
         handshakeState = .completed
-
-        print("✅ Handshake completed (responder)")
+        print("✅ Handshake accept sent (responder)")
+        print("   Session ID: \(result.accept.sessionId.toHexString())")
 
         // Return session ID
         let sessionId = result.accept.sessionId.toHexString()
         return sessionId
+    }
+
+    /// Serialize HandshakeAccept to bytes
+    private func serializeHandshakeAccept(_ accept: C6PProtocol.HandshakeAccept) -> [UInt8] {
+        // Simple serialization - concatenate all fields
+        var bytes: [UInt8] = []
+        bytes.append(contentsOf: accept.sessionId)
+        bytes.append(contentsOf: accept.initiatorDeviceId)
+        bytes.append(contentsOf: accept.responderDeviceId)
+        bytes.append(contentsOf: accept.responderIdentityDhPub)
+        bytes.append(contentsOf: accept.responderIdentitySigPub)
+        bytes.append(contentsOf: accept.responderEphemeralDhPub)
+        bytes.append(contentsOf: accept.kc2)
+        bytes.append(contentsOf: accept.acceptSignature)
+        return bytes
     }
 
     // MARK: - Helpers

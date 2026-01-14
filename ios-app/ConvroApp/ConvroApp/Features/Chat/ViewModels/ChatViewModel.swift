@@ -198,15 +198,37 @@ class ChatViewModel: ObservableObject {
             return sessionId
         }
 
-        // TODO: Initiate handshake with participant
-        // This would require:
-        // 1. Fetch participant's prekey bundle
-        // 2. Create handshake offer
-        // 3. Wait for accept
-        // 4. Store session ID
+        // Initiate handshake with participant
+        do {
+            // Create Contact object for handshake
+            let contact = Contact(
+                id: UUID(),
+                convroNumber: participantConvroNumber,
+                displayName: participantDisplayName ?? "Unknown",
+                userId: UUID(), // Placeholder
+                isVerified: false,
+                addedAt: Date(),
+                verifiedAt: nil,
+                identityPubEd25519: nil // Fetched with prekey bundle
+            )
 
-        // For now, return nil (requires handshake implementation in UI)
-        return nil
+            // Initiate handshake via coordinator
+            let handshakeCoordinator = HandshakeCoordinator()
+            let newSessionId = try await handshakeCoordinator.initiateHandshake(withContact: contact)
+
+            // Store session ID
+            self.sessionId = newSessionId
+
+            print("✅ Handshake initiated - session ID: \(newSessionId)")
+            print("⏳ Waiting for accept from \(participantConvroNumber)...")
+
+            return newSessionId
+
+        } catch {
+            print("❌ Failed to initiate handshake: \(error)")
+            errorMessage = "Failed to establish secure session: \(error.localizedDescription)"
+            return nil
+        }
     }
 
     /// Set session ID (called after successful handshake)
