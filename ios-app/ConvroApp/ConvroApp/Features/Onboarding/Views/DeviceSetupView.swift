@@ -13,7 +13,14 @@ struct DeviceSetupView: View {
             Button("Complete Setup") { onComplete() }
         }
         .task {
-            // TODO: Generate device identity
+            // Generate device identity (Ed25519 + X25519 keypairs)
+            do {
+                try await DeviceIdentityManager.shared.generateIdentity()
+                print("✅ Device identity generated in onboarding")
+                // Auto-saved to Keychain by DeviceIdentityManager
+            } catch {
+                print("❌ Failed to generate device identity: \(error)")
+            }
         }
     }
 }

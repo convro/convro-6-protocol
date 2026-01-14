@@ -6,6 +6,9 @@ class AuthCoordinator: ObservableObject {
     // MARK: - Published Properties
     @Published var currentView: AuthView = .login
 
+    // MARK: - Callbacks
+    var onAuthComplete: (() -> Void)?
+
     // MARK: - Navigation
     func showLogin() {
         currentView = .login
@@ -16,7 +19,9 @@ class AuthCoordinator: ObservableObject {
     }
 
     func didCompleteAuth() {
-        // TODO: Notify AppCoordinator to transition to main app
+        // Notify AppCoordinator to transition to main app
+        onAuthComplete?()
+        print("✅ Auth completed - transitioning to main app")
     }
 }
 

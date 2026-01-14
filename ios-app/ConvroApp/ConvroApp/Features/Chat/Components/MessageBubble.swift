@@ -2,7 +2,10 @@ import SwiftUI
 
 struct MessageBubble: View {
     let message: Message
-    private let currentUserNumber = "+99 123 456" // TODO: Get from UserDefaults
+
+    private var currentUserNumber: String {
+        UserDefaults.standard.string(forKey: "current_user_convro_number") ?? ""
+    }
 
     private var isSentByMe: Bool {
         message.fromConvroNumber == currentUserNumber

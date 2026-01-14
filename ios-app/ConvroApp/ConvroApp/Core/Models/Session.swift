@@ -23,9 +23,9 @@ struct Session: Identifiable, Codable {
 }
 
 // MARK: - Session State
-struct SessionState {
-    // TODO: Add C6P session state fields
-    // - Root key
-    // - Send/receive chain keys
-    // - Consumed counters set
-}
+// Note: Actual SessionState is managed by C6PProtocol.SessionState (FFI class)
+// This Swift struct is NOT used - session state is stored in C6PSessionWrapper
+// which wraps the FFI SessionState class directly.
+//
+// Session keys are stored securely in Keychain via KeychainManager.
+// See C6PManager.swift for SessionState usage.

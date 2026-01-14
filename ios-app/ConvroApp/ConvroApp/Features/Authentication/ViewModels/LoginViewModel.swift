@@ -31,6 +31,9 @@ class LoginViewModel: ObservableObject {
         do {
             let response = try await apiManager.login(username: username, password: password)
 
+            // Save current user's Convro Number to UserDefaults
+            UserDefaults.standard.set(response.user.convroNumber, forKey: "current_user_convro_number")
+
             // Connect WebSocket for real-time updates
             await webSocketManager.connect(accessToken: response.accessToken)
 
