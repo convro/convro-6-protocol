@@ -1,8 +1,7 @@
 import CoreData
 
 // MARK: - Message Database
-/// Local message cache for conversations
-/// TODO: Implement Core Data entities when data model is finalized
+/// Local message cache for conversations using Core Data persistence
 @MainActor
 class MessageDatabase {
     // MARK: - Singleton
@@ -10,7 +9,6 @@ class MessageDatabase {
 
     // MARK: - Properties
     private let context: NSManagedObjectContext
-    private var messageCache: [String: [Message]] = [:] // conversationId -> messages
 
     private init() {
         self.context = CoreDataStack.shared.viewContext
@@ -18,51 +16,136 @@ class MessageDatabase {
 
     // MARK: - Save
 
-    /// Save message to local cache
+    /// Save message to Core Data
     func saveMessage(_ message: Message) async {
-        let conversationId = message.conversationId?.uuidString ?? "unknown"
+        // Check if message already exists
+        let fetchRequest: NSFetchRequest<MessageEntity> = MessageEntity.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "id == %@", message.id as CVarArg)
 
-        if messageCache[conversationId] == nil {
-            messageCache[conversationId] = []
+        do {
+            let existingMessages = try context.fetch(fetchRequest)
+
+            if let existingMessage = existingMessages.first {
+                // Update existing message
+                existingMessage.update(from: message)
+            } else {
+                // Create new message entity
+                let entity = MessageEntity(context: context)
+                entity.update(from: message)
+
+                // Link to conversation if exists
+                if let conversationId = message.conversationId {
+                    let conversationFetch: NSFetchRequest<ConversationEntity> = ConversationEntity.fetchRequest()
+                    conversationFetch.predicate = NSPredicate(format: "id == %@", conversationId as CVarArg)
+
+                    if let conversation = try context.fetch(conversationFetch).first {
+                        entity.conversation = conversation
+                    }
+                }
+            }
+
+            // Save context
+            if context.hasChanges {
+                try context.save()
+                print("💾 Message saved to Core Data: \(message.id)")
+            }
+        } catch {
+            print("❌ Failed to save message to Core Data: \(error)")
         }
-
-        messageCache[conversationId]?.append(message)
-        print("💾 Message saved to conversation: \(conversationId)")
-
-        // TODO: Persist to Core Data when entity model is defined
     }
 
     // MARK: - Fetch
 
-    /// Fetch messages for conversation
+    /// Fetch messages for conversation from Core Data
     func fetchMessages(forConversation conversationId: String) async -> [Message] {
-        return messageCache[conversationId] ?? []
+        guard let uuid = UUID(uuidString: conversationId) else {
+            return []
+        }
+
+        let fetchRequest: NSFetchRequest<MessageEntity> = MessageEntity.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "conversationId == %@", uuid as CVarArg)
+        fetchRequest.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: true)]
+
+        do {
+            let entities = try context.fetch(fetchRequest)
+            return entities.map { $0.toMessage() }
+        } catch {
+            print("❌ Failed to fetch messages from Core Data: \(error)")
+            return []
+        }
     }
 
-    /// Fetch all messages
+    /// Fetch all messages from Core Data
     func fetchAllMessages() async -> [Message] {
-        return messageCache.values.flatMap { $0 }
+        let fetchRequest: NSFetchRequest<MessageEntity> = MessageEntity.fetchRequest()
+        fetchRequest.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
+
+        do {
+            let entities = try context.fetch(fetchRequest)
+            return entities.map { $0.toMessage() }
+        } catch {
+            print("❌ Failed to fetch all messages from Core Data: \(error)")
+            return []
+        }
     }
 
     // MARK: - Delete
 
-    /// Delete message by ID
+    /// Delete message by ID from Core Data
     func deleteMessage(_ messageId: UUID) async {
-        for (conversationId, messages) in messageCache {
-            messageCache[conversationId] = messages.filter { $0.id != messageId }
+        let fetchRequest: NSFetchRequest<MessageEntity> = MessageEntity.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "id == %@", messageId as CVarArg)
+
+        do {
+            let entities = try context.fetch(fetchRequest)
+            for entity in entities {
+                context.delete(entity)
+            }
+
+            if context.hasChanges {
+                try context.save()
+                print("🗑️  Message deleted from Core Data: \(messageId)")
+            }
+        } catch {
+            print("❌ Failed to delete message from Core Data: \(error)")
         }
-        print("🗑️  Message deleted: \(messageId)")
     }
 
-    /// Delete all messages for conversation
+    /// Delete all messages for conversation from Core Data
     func deleteMessages(forConversation conversationId: String) async {
-        messageCache.removeValue(forKey: conversationId)
-        print("🗑️  All messages deleted for conversation: \(conversationId)")
+        guard let uuid = UUID(uuidString: conversationId) else {
+            return
+        }
+
+        let fetchRequest: NSFetchRequest<MessageEntity> = MessageEntity.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "conversationId == %@", uuid as CVarArg)
+
+        do {
+            let entities = try context.fetch(fetchRequest)
+            for entity in entities {
+                context.delete(entity)
+            }
+
+            if context.hasChanges {
+                try context.save()
+                print("🗑️  All messages deleted for conversation: \(conversationId)")
+            }
+        } catch {
+            print("❌ Failed to delete messages for conversation from Core Data: \(error)")
+        }
     }
 
-    /// Delete all messages (logout)
+    /// Delete all messages from Core Data (logout)
     func deleteAllMessages() async {
-        messageCache.removeAll()
-        print("🗑️  All messages deleted")
+        let fetchRequest: NSFetchRequest<NSFetchRequestResult> = MessageEntity.fetchRequest()
+        let deleteRequest = NSBatchDeleteRequest(fetchRequest: fetchRequest)
+
+        do {
+            try context.execute(deleteRequest)
+            try context.save()
+            print("🗑️  All messages deleted from Core Data")
+        } catch {
+            print("❌ Failed to delete all messages from Core Data: \(error)")
+        }
     }
 }
