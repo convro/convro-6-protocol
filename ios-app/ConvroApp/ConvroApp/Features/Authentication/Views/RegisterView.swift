@@ -3,11 +3,10 @@ import SwiftUI
 // MARK: - Register View
 struct RegisterView: View {
     @StateObject private var viewModel = RegisterViewModel()
-    @EnvironmentObject private var coordinator: AppCoordinator
-    @Environment(\.dismiss) private var dismiss
+    let onSuccess: () -> Void
+    let onBackToLogin: () -> Void
 
     var body: some View {
-        NavigationView {
             Form {
                 Section("Account Information") {
                     TextField("Username", text: $viewModel.username)
@@ -26,6 +25,9 @@ struct RegisterView: View {
                     Button {
                         Task {
                             await viewModel.register()
+                            if viewModel.registrationSuccess {
+                                onSuccess()
+                            }
                         }
                     } label: {
                         Text("Create Account")
@@ -40,16 +42,28 @@ struct RegisterView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {
-                        dismiss()
+                        onBackToLogin()
                     }
                 }
             }
             .loadingOverlay(isLoading: viewModel.isLoading)
-            .errorAlert($viewModel.error)
-            .sheet(item: $viewModel.assignedConvroNumber) { convroNumber in
-                ConvroNumberDisplayView(convroNumber: convroNumber)
+            .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
+                Button("OK") {
+                    viewModel.clearError()
+                }
+            } message: {
+                if let error = viewModel.errorMessage {
+                    Text(error)
+                }
             }
-        }
+            .sheet(isPresented: $viewModel.registrationSuccess) {
+                if let convroNumber = viewModel.assignedConvroNumber {
+                    ConvroNumberDisplayView(
+                        convroNumber: convroNumber,
+                        onContinue: onSuccess
+                    )
+                }
+            }
     }
 }
 

@@ -3,11 +3,11 @@ import SwiftUI
 // MARK: - Login View
 struct LoginView: View {
     @StateObject private var viewModel = LoginViewModel()
-    @EnvironmentObject private var coordinator: AppCoordinator
+    let onSuccess: () -> Void
+    let onShowRegister: () -> Void
 
     var body: some View {
-        NavigationView {
-            VStack(spacing: 24) {
+        VStack(spacing: 24) {
                 // Logo
                 Image(systemName: "message.fill")
                     .resizable()
@@ -33,6 +33,9 @@ struct LoginView: View {
                 Button {
                     Task {
                         await viewModel.login()
+                        if viewModel.loginSuccess {
+                            onSuccess()
+                        }
                     }
                 } label: {
                     Text("Login")
@@ -47,7 +50,7 @@ struct LoginView: View {
 
                 // Register Link
                 Button {
-                    // TODO: Navigate to register
+                    onShowRegister()
                 } label: {
                     Text("Don't have an account? Register")
                         .font(.footnote)
@@ -58,7 +61,14 @@ struct LoginView: View {
             .padding()
             .navigationBarHidden(true)
             .loadingOverlay(isLoading: viewModel.isLoading)
-            .errorAlert($viewModel.error)
-        }
+            .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
+                Button("OK") {
+                    viewModel.clearError()
+                }
+            } message: {
+                if let error = viewModel.errorMessage {
+                    Text(error)
+                }
+            }
     }
 }

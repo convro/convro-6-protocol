@@ -2,24 +2,55 @@ import SwiftUI
 
 struct AddContactView: View {
     @StateObject private var viewModel = AddContactViewModel()
-    @Environment(\.dismiss) private var dismiss
+    let onSuccess: () -> Void
+    let onCancel: () -> Void
 
     var body: some View {
-        NavigationView {
-            Form {
-                Section("Contact Information") {
-                    TextField("Convro Number", text: $viewModel.convroNumber)
-                    TextField("Display Name", text: $viewModel.displayName)
-                }
+        Form {
+            Section("Contact Information") {
+                TextField("Convro Number", text: $viewModel.convroNumber)
+                    .keyboardType(.numberPad)
+                TextField("Display Name (optional)", text: $viewModel.displayName)
+            }
 
-                Button("Add Contact") {
-                    Task {
-                        try? await viewModel.addContact()
-                        dismiss()
-                    }
+            if let validationError = viewModel.validateConvroNumber() {
+                Section {
+                    Text(validationError)
+                        .foregroundColor(.red)
+                        .font(.caption)
                 }
             }
-            .navigationTitle("Add Contact")
+
+            Section {
+                Button("Add Contact") {
+                    Task {
+                        await viewModel.addContact()
+                        if viewModel.addSuccess {
+                            onSuccess()
+                        }
+                    }
+                }
+                .disabled(viewModel.isLoading || viewModel.convroNumber.isEmpty)
+            }
+        }
+        .navigationTitle("Add Contact")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button("Cancel") {
+                    onCancel()
+                }
+            }
+        }
+        .loadingOverlay(isLoading: viewModel.isLoading)
+        .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
+            Button("OK") {
+                viewModel.clearError()
+            }
+        } message: {
+            if let error = viewModel.errorMessage {
+                Text(error)
+            }
         }
     }
 }

@@ -8,6 +8,10 @@ enum APIEndpoint {
     case refresh
     case logout
 
+    // User Profile
+    case getUserProfile
+    case updateUserProfile
+
     // Devices
     case registerDevice
     case listDevices
@@ -40,6 +44,9 @@ enum APIEndpoint {
         case .refresh: return "/auth/refresh"
         case .logout: return "/auth/logout"
 
+        case .getUserProfile: return "/users/me"
+        case .updateUserProfile: return "/users/me"
+
         case .registerDevice: return "/devices"
         case .listDevices: return "/devices"
         case .deactivateDevice(let id): return "/devices/\(id)"
@@ -69,9 +76,12 @@ enum APIEndpoint {
              .markDelivered, .addContact, .verifyContact:
             return .post
 
-        case .listDevices, .fetchPrekeyBundle, .prekeyHealth,
+        case .getUserProfile, .listDevices, .fetchPrekeyBundle, .prekeyHealth,
              .fetchInbox, .listConversations, .listContacts:
             return .get
+
+        case .updateUserProfile:
+            return .patch
 
         case .deactivateDevice, .deleteContact:
             return .delete

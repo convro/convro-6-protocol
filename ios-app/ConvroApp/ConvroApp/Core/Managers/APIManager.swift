@@ -106,6 +106,23 @@ class APIManager: ObservableObject {
         await clearTokens()
     }
 
+    // MARK: - User Profile (2 endpoints)
+
+    /// GET /users/me - Get current user profile
+    func getUserProfile() async throws -> User {
+        let request = APIRequest(endpoint: .getUserProfile)
+        let response: UserProfileResponse = try await client.execute(request)
+        return response.toUser()
+    }
+
+    /// PATCH /users/me - Update user profile
+    func updateUserProfile(displayName: String) async throws -> User {
+        let body = UpdateUserProfileRequest(displayName: displayName)
+        let request = APIRequest(endpoint: .updateUserProfile, body: body)
+        let response: UserProfileResponse = try await client.execute(request)
+        return response.toUser()
+    }
+
     // MARK: - Devices (3 endpoints)
 
     /// POST /devices - Register device identity
@@ -314,6 +331,10 @@ private struct RefreshRequest: Encodable {
     let refreshToken: String
 }
 
+private struct UpdateUserProfileRequest: Encodable {
+    let displayName: String
+}
+
 private struct RegisterDeviceRequest: Encodable {
     let deviceId: String
     let deviceName: String
@@ -371,6 +392,26 @@ struct UserData: Codable {
 
 struct TokenRefreshResponse: Codable {
     let accessToken: String
+}
+
+struct UserProfileResponse: Codable {
+    let userId: UUID
+    let username: String
+    let convroNumber: String
+    let displayName: String
+    let createdAt: Date
+    let lastLogin: Date?
+
+    func toUser() -> User {
+        return User(
+            id: userId,
+            username: username,
+            convroNumber: convroNumber,
+            displayName: displayName,
+            createdAt: createdAt,
+            lastLogin: lastLogin
+        )
+    }
 }
 
 struct DevicesResponse: Codable {

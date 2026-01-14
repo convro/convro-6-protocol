@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Convro Number Display View
 struct ConvroNumberDisplayView: View {
     let convroNumber: String
-    @Environment(\.dismiss) private var dismiss
+    let onContinue: () -> Void
 
     var body: some View {
         VStack(spacing: 24) {
@@ -32,7 +32,6 @@ struct ConvroNumberDisplayView: View {
                 .padding(.horizontal)
 
             Button {
-                // TODO: Copy to clipboard
                 UIPasteboard.general.string = convroNumber
             } label: {
                 Label("Copy Number", systemImage: "doc.on.doc")
@@ -44,8 +43,7 @@ struct ConvroNumberDisplayView: View {
             .padding(.horizontal)
 
             Button {
-                dismiss()
-                // TODO: Navigate to onboarding
+                onContinue()
             } label: {
                 Text("Continue")
                     .frame(maxWidth: .infinity)
