@@ -1,6 +1,10 @@
 use axum::{middleware, routing::get, Router};
-use std::net::SocketAddr;
-use tower_http::{compression::CompressionLayer, trace::TraceLayer};
+use std::{net::SocketAddr, sync::Arc};
+use tower_http::{
+    compression::CompressionLayer,
+    cors::CorsLayer,
+    trace::TraceLayer,
+};
 
 use convro_server::{
     api, config::Settings, db,
@@ -60,7 +64,45 @@ async fn main() -> anyhow::Result<()> {
     let conversation_service = ConversationService::new(db_pool.clone());
     let sealed_message_service = SealedMessageService::new(db_pool.clone());
 
-    // Build router
+    // Create rate limiter state
+    let rate_limit_state = Arc::new(app_middleware::RateLimitState::new(
+        config.rate_limit_per_minute,
+    ));
+    tracing::info!(
+        "✅ Rate limiting enabled: {} requests/minute",
+        config.rate_limit_per_minute
+    );
+
+    // Configure CORS
+    let cors = CorsLayer::new()
+        .allow_origin(
+            config
+                .cors_allowed_origins
+                .iter()
+                .map(|origin| origin.parse().unwrap())
+                .collect::<Vec<_>>(),
+        )
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::PUT,
+            axum::http::Method::PATCH,
+            axum::http::Method::DELETE,
+            axum::http::Method::OPTIONS,
+        ])
+        .allow_headers([
+            axum::http::header::AUTHORIZATION,
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::ACCEPT,
+        ])
+        .allow_credentials(true)
+        .max_age(std::time::Duration::from_secs(3600));
+    tracing::info!(
+        "✅ CORS configured for origins: {:?}",
+        config.cors_allowed_origins
+    );
+
+    // Build router with all middleware layers
     let app = Router::new()
         .route("/health", get(health_check))
         .nest(
@@ -74,7 +116,20 @@ async fn main() -> anyhow::Result<()> {
                 sealed_message_service,
             ),
         )
+        // Security headers (outermost - applied to all responses)
+        .layer(middleware::from_fn(
+            app_middleware::security_headers_middleware,
+        ))
+        // Rate limiting (before processing requests)
+        .layer(middleware::from_fn_with_state(
+            rate_limit_state,
+            app_middleware::rate_limit_middleware,
+        ))
+        // CORS (cross-origin requests)
+        .layer(cors)
+        // Compression (reduce bandwidth)
         .layer(CompressionLayer::new())
+        // Tracing (logging and metrics)
         .layer(TraceLayer::new_for_http());
 
     // Start server
@@ -116,6 +171,14 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("");
     tracing::info!("  Conversations:");
     tracing::info!("    GET    /v1/conversations");
+    tracing::info!("");
+    tracing::info!("🔒 Security Features:");
+    tracing::info!("  ✅ Rate Limiting: {} req/min", config.rate_limit_per_minute);
+    tracing::info!("  ✅ CORS: {} origins", config.cors_allowed_origins.len());
+    tracing::info!("  ✅ Security Headers: CSP, HSTS, X-Frame-Options");
+    tracing::info!("  ✅ JWT Auth: Access + Refresh tokens");
+    tracing::info!("  ✅ Password Hashing: Argon2id");
+    tracing::info!("  ✅ E2EE: Zero-knowledge architecture");
     tracing::info!("");
     tracing::info!("✅ Convro Server is ready! Privacy-first by default 🔒");
 
