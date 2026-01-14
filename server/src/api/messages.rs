@@ -20,17 +20,23 @@ pub struct AppState {
     pub message_service: MessageService,
 }
 
-/// Create messages router
+/// Create messages router (LEGACY mode - backward compatibility ONLY)
+///
+/// ⚠️ WARNING: This is LEGACY mode where server sees sender identity
+/// USE /messages instead (sealed sender = privacy-first standard)
 pub fn router(state: AppState) -> Router {
     Router::new()
-        .route("/messages", post(send_message))
-        .route("/messages/inbox", get(fetch_inbox))
-        .route("/messages/:message_id/delivered", post(mark_delivered))
-        .route("/messages/history", get(get_history))
+        .route("/messages/legacy", post(send_message))
+        .route("/messages/legacy/inbox", get(fetch_inbox))
+        .route("/messages/legacy/:message_id/delivered", post(mark_delivered))
+        .route("/messages/legacy/history", get(get_history))
         .with_state(state)
 }
 
-/// POST /messages - Send message
+/// POST /messages/legacy - Send message (LEGACY MODE)
+///
+/// ⚠️ PRIVACY WARNING: Server sees sender identity in legacy mode
+/// Migrate to sealed sender at /messages for privacy-first standard
 async fn send_message(
     State(state): State<AppState>,
     claims: Claims, // From JWT middleware
@@ -56,7 +62,7 @@ async fn send_message(
     Ok((StatusCode::CREATED, Json(message.into())))
 }
 
-/// GET /messages/inbox - Fetch inbox
+/// GET /messages/legacy/inbox - Fetch inbox (LEGACY)
 async fn fetch_inbox(
     State(state): State<AppState>,
     claims: Claims,
@@ -77,7 +83,7 @@ async fn fetch_inbox(
     }))
 }
 
-/// POST /messages/:message_id/delivered - Mark message as delivered
+/// POST /messages/legacy/:message_id/delivered - Mark message as delivered (LEGACY)
 async fn mark_delivered(
     State(state): State<AppState>,
     claims: Claims,
@@ -91,7 +97,7 @@ async fn mark_delivered(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// GET /messages/history - Get message history for session
+/// GET /messages/legacy/history - Get message history for session (LEGACY)
 async fn get_history(
     State(state): State<AppState>,
     claims: Claims,

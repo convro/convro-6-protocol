@@ -25,13 +25,19 @@ pub struct AppState {
     pub sealed_message_service: SealedMessageService,
 }
 
-/// Create sealed messages router
+/// Create sealed messages router (STANDARD - privacy-first by default)
+///
+/// 🔒 PRIVACY: Sealed sender is the STANDARD in Convro, not optional
+/// - Server NEVER sees sender identity
+/// - All messages padded to 64KB
+/// - Timestamps obfuscated to 5-min intervals
+/// - Timing jitter applied (0-5s)
 pub fn sealed_messages_router(state: AppState) -> Router {
     Router::new()
-        .route("/messages/sealed", post(send_sealed_message))
-        .route("/messages/sealed/inbox", get(fetch_sealed_inbox))
+        .route("/messages", post(send_sealed_message))
+        .route("/messages/inbox", get(fetch_sealed_inbox))
         .route(
-            "/messages/sealed/:message_id/delivered",
+            "/messages/:message_id/delivered",
             post(mark_sealed_delivered),
         )
         .with_state(state)
@@ -50,13 +56,15 @@ fn default_limit() -> usize {
     50
 }
 
-/// POST /messages/sealed - Send sealed sender message
+/// POST /messages - Send message (SEALED SENDER - STANDARD)
 ///
-/// Privacy features:
-/// - Sender identity hidden from server
+/// 🔒 PRIVACY-FIRST STANDARD:
+/// - Sender identity hidden from server (zero-knowledge routing)
 /// - Envelope padded to 64KB (hides content length)
-/// - Timestamp obfuscated (rounded to 5min)
-/// - Timing jitter applied (0-5s delay)
+/// - Timestamp obfuscated (rounded to 5min intervals)
+/// - Timing jitter applied (0-5s random delay)
+///
+/// This is the STANDARD way to send messages in Convro.
 async fn send_sealed_message(
     State(state): State<AppState>,
     _claims: Claims, // Sender authenticated but identity NOT stored
@@ -97,9 +105,10 @@ async fn send_sealed_message(
     ))
 }
 
-/// GET /messages/sealed/inbox - Fetch sealed inbox
+/// GET /messages/inbox - Fetch inbox (SEALED SENDER - STANDARD)
 ///
-/// Returns pending sealed messages for authenticated user
+/// Returns pending messages for authenticated user.
+/// All messages use sealed sender (privacy-first standard).
 async fn fetch_sealed_inbox(
     State(state): State<AppState>,
     claims: Claims, // Recipient authenticated
@@ -128,9 +137,9 @@ async fn fetch_sealed_inbox(
     Ok(Json(response))
 }
 
-/// POST /messages/sealed/:message_id/delivered - Mark sealed message as delivered
+/// POST /messages/:message_id/delivered - Mark message as delivered (STANDARD)
 ///
-/// Acknowledges receipt of sealed message
+/// Acknowledges receipt of message (sealed sender standard)
 async fn mark_sealed_delivered(
     State(state): State<AppState>,
     claims: Claims, // Recipient
