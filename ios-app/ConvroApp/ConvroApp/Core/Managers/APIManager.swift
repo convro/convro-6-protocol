@@ -202,14 +202,18 @@ class APIManager: ObservableObject {
 
     // MARK: - Messages (3 endpoints)
 
-    /// POST /messages - Send sealed sender message (64KB envelope)
-    func sendMessage(toConvroNumber: String, encryptedEnvelope: Data) async throws -> MessageResponse {
+    /// POST /messages - Send message (sealed sender or handshake)
+    /// - For handshakes: Set messageType to "handshake_offer" or "handshake_accept"
+    /// - For regular messages: Leave messageType as nil (uses sealed sender format)
+    func sendMessage(toConvroNumber: String, encryptedEnvelope: Data, messageType: String? = nil) async throws -> MessageResponse {
         // encryptedEnvelope is already 64KB padded + base64 encoded from MessageEncryptionService
+        // OR it's the serialized handshake offer/accept from FFI (JSON wire format)
         let envelopeString = String(data: encryptedEnvelope, encoding: .utf8) ?? ""
 
         let body = SendMessageRequest(
             recipientConvroNumber: toConvroNumber,
-            encryptedEnvelope: envelopeString
+            encryptedEnvelope: envelopeString,
+            messageType: messageType
         )
 
         let request = APIRequest(endpoint: .sendMessage, body: body)
@@ -361,7 +365,32 @@ private struct OneTimePrekeyData: Codable {
 
 private struct SendMessageRequest: Encodable {
     let recipientConvroNumber: String
-    let encryptedEnvelope: String
+    let encryptedEnvelope: String?
+    let messageType: String?
+    let encryptedBlob: String?
+
+    enum CodingKeys: String, CodingKey {
+        case recipientConvroNumber = "to_convro_number"
+        case encryptedEnvelope = "encrypted_envelope"
+        case messageType = "message_type"
+        case encryptedBlob = "encrypted_blob"
+    }
+
+    init(recipientConvroNumber: String, encryptedEnvelope: String, messageType: String?) {
+        self.recipientConvroNumber = recipientConvroNumber
+
+        // If message_type is present (handshake), use encrypted_blob field
+        // Otherwise (regular message), use encrypted_envelope field
+        if let messageType = messageType {
+            self.messageType = messageType
+            self.encryptedBlob = encryptedEnvelope
+            self.encryptedEnvelope = nil
+        } else {
+            self.messageType = nil
+            self.encryptedBlob = nil
+            self.encryptedEnvelope = encryptedEnvelope
+        }
+    }
 }
 
 private struct AddContactRequest: Encodable {

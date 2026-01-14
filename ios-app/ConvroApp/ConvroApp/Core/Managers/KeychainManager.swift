@@ -134,6 +134,72 @@ class KeychainManager {
         let wrapper = try decoder.decode(SignedPrekeyWrapper.self, from: data)
         return wrapper.toSignedPrekey()
     }
+
+    // MARK: - One-Time Prekey Operations
+
+    /// Save multiple one-time prekeys to Keychain
+    /// OTPs are stored as a dictionary indexed by hex(otp_id)
+    func saveOneTimePrekeys(_ otps: [OneTimePrekey]) async throws {
+        var otpDict: [String: OneTimePrekeyWrapper] = [:]
+
+        // Load existing OTPs if any
+        if let existingData = try? retrieve(forKey: Keys.oneTimePrekeys) {
+            let decoder = JSONDecoder()
+            if let existing = try? decoder.decode([String: OneTimePrekeyWrapper].self, from: existingData) {
+                otpDict = existing
+            }
+        }
+
+        // Add new OTPs
+        for otp in otps {
+            let otpIdHex = C6PManager.shared.bytesToHex(otp.otpId)
+            otpDict[otpIdHex] = OneTimePrekeyWrapper(otp: otp)
+        }
+
+        // Save back to Keychain
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(otpDict)
+        try save(data, forKey: Keys.oneTimePrekeys)
+    }
+
+    /// Load a specific one-time prekey by OTP ID
+    /// Returns nil if not found (OTP already used or never generated)
+    func loadOneTimePrekey(otpId: [UInt8]) async throws -> OneTimePrekey? {
+        let otpIdHex = C6PManager.shared.bytesToHex(otpId)
+
+        guard let data = try? retrieve(forKey: Keys.oneTimePrekeys) else {
+            return nil
+        }
+
+        let decoder = JSONDecoder()
+        let otpDict = try decoder.decode([String: OneTimePrekeyWrapper].self, from: data)
+
+        guard let wrapper = otpDict[otpIdHex] else {
+            return nil
+        }
+
+        return wrapper.toOneTimePrekey()
+    }
+
+    /// Delete a specific one-time prekey after use (one-time use only!)
+    func deleteOneTimePrekey(otpId: [UInt8]) async throws {
+        let otpIdHex = C6PManager.shared.bytesToHex(otpId)
+
+        guard let data = try? retrieve(forKey: Keys.oneTimePrekeys) else {
+            return
+        }
+
+        let decoder = JSONDecoder()
+        var otpDict = try decoder.decode([String: OneTimePrekeyWrapper].self, from: data)
+
+        // Remove the OTP
+        otpDict.removeValue(forKey: otpIdHex)
+
+        // Save back to Keychain
+        let encoder = JSONEncoder()
+        let updatedData = try encoder.encode(otpDict)
+        try save(updatedData, forKey: Keys.oneTimePrekeys)
+    }
 }
 
 // MARK: - Keychain Error
@@ -242,6 +308,27 @@ private struct SignedPrekeyWrapper: Codable {
             spkPriv: Array(spkPriv),
             spkPub: Array(spkPub),
             spkSig: Array(spkSig)
+        )
+    }
+}
+
+/// Wrapper for OneTimePrekey (C6P FFI type → Codable)
+private struct OneTimePrekeyWrapper: Codable {
+    let otpId: Data
+    let otpPriv: Data
+    let otpPub: Data
+
+    init(otp: OneTimePrekey) {
+        self.otpId = Data(otp.otpId)
+        self.otpPriv = Data(otp.otpPriv)
+        self.otpPub = Data(otp.otpPub)
+    }
+
+    func toOneTimePrekey() -> OneTimePrekey {
+        return OneTimePrekey(
+            otpId: Array(otpId),
+            otpPriv: Array(otpPriv),
+            otpPub: Array(otpPub)
         )
     }
 }

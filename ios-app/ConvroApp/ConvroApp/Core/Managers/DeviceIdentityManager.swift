@@ -51,8 +51,9 @@ class DeviceIdentityManager: ObservableObject {
         let spk = try C6PManager.shared.generateSignedPrekey()
         let otps = try (0..<10).map { _ in try C6PManager.shared.generateOneTimePrekey() }
 
-        // Save SPK to Keychain
+        // Save SPK and OTPs to Keychain
         try await KeychainManager.shared.saveSignedPrekey(spk)
+        try await KeychainManager.shared.saveOneTimePrekeys(otps)
 
         // Register with Convro server
         let response = try await APIManager.shared.register(
@@ -99,6 +100,9 @@ class DeviceIdentityManager: ObservableObject {
         }
 
         let otps = try (0..<count).map { _ in try C6PManager.shared.generateOneTimePrekey() }
+
+        // Save OTPs to Keychain before uploading
+        try await KeychainManager.shared.saveOneTimePrekeys(otps)
 
         // Load current SPK from Keychain
         let currentSPK = try await KeychainManager.shared.loadSignedPrekey()

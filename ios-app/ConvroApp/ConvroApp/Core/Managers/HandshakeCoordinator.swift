@@ -26,14 +26,14 @@ class HandshakeCoordinator: ObservableObject {
         // Step 3: Send offer to server (server forwards to contact)
         handshakeState = .sendingOffer
 
-        // Serialize offer to bytes for sending
-        let offerBytes = serializeHandshakeOffer(result.offer)
-        let offerData = Data(offerBytes)
+        // Use the serialized offer from FFI (already in JSON wire format)
+        let offerData = Data(result.offer.serialized)
 
-        // Send via messages endpoint with handshake type
+        // Send via messages endpoint with handshake_offer type
         _ = try await APIManager.shared.sendMessage(
             toConvroNumber: contact.convroNumber,
-            encryptedEnvelope: offerData
+            encryptedEnvelope: offerData,
+            messageType: "handshake_offer"
         )
 
         // Step 4: Wait for accept message (received via WebSocket or polling)
@@ -48,21 +48,6 @@ class HandshakeCoordinator: ObservableObject {
         // Return session ID
         let sessionId = result.offer.sessionId.toHexString()
         return sessionId
-    }
-
-    /// Serialize HandshakeOffer to bytes
-    private func serializeHandshakeOffer(_ offer: C6PProtocol.HandshakeOffer) -> [UInt8] {
-        // Simple serialization - concatenate all fields
-        var bytes: [UInt8] = []
-        bytes.append(contentsOf: offer.sessionId)
-        bytes.append(contentsOf: offer.initiatorDeviceId)
-        bytes.append(contentsOf: offer.responderDeviceId)
-        bytes.append(contentsOf: offer.initiatorIdentityDhPub)
-        bytes.append(contentsOf: offer.initiatorIdentitySigPub)
-        bytes.append(contentsOf: offer.initiatorEphemeralDhPub)
-        bytes.append(contentsOf: offer.kc1)
-        bytes.append(contentsOf: offer.offerSignature)
-        return bytes
     }
 
     /// Initiator: Verify accept message from responder
@@ -91,26 +76,46 @@ class HandshakeCoordinator: ObservableObject {
     func respondToHandshakeOffer(offerBytes: [UInt8]) async throws -> String {
         handshakeState = .creatingOffer // Reusing state for "processing offer"
 
-        // Step 1: Load current signed prekey and optional OTP
+        // Step 1: Parse offer to extract used_otp_id
+        let offerData = Data(offerBytes)
+        let offer = try JSONDecoder().decode(OfferWireFormat.self, from: offerData)
+
+        // Step 2: Load current signed prekey
         let spk = try await KeychainManager.shared.loadSignedPrekey()
 
-        // OTP is optional (4DH vs 3DH)
-        // TODO: Load from database if available
-        let otp: C6PProtocol.OneTimePrekey? = nil
+        // Step 3: Load OTP if one was used (4DH vs 3DH)
+        var otp: C6PProtocol.OneTimePrekey? = nil
+        if let usedOtpIdHex = offer.usedOneTimePrekeyId {
+            // Convert hex to bytes
+            let otpIdBytes = try C6PManager.shared.hexToBytes(usedOtpIdHex)
 
-        // Step 2: Accept handshake offer
+            // Load OTP from Keychain
+            otp = try await KeychainManager.shared.loadOneTimePrekey(otpId: otpIdBytes)
+
+            if otp == nil {
+                print("⚠️ OTP \(usedOtpIdHex) not found in Keychain - falling back to 3DH")
+            }
+        }
+
+        // Step 4: Accept handshake offer
         let result = try C6PManager.shared.acceptHandshakeOffer(
             offerBytes: offerBytes,
             responderSPK: spk,
             responderOTP: otp
         )
 
+        // Step 5: Delete OTP from Keychain (one-time use!)
+        if let usedOtpIdHex = offer.usedOneTimePrekeyId, otp != nil {
+            let otpIdBytes = try C6PManager.shared.hexToBytes(usedOtpIdHex)
+            try await KeychainManager.shared.deleteOneTimePrekey(otpId: otpIdBytes)
+            print("✅ OTP \(usedOtpIdHex) consumed and deleted from Keychain")
+        }
+
         // Step 3: Send accept message to server (server forwards to initiator)
         handshakeState = .sendingOffer // Reusing state for "sending accept"
 
-        // Serialize accept to bytes for sending
-        let acceptBytes = serializeHandshakeAccept(result.accept)
-        let acceptData = Data(acceptBytes)
+        // Use the serialized accept from FFI (already in JSON wire format)
+        let acceptData = Data(result.accept.serialized)
 
         // Extract recipient from accept (initiator's device ID)
         // Note: Server needs to route to initiator - we'll use the session binding
@@ -118,7 +123,8 @@ class HandshakeCoordinator: ObservableObject {
         // In production, server routes based on session_id
         _ = try await APIManager.shared.sendMessage(
             toConvroNumber: "", // Server routes by session_id in accept
-            encryptedEnvelope: acceptData
+            encryptedEnvelope: acceptData,
+            messageType: "handshake_accept"
         )
 
         // Mark as completed
@@ -129,21 +135,6 @@ class HandshakeCoordinator: ObservableObject {
         // Return session ID
         let sessionId = result.accept.sessionId.toHexString()
         return sessionId
-    }
-
-    /// Serialize HandshakeAccept to bytes
-    private func serializeHandshakeAccept(_ accept: C6PProtocol.HandshakeAccept) -> [UInt8] {
-        // Simple serialization - concatenate all fields
-        var bytes: [UInt8] = []
-        bytes.append(contentsOf: accept.sessionId)
-        bytes.append(contentsOf: accept.initiatorDeviceId)
-        bytes.append(contentsOf: accept.responderDeviceId)
-        bytes.append(contentsOf: accept.responderIdentityDhPub)
-        bytes.append(contentsOf: accept.responderIdentitySigPub)
-        bytes.append(contentsOf: accept.responderEphemeralDhPub)
-        bytes.append(contentsOf: accept.kc2)
-        bytes.append(contentsOf: accept.acceptSignature)
-        return bytes
     }
 
     // MARK: - Helpers
@@ -186,6 +177,18 @@ enum HandshakeState: Equatable {
         default:
             return false
         }
+    }
+}
+
+// MARK: - Wire Format (for parsing offer)
+
+/// Minimal wire format for parsing handshake offer
+/// Only decodes fields we need (used_one_time_prekey_id)
+private struct OfferWireFormat: Decodable {
+    let usedOneTimePrekeyId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case usedOneTimePrekeyId = "usedOneTimePrekeyId"
     }
 }
 
