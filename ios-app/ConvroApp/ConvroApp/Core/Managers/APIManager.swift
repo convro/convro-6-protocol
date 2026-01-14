@@ -9,7 +9,7 @@ class APIManager: ObservableObject {
     static let shared = APIManager()
 
     // MARK: - Properties
-    private let baseURL = URL(string: "https://api.convro.app/v1")!
+    private let baseURL = URL(string: "https://app.convro.eu/v1")!
     private let client: APIClient
     private var accessToken: String?
     private var refreshToken: String?

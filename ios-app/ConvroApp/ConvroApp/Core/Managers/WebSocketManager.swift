@@ -15,7 +15,7 @@ class WebSocketManager: NSObject, ObservableObject {
     @Published var presenceUpdates = PassthroughSubject<PresenceUpdate, Never>()
 
     private var client: WebSocketClient?
-    private let url = URL(string: "wss://ws.convro.app/v1/stream")!
+    private let url = URL(string: "wss://app.convro.eu/v1/stream")!
 
     private override init() {
         super.init()
