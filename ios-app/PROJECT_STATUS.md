@@ -22,7 +22,7 @@
 - ✅ `App/AppCoordinator.swift` - Main navigation coordinator
 
 ### Core/Managers (9 files)
-- ✅ `Managers/C6PManager.swift` - C6P Protocol wrapper
+- ✅ `Managers/C6PManager.swift` - C6P wrapper
 - ✅ `Managers/KeychainManager.swift` - Secure storage
 - ✅ `Managers/DeviceIdentityManager.swift` - Device identity lifecycle
 - ✅ `Managers/APIManager.swift` - REST API client

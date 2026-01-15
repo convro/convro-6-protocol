@@ -2,7 +2,7 @@ import Foundation
 import C6PProtocol
 
 // MARK: - C6P Manager
-/// Core manager for C6P Protocol operations (handshake, encryption, sessions)
+/// Core manager for C6P operations (handshake, encryption, sessions)
 @MainActor
 class C6PManager: ObservableObject {
     // MARK: - Singleton

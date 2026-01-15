@@ -8,7 +8,7 @@ let package = Package(
     ],
     products: [],
     dependencies: [
-        // C6P Protocol (local development)
+        // C6P (local development)
         .package(path: "../../"), // Points to main Package.swift with C6PProtocol
     ],
     targets: []

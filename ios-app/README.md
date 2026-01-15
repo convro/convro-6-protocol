@@ -10,7 +10,7 @@
 This is a complete production-ready iOS application for Convro messaging.
 
 ### Features
-- ✅ End-to-end encryption (C6P Protocol)
+- ✅ End-to-end encryption (C6P)
 - ✅ Sealed sender (privacy-first)
 - ✅ Real-time messaging (WebSocket)
 - ✅ Contact management

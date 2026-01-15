@@ -76,11 +76,12 @@ class ChatViewModel: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
-        // Load from local cache first
+        // Load from local cache first (Core Data persistent storage)
         messages = await messageDatabase.fetchMessages(forConversation: conversationId.uuidString)
-
-        // TODO: Fetch from server if needed (pagination)
-        // This would require a new API endpoint: GET /conversations/:id/messages
+        
+        // Note: Server-side pagination will be implemented when message history API is added.
+        // Current architecture uses local Core Data as source of truth for message history.
+        // New messages arrive via WebSocket real-time updates and /messages/inbox polling.
     }
 
     // MARK: - Send Message
