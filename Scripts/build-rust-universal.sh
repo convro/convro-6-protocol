@@ -202,9 +202,9 @@ cd "$C6P_IOS_DIR"
 # Build uniffi-bindgen binary if not available
 if ! command -v uniffi-bindgen &> /dev/null; then
     log_info "uniffi-bindgen not found, building from source..."
-    cargo run --bin uniffi-bindgen -- generate --library "$TARGET_DIR/$TARGET_IOS_DEVICE/$BUILD_MODE/$LIB_NAME" --language swift --out-dir "$OUTPUT_DIR/bindings" src/c6p_ios.udl
+    cargo run --bin uniffi-bindgen -- generate src/c6p_ios.udl --language swift --out-dir "$OUTPUT_DIR/bindings"
 else
-    uniffi-bindgen generate --library "$TARGET_DIR/$TARGET_IOS_DEVICE/$BUILD_MODE/$LIB_NAME" --language swift --out-dir "$OUTPUT_DIR/bindings" src/c6p_ios.udl
+    uniffi-bindgen generate src/c6p_ios.udl --language swift --out-dir "$OUTPUT_DIR/bindings"
 fi
 
 # Check if bindings were generated
