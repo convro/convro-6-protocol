@@ -114,7 +114,7 @@ create_framework() {
     local framework_name=$3
     local framework_dir="$arch_dir/$framework_name.framework"
 
-    log_info "Creating framework for $platform..."
+    log_info "Creating framework for $platform..." >&2
 
     # Create framework directory structure
     mkdir -p "$framework_dir/Modules"
@@ -128,7 +128,7 @@ create_framework() {
     elif [[ -f "$arch_dir/module.modulemap" ]]; then
         cp "$arch_dir/module.modulemap" "$framework_dir/Modules/module.modulemap"
     else
-        log_warning "No modulemap found, creating default"
+        log_warning "No modulemap found, creating default" >&2
         cat > "$framework_dir/Modules/module.modulemap" << EOF
 module $framework_name {
     header "$framework_name.h"
@@ -142,7 +142,7 @@ EOF
         mkdir -p "$framework_dir/Headers"
         cp "$arch_dir/Headers/c6p_iosFFI.h" "$framework_dir/Headers/$framework_name.h"
     else
-        log_warning "No header found for $platform"
+        log_warning "No header found for $platform" >&2
     fi
 
     # Create Info.plist
@@ -173,7 +173,7 @@ EOF
 </plist>
 EOF
 
-    log_success "Created framework: $framework_dir"
+    log_success "Created framework: $framework_dir" >&2
     echo "$framework_dir"
 }
 
