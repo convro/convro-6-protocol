@@ -1,32 +1,26 @@
 import Foundation
 
 // MARK: - Message
+// This model matches MessageEntity (Core Data) structure for local persistence
 struct Message: Identifiable, Codable {
     let id: UUID
-    let sessionId: Data
-    let fromConvroNumber: String?
-    let toConvroNumber: String
-    let messageType: MessageType
-    let encryptedBlob: Data?
-    let encryptedEnvelope: Data?
-    let createdAt: Date
-    var deliveredAt: Date?
+    let conversationId: UUID?
+    let senderConvroNumber: String
+    let content: String
+    let timestamp: Date
+    let isFromCurrentUser: Bool
     var deliveryStatus: DeliveryStatus
-
-    // Local decrypted content (not in API response)
-    var decryptedContent: String?
+    let sessionId: String?
 
     enum CodingKeys: String, CodingKey {
         case id = "message_id"
-        case sessionId = "session_id"
-        case fromConvroNumber = "from_convro_number"
-        case toConvroNumber = "to_convro_number"
-        case messageType = "message_type"
-        case encryptedBlob = "encrypted_blob"
-        case encryptedEnvelope = "encrypted_envelope"
-        case createdAt = "created_at"
-        case deliveredAt = "delivered_at"
+        case conversationId = "conversation_id"
+        case senderConvroNumber = "sender_convro_number"
+        case content
+        case timestamp
+        case isFromCurrentUser = "is_from_current_user"
         case deliveryStatus = "delivery_status"
+        case sessionId = "session_id"
     }
 }
 
