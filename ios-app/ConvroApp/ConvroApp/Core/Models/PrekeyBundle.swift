@@ -1,14 +1,16 @@
 import Foundation
 
-// MARK: - Prekey Bundle
-struct PrekeyBundle: Codable {
+// MARK: - Prekey Bundle (API Response)
+// Note: Renamed to avoid conflict with UniFFI-generated PrekeyBundle
+// This is the API/server response format, UniFFI types contain crypto internals
+struct ApiPrekeyBundle: Codable {
     let userId: UUID
     let convroNumber: String
     let deviceIdentityId: UUID
     let deviceId: Data
     let identityKey: Data
-    let signedPrekey: SignedPrekey
-    let oneTimePrekey: OneTimePrekey?
+    let signedPrekey: ApiSignedPrekey
+    let oneTimePrekey: ApiOneTimePrekey?
 
     enum CodingKeys: String, CodingKey {
         case userId = "user_id"
@@ -21,8 +23,10 @@ struct PrekeyBundle: Codable {
     }
 }
 
-// MARK: - Signed Prekey
-struct SignedPrekey: Codable {
+// MARK: - Signed Prekey (API Response)
+// Note: Renamed to avoid conflict with UniFFI-generated SignedPrekey
+// This is public key only (API), UniFFI type contains private key too
+struct ApiSignedPrekey: Codable {
     let spkId: Int
     let publicKey: Data
     let signature: Data
@@ -34,8 +38,10 @@ struct SignedPrekey: Codable {
     }
 }
 
-// MARK: - One-Time Prekey
-struct OneTimePrekey: Codable {
+// MARK: - One-Time Prekey (API Response)
+// Note: Renamed to avoid conflict with UniFFI-generated OneTimePrekey
+// This is public key only (API), UniFFI type contains private key too
+struct ApiOneTimePrekey: Codable {
     let otpId: UUID
     let publicKey: Data
 

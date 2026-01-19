@@ -1,7 +1,9 @@
 import Foundation
 
-// MARK: - Device Identity
-struct DeviceIdentity: Codable {
+// MARK: - Device Identity (API DTO)
+// Note: Renamed from DeviceIdentity to avoid conflict with UniFFI-generated DeviceIdentity
+// This is the API/server representation (metadata), not the cryptographic identity
+struct ApiDeviceIdentity: Codable {
     let deviceId: Data
     let identityKey: Data
     let deviceName: String
