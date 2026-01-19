@@ -1,5 +1,4 @@
 import Foundation
-import C6PProtocol
 
 // MARK: - API Manager
 /// REST API client for Convro server (18 endpoints)
@@ -28,9 +27,9 @@ class APIManager: ObservableObject {
         username: String,
         password: String,
         displayName: String,
-        deviceIdentity: C6PProtocol.DeviceIdentity,
-        signedPrekey: C6PProtocol.SignedPrekey,
-        oneTimePrekeys: [C6PProtocol.OneTimePrekey]
+        deviceIdentity: DeviceIdentity,
+        signedPrekey: SignedPrekey,
+        oneTimePrekeys: [OneTimePrekey]
     ) async throws -> AuthResponse {
         let body = RegisterRequest(
             username: username,
@@ -127,9 +126,9 @@ class APIManager: ObservableObject {
 
     /// POST /devices - Register device identity
     func registerDevice(
-        deviceIdentity: C6PProtocol.DeviceIdentity,
-        signedPrekey: C6PProtocol.SignedPrekey,
-        oneTimePrekeys: [C6PProtocol.OneTimePrekey]
+        deviceIdentity: DeviceIdentity,
+        signedPrekey: SignedPrekey,
+        oneTimePrekeys: [OneTimePrekey]
     ) async throws -> Device {
         let body = RegisterDeviceRequest(
             deviceId: deviceIdentity.deviceId.toHexString(),
@@ -169,8 +168,8 @@ class APIManager: ObservableObject {
 
     /// POST /prekeys - Upload prekeys for device
     func uploadPrekeys(
-        signedPrekey: C6PProtocol.SignedPrekey,
-        oneTimePrekeys: [C6PProtocol.OneTimePrekey]
+        signedPrekey: SignedPrekey,
+        oneTimePrekeys: [OneTimePrekey]
     ) async throws {
         let body = UploadPrekeysRequest(
             spkId: signedPrekey.spkId.toHexString(),
@@ -517,8 +516,8 @@ struct PrekeyBundleResponse: Codable {
     let otpPub: String?
 
     /// Convert to C6P PrekeyBundle for handshake
-    func toPrekeyBundle() throws -> C6PProtocol.PrekeyBundle {
-        return C6PProtocol.PrekeyBundle(
+    func toPrekeyBundle() throws -> PrekeyBundle {
+        return PrekeyBundle(
             responderDeviceId: try hexToBytes(responderDeviceId),
             identityPubEd25519: try hexToBytes(identityPubEd25519),
             identityPubX25519: try hexToBytes(identityPubX25519),

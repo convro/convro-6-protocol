@@ -1,5 +1,4 @@
 import Foundation
-import C6PProtocol
 
 // MARK: - Handshake Coordinator
 /// Orchestrates IslandAccord v1 handshake flow between two users
@@ -52,9 +51,9 @@ class HandshakeCoordinator: ObservableObject {
 
     /// Initiator: Verify accept message from responder
     func verifyHandshakeAccept(
-        offer: C6PProtocol.HandshakeOffer,
+        offer: HandshakeOffer,
         acceptBytes: [UInt8],
-        sessionKeys: C6PProtocol.SessionKeys
+        sessionKeys: SessionKeys
     ) async throws {
         handshakeState = .verifying
 
@@ -84,7 +83,7 @@ class HandshakeCoordinator: ObservableObject {
         let spk = try await KeychainManager.shared.loadSignedPrekey()
 
         // Step 3: Load OTP if one was used (4DH vs 3DH)
-        var otp: C6PProtocol.OneTimePrekey? = nil
+        var otp: OneTimePrekey? = nil
         if let usedOtpIdHex = offer.usedOneTimePrekeyId {
             // Convert hex to bytes
             let otpIdBytes = try C6PManager.shared.hexToBytes(usedOtpIdHex)

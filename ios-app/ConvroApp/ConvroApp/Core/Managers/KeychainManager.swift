@@ -1,6 +1,5 @@
 import Foundation
 import Security
-import C6PProtocol
 
 // MARK: - Keychain Manager
 /// Secure storage manager for keys, identities, and sensitive data
@@ -28,13 +27,13 @@ class KeychainManager {
         do {
             try KeychainWrapper.save(data: data, service: serviceName, account: key)
         } catch {
-            throw KeychainError.saveFailed
+            throw KeychainManagerError.saveFailed
         }
     }
 
     func saveString(_ string: String, forKey key: String) throws {
         guard let data = string.data(using: .utf8) else {
-            throw KeychainError.encodingFailed
+            throw KeychainManagerError.encodingFailed
         }
         try save(data, forKey: key)
     }
@@ -44,14 +43,14 @@ class KeychainManager {
         do {
             return try KeychainWrapper.load(service: serviceName, account: key)
         } catch {
-            throw KeychainError.itemNotFound
+            throw KeychainManagerError.itemNotFound
         }
     }
 
     func retrieveString(forKey key: String) throws -> String {
         let data = try retrieve(forKey: key)
         guard let string = String(data: data, encoding: .utf8) else {
-            throw KeychainError.decodingFailed
+            throw KeychainManagerError.decodingFailed
         }
         return string
     }
@@ -61,7 +60,7 @@ class KeychainManager {
         do {
             try KeychainWrapper.delete(service: serviceName, account: key)
         } catch {
-            throw KeychainError.deleteFailed
+            throw KeychainManagerError.deleteFailed
         }
     }
 
@@ -202,8 +201,8 @@ class KeychainManager {
     }
 }
 
-// MARK: - Keychain Error
-enum KeychainError: LocalizedError {
+// MARK: - Keychain Manager Error
+enum KeychainManagerError: LocalizedError {
     case encodingFailed
     case decodingFailed
     case itemNotFound

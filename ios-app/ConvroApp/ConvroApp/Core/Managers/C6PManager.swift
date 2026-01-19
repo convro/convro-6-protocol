@@ -1,5 +1,4 @@
 import Foundation
-import C6PProtocol
 
 // MARK: - C6P Manager
 /// Core manager for C6P operations (handshake, encryption, sessions)

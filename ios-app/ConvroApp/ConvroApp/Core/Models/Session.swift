@@ -23,7 +23,7 @@ struct Session: Identifiable, Codable {
 }
 
 // MARK: - Session State
-// Note: Actual SessionState is managed by C6PProtocol.SessionState (FFI class)
+// Note: Actual SessionState is managed by SessionState (FFI class)
 // This Swift struct is NOT used - session state is stored in C6PSessionWrapper
 // which wraps the FFI SessionState class directly.
 //

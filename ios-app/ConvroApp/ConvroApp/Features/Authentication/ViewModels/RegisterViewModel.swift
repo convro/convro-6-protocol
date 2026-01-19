@@ -1,6 +1,5 @@
 import SwiftUI
 import Combine
-import C6PProtocol
 
 // MARK: - Register ViewModel
 @MainActor

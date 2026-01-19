@@ -1,5 +1,4 @@
 import Foundation
-import C6PProtocol
 
 // MARK: - Device Identity Manager
 /// Manages device identity lifecycle (C6P cryptographic identity)
@@ -9,7 +8,7 @@ class DeviceIdentityManager: ObservableObject {
     static let shared = DeviceIdentityManager()
 
     // MARK: - Properties
-    @Published var deviceIdentity: C6PProtocol.DeviceIdentity?
+    @Published var deviceIdentity: DeviceIdentity?
     @Published var isRegistered: Bool = false
 
     private init() {
