@@ -517,16 +517,33 @@ struct PrekeyBundleResponse: Codable {
 
     /// Convert to C6P PrekeyBundle for handshake
     func toPrekeyBundle() throws -> PrekeyBundle {
-        // Use C6P utils directly instead of C6PManager to avoid MainActor isolation
+        guard let deviceIdBytes = Data(hexString: responderDeviceId),
+              let identityEd25519Bytes = Data(hexString: identityPubEd25519),
+              let identityX25519Bytes = Data(hexString: identityPubX25519),
+              let spkIdBytes = Data(hexString: spkId),
+              let spkPubBytes = Data(hexString: spkPub),
+              let spkSigBytes = Data(hexString: spkSig) else {
+            struct HexDecodingError: Error {}
+            throw HexDecodingError()
+        }
+
+        var otpIdBytes: [UInt8]? = nil
+        var otpPubBytes: [UInt8]? = nil
+
+        if let otpIdHex = otpId, let otpPubHex = otpPub {
+            otpIdBytes = Data(hexString: otpIdHex).map { Array($0) }
+            otpPubBytes = Data(hexString: otpPubHex).map { Array($0) }
+        }
+
         return PrekeyBundle(
-            responderDeviceId: try utils_hex_to_bytes(hex: responderDeviceId),
-            identityPubEd25519: try utils_hex_to_bytes(hex: identityPubEd25519),
-            identityPubX25519: try utils_hex_to_bytes(hex: identityPubX25519),
-            spkId: try utils_hex_to_bytes(hex: spkId),
-            spkPub: try utils_hex_to_bytes(hex: spkPub),
-            spkSig: try utils_hex_to_bytes(hex: spkSig),
-            otpId: try otpId.map { try utils_hex_to_bytes(hex: $0) },
-            otpPub: try otpPub.map { try utils_hex_to_bytes(hex: $0) }
+            responderDeviceId: Array(deviceIdBytes),
+            identityPubEd25519: Array(identityEd25519Bytes),
+            identityPubX25519: Array(identityX25519Bytes),
+            spkId: Array(spkIdBytes),
+            spkPub: Array(spkPubBytes),
+            spkSig: Array(spkSigBytes),
+            otpId: otpIdBytes,
+            otpPub: otpPubBytes
         )
     }
 }
