@@ -12,7 +12,7 @@ struct LoginView: View {
                 Image(systemName: "message.fill")
                     .resizable()
                     .frame(width: 80, height: 80)
-                    .foregroundColor(.convroBlue)
+                    .foregroundColor(.blue)
 
                 Text("Convro")
                     .font(.largeTitle)
@@ -41,7 +41,7 @@ struct LoginView: View {
                     Text("Login")
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.convroBlue)
+                        .background(Color.blue)
                         .foregroundColor(.white)
                         .cornerRadius(12)
                 }
