@@ -518,20 +518,17 @@ struct PrekeyBundleResponse: Codable {
 
     /// Convert to C6P PrekeyBundle for handshake
     func toPrekeyBundle() throws -> C6PProtocol.PrekeyBundle {
+        // Use C6P utils directly instead of C6PManager to avoid MainActor isolation
         return C6PProtocol.PrekeyBundle(
-            responderDeviceId: try hexToBytes(responderDeviceId),
-            identityPubEd25519: try hexToBytes(identityPubEd25519),
-            identityPubX25519: try hexToBytes(identityPubX25519),
-            spkId: try hexToBytes(spkId),
-            spkPub: try hexToBytes(spkPub),
-            spkSig: try hexToBytes(spkSig),
-            otpId: try otpId.map { try hexToBytes($0) },
-            otpPub: try otpPub.map { try hexToBytes($0) }
+            responderDeviceId: try utils_hex_to_bytes(hex: responderDeviceId),
+            identityPubEd25519: try utils_hex_to_bytes(hex: identityPubEd25519),
+            identityPubX25519: try utils_hex_to_bytes(hex: identityPubX25519),
+            spkId: try utils_hex_to_bytes(hex: spkId),
+            spkPub: try utils_hex_to_bytes(hex: spkPub),
+            spkSig: try utils_hex_to_bytes(hex: spkSig),
+            otpId: try otpId.map { try utils_hex_to_bytes(hex: $0) },
+            otpPub: try otpPub.map { try utils_hex_to_bytes(hex: $0) }
         )
-    }
-
-    private func hexToBytes(_ hex: String) throws -> [UInt8] {
-        return try C6PManager.shared.hexToBytes(hex)
     }
 }
 
