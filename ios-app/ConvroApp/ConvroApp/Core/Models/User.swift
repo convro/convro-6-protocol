@@ -33,9 +33,3 @@ struct AuthTokens: Codable {
         case tokenType = "token_type"
     }
 }
-
-// MARK: - Auth Response
-struct AuthResponse: Codable {
-    let user: User
-    let tokens: AuthTokens
-}
