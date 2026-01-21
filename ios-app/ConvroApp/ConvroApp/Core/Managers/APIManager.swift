@@ -463,18 +463,42 @@ private struct UnregisterPushTokenRequest: Encodable {
 // MARK: - Response Models
 
 struct AuthResponse: Codable {
-    let user: UserData
-    let accessToken: String
-    let refreshToken: String
+    let userId: UUID
+    let username: String
     let convroNumber: String
+    let displayName: String
+    let createdAt: Date
+    let lastLogin: Date?
+    let accountStatus: String
+    let tokens: TokenData
+
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case username
+        case convroNumber = "convro_number"
+        case displayName = "display_name"
+        case createdAt = "created_at"
+        case lastLogin = "last_login"
+        case accountStatus = "account_status"
+        case tokens
+    }
+
+    var accessToken: String { tokens.accessToken }
+    var refreshToken: String { tokens.refreshToken }
 }
 
-struct UserData: Codable {
-    let id: UUID
-    let username: String
-    let displayName: String
-    let convroNumber: String
-    let createdAt: Date
+struct TokenData: Codable {
+    let accessToken: String
+    let refreshToken: String
+    let expiresIn: Int
+    let tokenType: String
+
+    enum CodingKeys: String, CodingKey {
+        case accessToken = "access_token"
+        case refreshToken = "refresh_token"
+        case expiresIn = "expires_in"
+        case tokenType = "token_type"
+    }
 }
 
 struct TokenRefreshResponse: Codable {
