@@ -1,7 +1,7 @@
 # Convro API Specification v1.2
 
 **Version:** 1.2.0
-**Base URL:** `https://api.convro.app/v1`
+**Base URL:** `https://app.convro.eu`
 **Protocol:** REST + WebSocket
 **Authentication:** JWT (Bearer token)
 **Format:** JSON
