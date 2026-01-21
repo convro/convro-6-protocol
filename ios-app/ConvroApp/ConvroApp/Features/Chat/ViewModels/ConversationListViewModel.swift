@@ -3,7 +3,7 @@ import Combine
 
 @MainActor
 class ConversationListViewModel: ObservableObject {
-    @Published var conversations: [ConversationResponse] = []
+    @Published var conversations: [Conversation] = []
     @Published var isLoading: Bool = false
     @Published var errorMessage: String?
 
@@ -36,7 +36,8 @@ class ConversationListViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            conversations = try await apiManager.fetchConversations()
+            let responses = try await apiManager.fetchConversations()
+            conversations = responses.map { $0.toConversation() }
             print("✅ Loaded \(conversations.count) conversations")
         } catch {
             errorMessage = error.localizedDescription

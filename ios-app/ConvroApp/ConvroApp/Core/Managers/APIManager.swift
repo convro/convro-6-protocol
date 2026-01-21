@@ -614,3 +614,31 @@ struct ContactPresenceInfo: Codable {
     let status: String
     let lastSeen: Date
 }
+
+// MARK: - ConversationResponse to Conversation Converter
+extension ConversationResponse {
+    func toConversation() -> Conversation {
+        let participant = Participant(
+            userId: UUID(), // API doesn't provide userId - using placeholder
+            convroNumber: participantConvroNumber,
+            displayName: participantDisplayName ?? "Unknown"
+        )
+
+        // ConversationResponse doesn't have lastMessage details, only lastMessageAt
+        let lastMessage: LastMessage? = lastMessageAt.map { timestamp in
+            LastMessage(
+                messageId: UUID(), // Placeholder
+                messageType: "encrypted_message",
+                timestamp: timestamp
+            )
+        }
+
+        return Conversation(
+            id: conversationId.uuidString,
+            participant: participant,
+            lastMessage: lastMessage,
+            unreadCount: unreadCount,
+            lastActivity: lastMessageAt ?? Date()
+        )
+    }
+}
