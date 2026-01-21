@@ -32,14 +32,14 @@ class LoginViewModel: ObservableObject {
             let response = try await apiManager.login(username: username, password: password)
 
             // Save current user's Convro Number to UserDefaults
-            UserDefaults.standard.set(response.user.convroNumber, forKey: "current_user_convro_number")
+            UserDefaults.standard.set(response.convroNumber, forKey: "current_user_convro_number")
 
             // Connect WebSocket for real-time updates
             await webSocketManager.connect(accessToken: response.accessToken)
 
             // Success
             loginSuccess = true
-            print("✅ Login successful: \(response.user.displayName)")
+            print("✅ Login successful: \(response.displayName)")
 
         } catch {
             errorMessage = error.localizedDescription
