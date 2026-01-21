@@ -1,0 +1,57 @@
+{
+  "version": "1.0",
+  "module": "signed_prekey_sig",
+  "generated_by": "rust-c6p-test-vectors v0.1.0",
+  "generated_at": "2026-01-06T17:48:45.444211381+00:00",
+  "description": "Signed prekey signature creation and validation",
+  "vectors": [
+    {
+      "case_id": "SPK_SIG_001",
+      "description": "Timon signs SPK (valid signature)",
+      "inputs": {
+        "ik_sig_priv_b64u": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+        "ik_sig_pub_b64u": "iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w",
+        "spk_id_hex": "0102030405060708",
+        "spk_pub_b64u": "e06Qm75__kTEZaIgA31gjuNYl9Me-XLwf3SJLLD3PxM"
+      },
+      "outputs": {
+        "message_to_sign_hex": "4336505f5052454b45595f563101020304050607087b4e909bbe7ffe44c465a220037d608ee35897d31ef972f07f74892cb0f73f13",
+        "message_to_sign_len": 53,
+        "spk_sig_b64u": "k23M68f4IHukfkdoWObIj1TEDXupTwqJ5N9bs69UIMdDhsQfdGFkG-i3GazNfGk0wsR9WkyHVLF5yMnvbLYIBw",
+        "verification_result": true
+      }
+    },
+    {
+      "case_id": "SPK_SIG_002",
+      "description": "Peter signs SPK (valid signature)",
+      "inputs": {
+        "ik_sig_priv_b64u": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+        "ik_sig_pub_b64u": "gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q",
+        "spk_id_hex": "1122334455667788",
+        "spk_pub_b64u": "D6poTtKIZ7l_Smot7l34zpdOdrcBjj8iocTPJnhXDyA"
+      },
+      "outputs": {
+        "message_to_sign_hex": "4336505f5052454b45595f563111223344556677880faa684ed28867b97f4a6a2dee5df8ce974e76b7018e3f22a1c4cf2678570f20",
+        "message_to_sign_len": 53,
+        "spk_sig_b64u": "Vzc6ZEV-GGa_JEfm35_OortAQm3Mxyx_MQ7Otj9JJp1cM21yFWf8DwFWKGIr3l4--ksVm_a0OzmViqf4T5M3Cw",
+        "verification_result": true
+      }
+    },
+    {
+      "case_id": "SPK_SIG_003",
+      "description": "Tampered SPK signature (verification should fail)",
+      "inputs": {
+        "ik_sig_priv_b64u": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+        "ik_sig_pub_b64u": "7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E",
+        "spk_id_hex": "aaaaaaaaaaaaaaaa",
+        "spk_pub_b64u": "ew1H2TQn-DERYHgcfHM_2J-IlwrvSQ2KoO4ZpMuKGxQ"
+      },
+      "outputs": {
+        "message_to_sign_hex": "4336505f5052454b45595f5631aaaaaaaaaaaaaaaa7b0d47d93427f8311160781c7c733fd89f88970aef490d8aa0ee19a4cb8a1b14",
+        "message_to_sign_len": 53,
+        "spk_sig_b64u": "klTbWKkwp1W8Fpk6ElEWiMPgpMdLCKIgqIa47icCEwvj4a2G-heWQLhmtyFclm21qS-n_ZHdqBBmNb3V_XIxBw",
+        "verification_result": false
+      }
+    }
+  ]
+}

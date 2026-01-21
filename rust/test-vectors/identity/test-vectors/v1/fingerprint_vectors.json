@@ -1,0 +1,54 @@
+{
+  "version": "1.0",
+  "module": "fingerprint",
+  "generated_by": "rust-c6p-test-vectors v0.1.0",
+  "generated_at": "2026-01-06T17:48:45.425180617+00:00",
+  "description": "Human-readable fingerprint generation (multiple formats)",
+  "vectors": [
+    {
+      "case_id": "FINGERPRINT_001",
+      "description": "Fingerprint for Timon (all formats)",
+      "inputs": {
+        "ed25519_public_key_b64u": "iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w",
+        "ed25519_public_key_hex": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c"
+      },
+      "outputs": {
+        "fingerprint_b64u": "yFWQXvDDBABujINgjUK6K5O5XX2n9TrzWF9pZKRvLR4",
+        "fingerprint_hex": "c855905ef0c304006e8c83608d42ba2b93b95d7da7f53af3585f6964a46f2d1e",
+        "fingerprint_short_hex": "c855905ef0c30400",
+        "fingerprint_formatted": "yFWQ-XvDD-BABu-jINg-jUK6-K5O5-XX2n-9Trz-WF9p-ZKRv-LR4",
+        "fingerprint_len": 32
+      }
+    },
+    {
+      "case_id": "FINGERPRINT_002",
+      "description": "Fingerprint for Peter (all formats)",
+      "inputs": {
+        "ed25519_public_key_b64u": "gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q",
+        "ed25519_public_key_hex": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394"
+      },
+      "outputs": {
+        "fingerprint_b64u": "_FpGTAEtBcNI1xWwNRAj72XS9tvpyaGo-NTBr7ocqN4",
+        "fingerprint_hex": "fc5a464c012d05c348d715b0351023ef65d2f6dbe9c9a1a8f8d4c1afba1ca8de",
+        "fingerprint_short_hex": "fc5a464c012d05c3",
+        "fingerprint_formatted": "_FpG-TAEt-BcNI-1xWw-NRAj-72XS-9tvp-yaGo--NTB-r7oc-qN4",
+        "fingerprint_len": 32
+      }
+    },
+    {
+      "case_id": "FINGERPRINT_003",
+      "description": "Fingerprint for all-zeros key (edge case)",
+      "inputs": {
+        "ed25519_public_key_b64u": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "ed25519_public_key_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "outputs": {
+        "fingerprint_b64u": "mG2WBOC5r2AuZaANS0O_K2k9-0fImN_P6Sy-MlFdeJA",
+        "fingerprint_hex": "986d9604e0b9af602e65a00d4b43bf2b693dfb47c898dfcfe92cbe32515d7890",
+        "fingerprint_short_hex": "986d9604e0b9af60",
+        "fingerprint_formatted": "mG2W-BOC5-r2Au-ZaAN-S0O_-K2k9--0fI-mN_P-6Sy--MlFd-eJA",
+        "fingerprint_len": 32
+      }
+    }
+  ]
+}

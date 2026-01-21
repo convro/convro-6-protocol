@@ -1,0 +1,57 @@
+{
+  "version": "1.0",
+  "module": "device_id",
+  "generated_by": "rust-c6p-test-vectors v0.1.0",
+  "generated_at": "2026-01-06T17:48:45.424375733+00:00",
+  "description": "Device ID derivation from Ed25519 public keys",
+  "vectors": [
+    {
+      "case_id": "DEVICE_ID_001",
+      "description": "Device ID for Timon (deterministic seed 0x01)",
+      "inputs": {
+        "ed25519_public_key_b64u": "iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w",
+        "ed25519_public_key_hex": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c"
+      },
+      "outputs": {
+        "device_id_hex": "0ae849e9eb653b7a1f83fc7d4010ab6e",
+        "device_id_len": 16
+      }
+    },
+    {
+      "case_id": "DEVICE_ID_002",
+      "description": "Device ID for Peter (deterministic seed 0x02)",
+      "inputs": {
+        "ed25519_public_key_b64u": "gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q",
+        "ed25519_public_key_hex": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394"
+      },
+      "outputs": {
+        "device_id_hex": "3bb82f36319fe27d6fd7586461b446a8",
+        "device_id_len": 16
+      }
+    },
+    {
+      "case_id": "DEVICE_ID_003",
+      "description": "Device ID for all-zeros public key (edge case)",
+      "inputs": {
+        "ed25519_public_key_b64u": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "ed25519_public_key_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "outputs": {
+        "device_id_hex": "0203337635b036f80d547e62b7c1b886",
+        "device_id_len": 16
+      }
+    },
+    {
+      "case_id": "DEVICE_ID_004",
+      "description": "Device ID for all-ones public key (edge case)",
+      "inputs": {
+        "ed25519_public_key_b64u": "__________________________________________8",
+        "ed25519_public_key_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "outputs": {
+        "device_id_hex": "cabe989458472356a00b05eab93c7bea",
+        "device_id_len": 16
+      }
+    }
+  ]
+}

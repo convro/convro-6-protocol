@@ -1,0 +1,41 @@
+{
+  "version": "1.0",
+  "module": "negative_tests",
+  "generated_by": "rust-c6p-test-vectors v0.1.0",
+  "generated_at": "2026-01-06T17:48:45.454278949+00:00",
+  "description": "Negative test cases (tampered data, replay attacks)",
+  "vectors": [
+    {
+      "case_id": "NEG_001",
+      "description": "Tampered ciphertext (AEAD auth failure)",
+      "test_type": "tampered_ciphertext",
+      "inputs": {
+        "ciphertext_b64u": "B0NipJtwu3pAqW7-TH3cOZI8fWN-A-W7SGjbBHPSfr8",
+        "counter": 0,
+        "initial_chain_key_b64u": "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI"
+      },
+      "expected_error": "DecryptionFailed"
+    },
+    {
+      "case_id": "NEG_002",
+      "description": "Replay attack (reused counter)",
+      "test_type": "replay_attack",
+      "inputs": {
+        "expected_behavior": "Second message with counter=5 should be rejected by SkipWindow",
+        "scenario": "Send message with counter=5, then try to send counter=5 again"
+      },
+      "expected_error": "ReplayDetected"
+    },
+    {
+      "case_id": "NEG_003",
+      "description": "Counter too far ahead (exceeds SKIP_WINDOW_SIZE)",
+      "test_type": "excessive_skip",
+      "inputs": {
+        "received_counter": 2049,
+        "recv_expected": 0,
+        "skip_window_size": 2048
+      },
+      "expected_error": "CounterTooFarAhead"
+    }
+  ]
+}

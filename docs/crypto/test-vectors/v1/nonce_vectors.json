@@ -1,0 +1,64 @@
+{
+  "version": "1.0",
+  "suite": "C6P_CRYPTO_V1",
+  "module": "nonce",
+  "generated_by": "rust-c6p-test-vectors v0.1.0",
+  "generated_at": "2026-01-04T23:51:06.812532984+00:00",
+  "description": "Deterministic nonce derivation test vectors",
+  "vectors": [
+    {
+      "case_id": "NONCE_001",
+      "description": "ChaCha20-Poly1305 nonce (12 bytes, counter=0)",
+      "inputs": {
+        "mk_material_b64u": "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI",
+        "session_binding_b64u": "ERERERERERERERERERERERERERERERERERERERERERE",
+        "suite_id": 1,
+        "suite_name": "ChaCha20-Poly1305",
+        "message_type": 1,
+        "stream_id": 1,
+        "session_id_hex": "0102030405060708",
+        "counter": 0
+      },
+      "outputs": {
+        "nonce_hex": "d19d800de252b28310235ee9",
+        "nonce_len": 12
+      }
+    },
+    {
+      "case_id": "NONCE_002",
+      "description": "XChaCha20-Poly1305 nonce (24 bytes, counter=0)",
+      "inputs": {
+        "mk_material_b64u": "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI",
+        "session_binding_b64u": "ERERERERERERERERERERERERERERERERERERERERERE",
+        "suite_id": 2,
+        "suite_name": "XChaCha20-Poly1305",
+        "message_type": 1,
+        "stream_id": 1,
+        "session_id_hex": "0102030405060708",
+        "counter": 0
+      },
+      "outputs": {
+        "nonce_hex": "9638d4ae86511e646efc8ecf50bf665b5ac9075090d75bbb",
+        "nonce_len": 24
+      }
+    },
+    {
+      "case_id": "NONCE_003",
+      "description": "Counter boundary test (counter=2^32-1)",
+      "inputs": {
+        "mk_material_b64u": "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI",
+        "session_binding_b64u": "ERERERERERERERERERERERERERERERERERERERERERE",
+        "suite_id": 1,
+        "suite_name": "ChaCha20-Poly1305",
+        "message_type": 1,
+        "stream_id": 1,
+        "session_id_hex": "0102030405060708",
+        "counter": 4294967295
+      },
+      "outputs": {
+        "nonce_hex": "89fa21bc290149968cd5b14f",
+        "nonce_len": 12
+      }
+    }
+  ]
+}

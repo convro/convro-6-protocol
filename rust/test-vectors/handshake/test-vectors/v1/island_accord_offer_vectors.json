@@ -1,0 +1,84 @@
+{
+  "version": "1.0",
+  "module": "island_accord_offer",
+  "generated_by": "rust-c6p-test-vectors v0.1.0",
+  "generated_at": "2026-01-06T17:48:45.386384632+00:00",
+  "description": "IslandAccord offer construction (3DH/4DH) with Timon and Peter",
+  "vectors": [
+    {
+      "case_id": "OFFER_001",
+      "description": "3DH handshake: Timon → Peter (no OTP)",
+      "inputs": {
+        "timon_ed_priv_b64u": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+        "timon_ed_pub_b64u": "iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w",
+        "timon_x_priv_b64u": "ERERERERERERERERERERERERERERERERERERERERERE",
+        "timon_x_pub_b64u": "e06Qm75__kTEZaIgA31gjuNYl9Me-XLwf3SJLLD3PxM",
+        "timon_eph_priv_b64u": "ISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISE",
+        "timon_eph_pub_b64u": "fTSkgV-muYJTXmCvO9m0lVaBYIDxZB_4HSt8iugmikQ",
+        "timon_device_id_hex": "0ae849e9eb653b7a1f83fc7d4010ab6e",
+        "peter_device_id_hex": "3bb82f36319fe27d6fd7586461b446a8",
+        "peter_ed_pub_b64u": "gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q",
+        "peter_x_pub_b64u": "D6poTtKIZ7l_Smot7l34zpdOdrcBjj8iocTPJnhXDyA",
+        "peter_spk_id_hex": "0102030405060708",
+        "peter_spk_pub_b64u": "WdkiVHNFHv_-azbbyu_b97GJXeYghFCaf1tYvwHQZBg",
+        "peter_spk_sig_b64u": "IktjLLy360yWZGHfvjNrmfnlDopIuqpGFmAZ-6EUU6ZZcWIPrqDwmdC89lkfvToDaNP1uWiRLDZNLABKG7XhCA",
+        "session_id_hex": "aabbccddeeff0011",
+        "suite_id": 1
+      },
+      "outputs": {
+        "dh1_b64u": "PGludGVybWVkaWF0ZS12YWx1ZS1ub3QtZXhwb3NlZD4",
+        "dh2_b64u": "PGludGVybWVkaWF0ZS12YWx1ZS1ub3QtZXhwb3NlZD4",
+        "dh3_b64u": "PGludGVybWVkaWF0ZS12YWx1ZS1ub3QtZXhwb3NlZD4",
+        "ikm_hex": "3c696e7465726d6564696174652d76616c75652d6e6f742d6578706f7365643e",
+        "ikm_len": 32,
+        "transcript_hash_b64u": "Iz_CjaOBgJ4xDj799BSrScV5qzX9-RXtmUie7x4AAR0",
+        "root_key_b64u": "T4BLniU7WTbh4VI7QU-7WOX8D1ZCXu1r_KTHuxzqeQQ",
+        "kc_key_b64u": "1a8nzbYzzJnEOMDIhfJe3vbIA_CBU8txY6tJw8grT7g",
+        "kc1_b64u": "PGtjMS1jb21wdXRlZC1zZXBhcmF0ZWx5Pg",
+        "ck_i2r_b64u": "874ChNSt0FduxVDm1rlluOWLiLaIfYUCGlRdjUKY9CA",
+        "ck_r2i_b64u": "2H7EnTubeT8iTjbY_rbqu8fOXX-c6-pThDdvlVqw7SU",
+        "offer_signature_b64u": "YXzE9h7GX1he5WcMKz_SPmGOlHfdd5_tfNMMzhbrtc3lLH9Wb2LAZeMGj-U1SQUpalndQrA-xzA8Hzoahj3BDg",
+        "offer_json": "{\"offer\":\"serialization-not-supported\"}"
+      }
+    },
+    {
+      "case_id": "OFFER_002",
+      "description": "4DH handshake: Timon → Peter (with OTP)",
+      "inputs": {
+        "timon_ed_priv_b64u": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+        "timon_ed_pub_b64u": "7UkoxijRwsbq6QM4kFmVYSlZJzpcY_k2NsFGFKyHN9E",
+        "timon_x_priv_b64u": "ExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExM",
+        "timon_x_pub_b64u": "GX_CxWfcA-4qrfDthmgdrCTap26DylVYdd075zduUwY",
+        "timon_eph_priv_b64u": "IyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyM",
+        "timon_eph_pub_b64u": "mkUDqYqxD-jTVMnELL0MnXlE9S59FNjqWXdefcnjv0s",
+        "timon_device_id_hex": "b46c9e26ba6128965489a5dda94dd89f",
+        "peter_device_id_hex": "2ab1d802e555d1b774bee9a5fcb2e7e4",
+        "peter_ed_pub_b64u": "ypOsFwUYcHHWe4PH_w7-gQjo7EUwV113JoeTM9vavnw",
+        "peter_x_pub_b64u": "BLzS4NAPLM5f6PHGwvvsXAf6VuOqXIilaJl12Is_zgU",
+        "peter_spk_id_hex": "1122334455667788",
+        "peter_spk_pub_b64u": "_8lRqm8voDCW0dG1eXNbL2-EAZ_i9heqZf89aHBfJSc",
+        "peter_spk_sig_b64u": "eP6FRSNgVKxy1PBM6RzFx1pYwYy429RQsJxj1vHtUQG0p8_ZhMwAph2uSY-wTKLZse3vTGFAsQtPgfLE5gDABA",
+        "peter_otp_id_hex": "aabbccddeeff0011",
+        "peter_otp_pub_b64u": "_y7kVgHsG2cxDHeQQEWFrmlzMe7hwfjPJBlzHB__Pms",
+        "session_id_hex": "1122334455667788",
+        "suite_id": 1
+      },
+      "outputs": {
+        "dh1_b64u": "PGludGVybWVkaWF0ZS12YWx1ZS1ub3QtZXhwb3NlZD4",
+        "dh2_b64u": "PGludGVybWVkaWF0ZS12YWx1ZS1ub3QtZXhwb3NlZD4",
+        "dh3_b64u": "PGludGVybWVkaWF0ZS12YWx1ZS1ub3QtZXhwb3NlZD4",
+        "dh4_b64u": "PGludGVybWVkaWF0ZS12YWx1ZS1ub3QtZXhwb3NlZD4",
+        "ikm_hex": "3c696e7465726d6564696174652d76616c75652d6e6f742d6578706f7365643e",
+        "ikm_len": 32,
+        "transcript_hash_b64u": "iOIxyPCol6dLseyIqjTyknnUOoV0ZLN4prAQtejmHK0",
+        "root_key_b64u": "xcCWfmhRax-_2GVoc2fSoV5Dt3sg8IfqzTy-yCVdaEw",
+        "kc_key_b64u": "LXK9V4MuC0IO62Ia2UcXwpFauWh_SkYSVZ-jUZ215Z4",
+        "kc1_b64u": "PGtjMS1jb21wdXRlZC1zZXBhcmF0ZWx5Pg",
+        "ck_i2r_b64u": "GwjPL3OoNK8Q5cbc46y-XC49FDXUldp0nZWW97NJxJ0",
+        "ck_r2i_b64u": "iwtrw_uTLivWvPtnZpvfpQpVrwByF9tPS2HLkqVzw0g",
+        "offer_signature_b64u": "q5IexXNVaVxDd4-D7QabiuNTFH7mwzWo8RhEjLJZO-Fw849DFGy77laFA1Go1s0IEqMPBHitMUM_ZWyd4nPzCg",
+        "offer_json": "{\"offer\":\"serialization-not-supported\"}"
+      }
+    }
+  ]
+}

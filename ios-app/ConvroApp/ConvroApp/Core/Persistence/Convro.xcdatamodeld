@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="22522" systemVersion="23C71" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <!-- Message Entity - Stores encrypted messages locally -->
+    <entity name="MessageEntity" representedClassName="MessageEntity" syncable="YES">
+        <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="conversationId" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="senderConvroNumber" attributeType="String"/>
+        <attribute name="content" attributeType="String"/>
+        <attribute name="timestamp" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="isFromCurrentUser" attributeType="Boolean" usesScalarValueType="YES" defaultValueString="NO"/>
+        <attribute name="deliveryStatus" attributeType="String" defaultValueString="pending"/>
+        <attribute name="sessionId" optional="YES" attributeType="String"/>
+        <relationship name="conversation" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="ConversationEntity" inverseName="messages" inverseEntity="ConversationEntity"/>
+    </entity>
+
+    <!-- Conversation Entity - Stores conversation metadata -->
+    <entity name="ConversationEntity" representedClassName="ConversationEntity" syncable="YES">
+        <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="participantConvroNumber" attributeType="String"/>
+        <attribute name="participantDisplayName" optional="YES" attributeType="String"/>
+        <attribute name="lastMessageAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="unreadCount" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <relationship name="messages" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="MessageEntity" inverseName="conversation" inverseEntity="MessageEntity"/>
+    </entity>
+</model>

@@ -1,0 +1,385 @@
+name: Build and Release XCFramework
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Trigger on version tags like v0.1.0, v1.2.3
+  workflow_dispatch:  # Allow manual trigger
+    inputs:
+      version:
+        description: 'Version to release (e.g., 0.1.0)'
+        required: true
+        type: string
+
+env:
+  FRAMEWORK_NAME: C6PProtocol
+  RUST_VERSION: 1.85.0
+
+jobs:
+  build-xcframework:
+    name: Build XCFramework for iOS
+    runs-on: macos-14  # macOS with Apple Silicon (M1/M2)
+
+    steps:
+      # ========================================================================
+      # Checkout
+      # ========================================================================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for git describe
+
+      # ========================================================================
+      # Version Detection
+      # ========================================================================
+      - name: Detect version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            # Extract from tag (v0.1.0 -> 0.1.0)
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "📦 Building version: $VERSION"
+
+      # ========================================================================
+      # Setup Rust
+      # ========================================================================
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - name: Show Rust version
+        run: |
+          rustc --version
+          cargo --version
+          rustup show
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workdir: rust
+          cache-on-failure: true
+
+      # ========================================================================
+      # Setup Build Tools
+      # ========================================================================
+      - name: Install build dependencies
+        run: |
+          # Verify Xcode command line tools
+          xcode-select --print-path
+
+          # Show macOS and Xcode versions
+          sw_vers
+          xcodebuild -version
+
+      # ========================================================================
+      # Run Tests
+      # ========================================================================
+      - name: Run Rust tests
+        working-directory: rust
+        run: |
+          cargo test --package c6p-ios --lib
+          cargo test --package c6p-crypto
+          cargo test --package c6p-identity
+          cargo test --package c6p-handshake
+          cargo test --package c6p-sessions
+
+      # ========================================================================
+      # Build Universal Libraries
+      # ========================================================================
+      - name: Build Rust universal libraries
+        run: |
+          chmod +x Scripts/build-rust-universal.sh
+          ./Scripts/build-rust-universal.sh release
+
+      # ========================================================================
+      # Create XCFramework
+      # ========================================================================
+      - name: Build XCFramework
+        id: xcframework
+        run: |
+          chmod +x Scripts/build-xcframework.sh
+          ./Scripts/build-xcframework.sh release ${{ steps.version.outputs.version }}
+
+          # Extract checksum
+          CHECKSUM=$(cat build/xcframework/checksums.txt | grep -A1 "SHA-256" | tail -1 | awk '{print $1}')
+          echo "checksum=$CHECKSUM" >> $GITHUB_OUTPUT
+          echo "📋 Checksum: $CHECKSUM"
+
+      # ========================================================================
+      # Prepare Release Artifacts
+      # ========================================================================
+      - name: Prepare release artifacts
+        id: artifacts
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ZIP_FILE="$FRAMEWORK_NAME-$VERSION.xcframework.zip"
+          SWIFT_FILE="c6p_ios.swift"
+
+          # Copy Swift bindings
+          cp build/xcframework/c6p_ios.swift "$SWIFT_FILE"
+
+          # Verify files exist
+          ls -lh build/xcframework/$ZIP_FILE
+          ls -lh $SWIFT_FILE
+
+          echo "zip_file=$ZIP_FILE" >> $GITHUB_OUTPUT
+          echo "swift_file=$SWIFT_FILE" >> $GITHUB_OUTPUT
+
+      # ========================================================================
+      # Update Package.swift with checksum
+      # ========================================================================
+      - name: Update Package.swift
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          CHECKSUM="${{ steps.xcframework.outputs.checksum }}"
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/download/v$VERSION/$FRAMEWORK_NAME-$VERSION.xcframework.zip"
+
+          # Create updated Package.swift
+          cat > Package.swift.tmp << EOF
+          // swift-tools-version: 5.7
+          import PackageDescription
+
+          let package = Package(
+              name: "$FRAMEWORK_NAME",
+              platforms: [
+                  .iOS(.v13),
+                  .macOS(.v11)
+              ],
+              products: [
+                  .library(
+                      name: "$FRAMEWORK_NAME",
+                      targets: ["$FRAMEWORK_NAME"]
+                  ),
+              ],
+              targets: [
+                  .binaryTarget(
+                      name: "${FRAMEWORK_NAME}FFI",
+                      url: "$RELEASE_URL",
+                      checksum: "$CHECKSUM"
+                  ),
+                  .target(
+                      name: "$FRAMEWORK_NAME",
+                      dependencies: ["${FRAMEWORK_NAME}FFI"],
+                      path: "Sources/$FRAMEWORK_NAME",
+                      sources: ["Placeholder.swift"]
+                  ),
+                  .testTarget(
+                      name: "${FRAMEWORK_NAME}Tests",
+                      dependencies: ["$FRAMEWORK_NAME"],
+                      path: "Tests/${FRAMEWORK_NAME}Tests"
+                  ),
+              ]
+          )
+          EOF
+
+          # Show diff
+          echo "📝 Package.swift updates:"
+          diff Package.swift Package.swift.tmp || true
+
+          # Save for commit
+          mv Package.swift.tmp Package.swift.release
+
+      # ========================================================================
+      # Create Release Notes
+      # ========================================================================
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          CHECKSUM="${{ steps.xcframework.outputs.checksum }}"
+
+          cat > RELEASE_NOTES.md << EOF
+          # C6P Protocol v$VERSION - iOS XCFramework
+
+          ## 📦 Distribution
+
+          This release includes:
+          - **$FRAMEWORK_NAME.xcframework** - Universal binary framework
+          - **c6p_ios.swift** - UniFFI-generated Swift bindings
+          - **Checksums** - SHA-256 verification
+
+          ## 🎯 Supported Platforms
+
+          - **iOS Device**: ARM64 (iPhone, iPad)
+          - **iOS Simulator**: ARM64 (Apple Silicon Mac), x86_64 (Intel Mac)
+          - **Minimum iOS Version**: 13.0+
+
+          ## 📥 Installation
+
+          ### Swift Package Manager (Recommended)
+
+          Add to your \`Package.swift\`:
+
+          \`\`\`swift
+          dependencies: [
+              .package(url: "https://github.com/convro/convro-6-protocol.git", from: "$VERSION")
+          ]
+          \`\`\`
+
+          Or in Xcode:
+          1. File → Add Package Dependencies
+          2. Enter: \`https://github.com/convro/convro-6-protocol.git\`
+          3. Select version: \`$VERSION\`
+
+          ### Manual Installation
+
+          1. Download \`$FRAMEWORK_NAME-$VERSION.xcframework.zip\`
+          2. Unzip and drag \`$FRAMEWORK_NAME.xcframework\` to your Xcode project
+          3. Verify in **Frameworks, Libraries, and Embedded Content**
+
+          ## 🔒 Verification
+
+          **SHA-256 Checksum:**
+          \`\`\`
+          $CHECKSUM
+          \`\`\`
+
+          Verify with:
+          \`\`\`bash
+          shasum -a 256 $FRAMEWORK_NAME-$VERSION.xcframework.zip
+          \`\`\`
+
+          ## 📚 Documentation
+
+          - [Architecture Guide](rust/c6p-ios/docs/ARCHITECTURE.md)
+          - [Swift Integration](rust/c6p-ios/docs/SWIFT_INTEGRATION.md)
+          - [Security Guidelines](rust/c6p-ios/docs/SECURITY.md)
+          - [API Reference](rust/c6p-ios/README.md)
+
+          ## 🔧 What's Included
+
+          ### Core Features
+          - ✅ IslandAccord v1 handshake protocol (3DH/4DH)
+          - ✅ ChaCha20-Poly1305 AEAD encryption
+          - ✅ Ed25519 signatures & X25519 key agreement
+          - ✅ Stateless design (Swift manages keys via Keychain)
+          - ✅ Replay protection with counter windows
+          - ✅ Constant-time operations for security
+
+          ### Swift API
+          - Identity generation and management
+          - Handshake creation and acceptance
+          - Session encryption/decryption
+          - Utilities (hex encoding, fingerprints)
+
+          ## 🧪 Testing
+
+          All **113 tests passing**:
+          - 13 iOS bridge tests (UniFFI integration)
+          - 100 core protocol tests (Rust implementation)
+
+          ## 📖 Quick Start
+
+          \`\`\`swift
+          import C6PProtocol
+
+          // Generate device identity
+          let identity = try identity_generate_identity()
+
+          // Create handshake offer
+          let result = try handshake_create_offer(
+              initiator_identity: identity,
+              responder_bundle: responderBundle
+          )
+
+          // Store keys in Keychain
+          try KeychainManager.storeSessionKeys(
+              result.session_keys,
+              for: result.offer.session_id
+          )
+
+          // Encrypt message
+          let encrypted = try session_encrypt(
+              plaintext: "Hello".data(using: .utf8)!,
+              session_keys: sessionKeys
+          )
+          \`\`\`
+
+          See [SWIFT_INTEGRATION.md](rust/c6p-ios/docs/SWIFT_INTEGRATION.md) for complete examples.
+
+          ## 📝 Release Info
+
+          - **Version**: $VERSION
+          - **Build Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          - **Rust Version**: ${{ env.RUST_VERSION }}
+          - **UniFFI Version**: 0.28
+          - **License**: TBD
+
+          ## 🐛 Bug Reports
+
+          Report issues at: https://github.com/convro/convro-6-protocol/issues
+          EOF
+
+          echo "release_notes_file=RELEASE_NOTES.md" >> $GITHUB_OUTPUT
+
+      # ========================================================================
+      # Create GitHub Release
+      # ========================================================================
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: C6P Protocol v${{ steps.version.outputs.version }}
+          body_path: ${{ steps.release_notes.outputs.release_notes_file }}
+          draft: false
+          prerelease: false
+          files: |
+            build/xcframework/${{ steps.artifacts.outputs.zip_file }}
+            build/xcframework/checksums.txt
+            ${{ steps.artifacts.outputs.swift_file }}
+            Package.swift.release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ========================================================================
+      # Upload Artifacts
+      # ========================================================================
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcframework-${{ steps.version.outputs.version }}
+          path: |
+            build/xcframework/${{ env.FRAMEWORK_NAME }}.xcframework
+            build/xcframework/${{ steps.artifacts.outputs.zip_file }}
+            build/xcframework/checksums.txt
+            build/xcframework/c6p_ios.swift
+          retention-days: 90
+
+      # ========================================================================
+      # Summary
+      # ========================================================================
+      - name: Job summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          # ✅ XCFramework Build Complete
+
+          ## 📦 Release Information
+          - **Version**: ${{ steps.version.outputs.version }}
+          - **Framework**: $FRAMEWORK_NAME.xcframework
+          - **Checksum**: \`${{ steps.xcframework.outputs.checksum }}\`
+
+          ## 📥 Download
+          - [Release Page](https://github.com/${{ github.repository }}/releases/tag/v${{ steps.version.outputs.version }})
+          - [XCFramework ZIP](https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.version }}/${{ steps.artifacts.outputs.zip_file }})
+
+          ## 🔧 Integration
+          \`\`\`swift
+          // Package.swift
+          dependencies: [
+              .package(url: "https://github.com/${{ github.repository }}.git", from: "${{ steps.version.outputs.version }}")
+          ]
+          \`\`\`
+
+          ## 📊 Build Status
+          - ✅ Rust tests passed
+          - ✅ Universal libraries built
+          - ✅ XCFramework created
+          - ✅ Release published
+          EOF

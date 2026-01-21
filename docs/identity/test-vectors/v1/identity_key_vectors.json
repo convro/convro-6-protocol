@@ -1,0 +1,24 @@
+{
+  "version": "1.0",
+  "suite": "C6P_IDENTITY_V1",
+  "module": "identity_keys",
+  "generated_by": "rust-c6p-identity (TO BE GENERATED)",
+  "generated_at": "TBD",
+  "description": "Identity keypair generation and encoding",
+  "vectors": [
+    {
+      "case_id": "IK_GEN_001",
+      "description": "Generate Ed25519 + X25519 identity keypairs",
+      "inputs": {
+        "seed_hex": "TODO (for deterministic generation in tests)"
+      },
+      "outputs": {
+        "ik_sig_pub_b64u": "TODO (32 bytes)",
+        "ik_sig_priv_b64u": "TODO (64 bytes, test-only)",
+        "ik_dh_pub_b64u": "TODO (32 bytes)",
+        "ik_dh_priv_b64u": "TODO (32 bytes, test-only)",
+        "device_id_hex": "TODO (derived from ik_sig_pub)"
+      }
+    }
+  ]
+}

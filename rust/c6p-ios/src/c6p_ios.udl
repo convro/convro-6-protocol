@@ -1,0 +1,238 @@
+// Convro 6 Protocol - iOS/Swift Bindings (UniFFI)
+//
+// This UDL (Universal Definition Language) file defines the Swift API
+// for the C6P iOS bridge. UniFFI automatically generates Swift bindings
+// from this definition.
+
+// Main namespace - contains all C6P functions
+namespace c6p_ios {
+    // Get library version
+    string version();
+
+    // ========================================================================
+    // IDENTITY MANAGEMENT
+    // ========================================================================
+
+    // Generate new device identity
+    [Throws=C6pError]
+    DeviceIdentity identity_generate_identity();
+
+    // Generate signed prekey (rotated weekly/monthly)
+    [Throws=C6pError]
+    SignedPrekey identity_generate_signed_prekey(DeviceIdentity identity);
+
+    // Generate one-time prekey (single-use, for 4DH)
+    [Throws=C6pError]
+    OneTimePrekey identity_generate_one_time_prekey();
+
+    // Compute device ID from Ed25519 public key
+    [Throws=C6pError]
+    sequence<u8> identity_compute_device_id(sequence<u8> ed25519_pub);
+
+    // Compute fingerprint from Ed25519 public key
+    [Throws=C6pError]
+    string identity_compute_fingerprint(sequence<u8> ed25519_pub);
+
+    // Validate prekey bundle (verify SPK signature)
+    [Throws=C6pError]
+    void identity_validate_bundle(PrekeyBundle bundle);
+
+    // ========================================================================
+    // HANDSHAKE (IslandAccord v1)
+    // ========================================================================
+
+    // Initiator: Create handshake offer
+    // Returns CreateOfferResult { offer, session_keys }
+    // CRITICAL: Store session_keys in iOS Keychain immediately!
+    [Throws=C6pError]
+    CreateOfferResult handshake_create_offer(
+        DeviceIdentity initiator_identity,
+        PrekeyBundle responder_bundle
+    );
+
+    // Responder: Accept handshake offer
+    // Returns AcceptOfferResult { accept, session_keys }
+    // CRITICAL: Store session_keys in iOS Keychain immediately!
+    [Throws=C6pError]
+    AcceptOfferResult handshake_accept_offer(
+        DeviceIdentity responder_identity,
+        SignedPrekey responder_spk,
+        OneTimePrekey? responder_otp,
+        sequence<u8> offer_bytes
+    );
+
+    // Initiator: Verify accept message using stored session keys
+    // This is STATELESS - requires session_keys from create_offer stored in Keychain
+    [Throws=C6pError]
+    void handshake_verify_accept(
+        HandshakeOffer offer,
+        sequence<u8> accept_bytes,
+        SessionKeys session_keys
+    );
+
+    // ========================================================================
+    // UTILITIES
+    // ========================================================================
+
+    // Convert bytes to hex string (lowercase)
+    string utils_bytes_to_hex(sequence<u8> data);
+
+    // Convert hex string to bytes
+    [Throws=C6pError]
+    sequence<u8> utils_hex_to_bytes(string hex);
+
+    // Generate cryptographically secure random bytes
+    [Throws=C6pError]
+    sequence<u8> utils_random_bytes(u32 length);
+};
+
+// ============================================================================
+// ERROR TYPES
+// ============================================================================
+
+[Error]
+enum C6pError {
+    "InvalidKey",
+    "InvalidSignature",
+    "InvalidDeviceId",
+    "InvalidFingerprint",
+    "HandshakeFailed",
+    "CryptoError",
+    "SessionError",
+    "ReplayDetected",
+    "CounterExhausted",
+    "DecryptionFailed",
+    "SerializationError",
+    "InvalidInput",
+};
+
+// ============================================================================
+// IDENTITY TYPES
+// ============================================================================
+
+// Device identity (long-term keys)
+dictionary DeviceIdentity {
+    sequence<u8> device_id;              // 16 bytes - BLAKE3 hash of Ed25519 public key
+    sequence<u8> identity_priv_ed25519;  // 64 bytes - Ed25519 keypair (priv||pub)
+    sequence<u8> identity_pub_ed25519;   // 32 bytes - Ed25519 public key (verification)
+    sequence<u8> identity_priv_x25519;   // 32 bytes - X25519 private key (DH)
+    sequence<u8> identity_pub_x25519;    // 32 bytes - X25519 public key (DH)
+    string fingerprint;                  // Base32-encoded fingerprint (32 chars)
+};
+
+// Signed prekey (medium-term key rotated weekly/monthly)
+dictionary SignedPrekey {
+    sequence<u8> spk_id;        // 8 bytes - Unique identifier
+    sequence<u8> spk_priv;      // 32 bytes - X25519 private key
+    sequence<u8> spk_pub;       // 32 bytes - X25519 public key
+    sequence<u8> spk_sig;       // 64 bytes - Ed25519 signature over (spk_id || spk_pub)
+};
+
+// One-time prekey (single-use key for 4DH)
+dictionary OneTimePrekey {
+    sequence<u8> otp_id;        // 8 bytes - Unique identifier
+    sequence<u8> otp_priv;      // 32 bytes - X25519 private key
+    sequence<u8> otp_pub;       // 32 bytes - X25519 public key
+};
+
+// Prekey bundle (published to server for initiators to fetch)
+dictionary PrekeyBundle {
+    sequence<u8> responder_device_id;    // 16 bytes
+    sequence<u8> identity_pub_ed25519;   // 32 bytes
+    sequence<u8> identity_pub_x25519;    // 32 bytes
+    sequence<u8> spk_id;                 // 8 bytes
+    sequence<u8> spk_pub;                // 32 bytes
+    sequence<u8> spk_sig;                // 64 bytes (signature over spk_id || spk_pub)
+    sequence<u8>? otp_id;                // 8 bytes (optional, for 4DH)
+    sequence<u8>? otp_pub;               // 32 bytes (optional, for 4DH)
+};
+
+// ============================================================================
+// HANDSHAKE TYPES
+// ============================================================================
+
+// Handshake offer (sent by initiator)
+dictionary HandshakeOffer {
+    sequence<u8> session_id;                    // 8 bytes
+    sequence<u8> initiator_device_id;           // 16 bytes
+    sequence<u8> responder_device_id;           // 16 bytes
+    sequence<u8> initiator_identity_dh_pub;     // 32 bytes (X25519)
+    sequence<u8> initiator_identity_sig_pub;    // 32 bytes (Ed25519)
+    sequence<u8> initiator_ephemeral_dh_pub;    // 32 bytes (X25519 ephemeral)
+    sequence<u8> used_spk_id;                   // 8 bytes
+    sequence<u8> used_spk_pub;                  // 32 bytes
+    sequence<u8> used_spk_sig;                  // 64 bytes
+    sequence<u8>? used_otp_id;                  // 8 bytes (if 4DH)
+    sequence<u8>? used_otp_pub;                 // 32 bytes (if 4DH)
+    sequence<u8> transcript_hash;               // 32 bytes (BLAKE3)
+    sequence<u8> kc1;                           // 32 bytes (key confirmation 1)
+    sequence<u8> offer_signature;               // 64 bytes (Ed25519)
+    sequence<u8> serialized;                    // JSON wire format
+};
+
+// Handshake accept (sent by responder)
+dictionary HandshakeAccept {
+    sequence<u8> session_id;            // 8 bytes
+    sequence<u8> responder_device_id;   // 16 bytes
+    sequence<u8> kc2;                   // 32 bytes (key confirmation 2)
+    sequence<u8> serialized;            // JSON wire format
+};
+
+// Session keys (derived after successful handshake)
+// SECURITY: Store these in iOS Keychain with kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+dictionary SessionKeys {
+    sequence<u8> session_id;        // 8 bytes
+    sequence<u8> root_key;          // 32 bytes - for future ratcheting (reserved)
+    sequence<u8> kc_key;            // 32 bytes - for KC2 verification (initiator only)
+    sequence<u8> send_chain_key;    // 32 bytes - sending ratchet chain key
+    sequence<u8> recv_chain_key;    // 32 bytes - receiving ratchet chain key
+    sequence<u8> session_binding;   // 32 bytes - for nonce derivation
+};
+
+// Result of create_offer - contains both offer and session keys
+dictionary CreateOfferResult {
+    HandshakeOffer offer;
+    SessionKeys session_keys;
+};
+
+// Result of accept_offer - contains both accept and session keys
+dictionary AcceptOfferResult {
+    HandshakeAccept accept;
+    SessionKeys session_keys;
+};
+
+// ============================================================================
+// SESSION TYPES
+// ============================================================================
+
+// Encrypted message
+dictionary EncryptedMessage {
+    u64 counter;                // Message counter (for replay protection)
+    sequence<u8> ciphertext;    // Encrypted payload (variable length)
+    sequence<u8> tag;           // Poly1305 authentication tag (16 bytes)
+};
+
+// Session state (opaque, managed by Swift)
+// NOT thread-safe - wrap in actor/DispatchQueue if needed
+interface SessionState {
+    // Create new session from handshake keys
+    [Throws=C6pError]
+    constructor(SessionKeys keys, boolean is_initiator);
+
+    // Encrypt outgoing message
+    [Throws=C6pError]
+    EncryptedMessage encrypt(sequence<u8> plaintext);
+
+    // Decrypt incoming message
+    [Throws=C6pError]
+    sequence<u8> decrypt(EncryptedMessage message);
+
+    // Get current send counter
+    u64 send_counter();
+
+    // Get current recv expected counter
+    u64 recv_expected();
+
+    // NOTE: export_state() and import_state() are not yet exposed in UDL
+    // They will be added in a future release after implementation is complete
+};

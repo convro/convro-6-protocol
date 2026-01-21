@@ -1,0 +1,42 @@
+{
+  "version": "1.0",
+  "suite": "ISLAND_ACCORD_V1",
+  "module": "initiator_derivation",
+  "generated_by": "rust-c6p-handshake (TO BE GENERATED)",
+  "generated_at": "TBD",
+  "description": "Initiator-side key derivation from bundle to root/KC",
+  "vectors": [
+    {
+      "case_id": "INITIATOR_DERIVE_001",
+      "description": "Derive from bundle (3DH, no OTP)",
+      "inputs": {
+        "bundle": {
+          "responder_device_id_hex": "TODO",
+          "identity_pub_ed25519_b64u": "TODO",
+          "identity_pub_x25519_b64u": "TODO",
+          "spk_id_hex": "TODO",
+          "spk_pub_b64u": "TODO",
+          "spk_sig_b64u": "TODO"
+        },
+        "initiator_ik_dh_priv_b64u": "TODO",
+        "initiator_ek_priv_b64u": "TODO",
+        "session_id_hex": "TODO",
+        "initiator_device_id_hex": "TODO",
+        "suite_id": 1
+      },
+      "intermediate": {
+        "spk_sig_verification": "ok",
+        "dh1_b64u": "TODO",
+        "dh2_b64u": "TODO",
+        "dh3_b64u": "TODO",
+        "ikm_hex": "TODO (96 bytes)",
+        "transcript_hash_b64u": "TODO"
+      },
+      "outputs": {
+        "root_key_b64u": "TODO",
+        "kc_key_b64u": "TODO",
+        "kc1_b64u": "TODO"
+      }
+    }
+  ]
+}

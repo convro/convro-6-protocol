@@ -1,0 +1,83 @@
+{
+  "version": "1.0",
+  "suite": "ISLAND_ACCORD_V1",
+  "module": "negative_vectors",
+  "generated_by": "rust-c6p-handshake (TO BE GENERATED)",
+  "generated_at": "TBD",
+  "description": "Negative test cases for IslandAccord v1 handshake failures",
+  "vectors": [
+    {
+      "case_id": "NEG_SPK_SIG_INVALID_001",
+      "description": "Invalid SPK signature in bundle",
+      "inputs": {
+        "bundle": {
+          "spk_sig_b64u": "TODO (1 byte flipped)"
+        }
+      },
+      "expected_error": "C6P.HANDSHAKE.SPK_SIGNATURE_INVALID"
+    },
+    {
+      "case_id": "NEG_TRANSCRIPT_MISMATCH_001",
+      "description": "Responder recomputes different transcript_hash",
+      "inputs": {
+        "offer": {
+          "transcript_hash_b64u": "TODO (correct)"
+        },
+        "responder_computed_transcript_hash_b64u": "TODO (different)"
+      },
+      "expected_error": "C6P.HANDSHAKE.TRANSCRIPT_MISMATCH"
+    },
+    {
+      "case_id": "NEG_OFFER_SIG_INVALID_001",
+      "description": "Invalid offer signature",
+      "inputs": {
+        "offer": {
+          "offer_signature_b64u": "TODO (tampered)"
+        }
+      },
+      "expected_error": "C6P.HANDSHAKE.INITIATOR_SIGNATURE_INVALID"
+    },
+    {
+      "case_id": "NEG_KC1_MISMATCH_001",
+      "description": "KC1 verification fails at responder",
+      "inputs": {
+        "offer": {
+          "kc1_b64u": "TODO (wrong)"
+        },
+        "responder_computed_kc1_b64u": "TODO (correct)"
+      },
+      "expected_error": "C6P.HANDSHAKE.KEY_CONFIRMATION_FAILED"
+    },
+    {
+      "case_id": "NEG_KC2_MISMATCH_001",
+      "description": "KC2 verification fails at initiator",
+      "inputs": {
+        "accept": {
+          "kc2_b64u": "TODO (wrong)"
+        },
+        "initiator_computed_kc2_b64u": "TODO (correct)"
+      },
+      "expected_error": "C6P.HANDSHAKE.KEY_CONFIRMATION_FAILED"
+    },
+    {
+      "case_id": "NEG_ENCODING_HEX_UPPERCASE_001",
+      "description": "Uppercase hex in device_id",
+      "inputs": {
+        "offer": {
+          "initiator_device_id_hex": "AABBCCDD..."
+        }
+      },
+      "expected_error": "C6P.ENC.NON_CANONICAL_HEX"
+    },
+    {
+      "case_id": "NEG_ENCODING_B64_PADDING_001",
+      "description": "Base64url with padding",
+      "inputs": {
+        "offer": {
+          "initiator_identity_dh_pub_b64u": "TODO="
+        }
+      },
+      "expected_error": "C6P.ENC.INVALID_B64URL"
+    }
+  ]
+}

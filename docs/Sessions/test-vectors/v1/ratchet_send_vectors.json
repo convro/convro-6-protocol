@@ -1,0 +1,89 @@
+{
+  "version": "1.0",
+  "suite": "C6P_SESSIONS_V1",
+  "module": "ratchet_send",
+  "generated_by": "rust-c6p-sessions (TO BE GENERATED)",
+  "generated_at": "TBD",
+  "description": "Ratchet send flow: counter increment, CK advancement, message key derivation",
+  "vectors": [
+    {
+      "case_id": "SEND_001",
+      "description": "First message send (counter=0)",
+      "inputs": {
+        "session_id_hex": "0011223344556677",
+        "stream_id": 1,
+        "initial_chain_key_b64u": "TODO (32 bytes)",
+        "send_counter": 0,
+        "plaintext_b64u": "TODO (Hello world)",
+        "suite_id": 1
+      },
+      "intermediate": {
+        "mk_material_b64u": "TODO (80 bytes from HKDF)",
+        "suite_key_b64u": "TODO (32 bytes)",
+        "nonce_material_b64u": "TODO (32 bytes)",
+        "nonce_hex": "TODO (12 bytes for ChaCha20)",
+        "aad_hex": "TODO (63 bytes canonical AAD)"
+      },
+      "outputs": {
+        "ciphertext_b64u": "TODO",
+        "counter": 0,
+        "next_chain_key_b64u": "TODO (advanced CK)",
+        "next_send_counter": 1
+      }
+    },
+    {
+      "case_id": "SEND_002",
+      "description": "Sequential send (counter=1)",
+      "inputs": {
+        "session_id_hex": "0011223344556677",
+        "stream_id": 1,
+        "initial_chain_key_b64u": "TODO (from SEND_001 next_chain_key)",
+        "send_counter": 1,
+        "plaintext_b64u": "TODO",
+        "suite_id": 1
+      },
+      "outputs": {
+        "ciphertext_b64u": "TODO",
+        "counter": 1,
+        "next_chain_key_b64u": "TODO",
+        "next_send_counter": 2
+      }
+    },
+    {
+      "case_id": "SEND_003",
+      "description": "Large counter value (counter=1000)",
+      "inputs": {
+        "session_id_hex": "0011223344556677",
+        "stream_id": 1,
+        "initial_chain_key_b64u": "TODO",
+        "send_counter": 1000,
+        "plaintext_b64u": "TODO",
+        "suite_id": 1
+      },
+      "outputs": {
+        "ciphertext_b64u": "TODO",
+        "counter": 1000,
+        "next_chain_key_b64u": "TODO",
+        "next_send_counter": 1001
+      }
+    },
+    {
+      "case_id": "SEND_004",
+      "description": "Cross-stream independence (r2i stream)",
+      "inputs": {
+        "session_id_hex": "0011223344556677",
+        "stream_id": 2,
+        "initial_chain_key_b64u": "TODO (different CK for r2i)",
+        "send_counter": 0,
+        "plaintext_b64u": "TODO",
+        "suite_id": 1
+      },
+      "outputs": {
+        "ciphertext_b64u": "TODO (different from SEND_001)",
+        "counter": 0,
+        "next_chain_key_b64u": "TODO",
+        "next_send_counter": 1
+      }
+    }
+  ]
+}

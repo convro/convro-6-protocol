@@ -1,0 +1,90 @@
+{
+  "version": "1.0",
+  "suite": "C6P_CRYPTO_V1",
+  "module": "replay_and_skip_window",
+  "generated_by": "rust-crypto-core (TO BE GENERATED)",
+  "generated_at": "TBD",
+  "description": "Skip-window acceptance and replay rejection scenarios",
+  "vectors": [
+    {
+      "case_id": "SKIP_WINDOW_IN_ORDER_001",
+      "description": "Accept in-order sequence 0,1,2,3",
+      "scenario": {
+        "initial_state": {
+          "recv_expected": 0,
+          "consumed_counters": []
+        },
+        "incoming_counters": [0, 1, 2, 3],
+        "expected_results": ["accept", "accept", "accept", "accept"],
+        "final_state": {
+          "recv_expected": 4,
+          "consumed_counters": [0, 1, 2, 3]
+        }
+      }
+    },
+    {
+      "case_id": "SKIP_WINDOW_OUT_OF_ORDER_001",
+      "description": "Accept out-of-order: 0, 2, 1, 3",
+      "scenario": {
+        "initial_state": {
+          "recv_expected": 0,
+          "consumed_counters": []
+        },
+        "incoming_counters": [0, 2, 1, 3],
+        "expected_results": ["accept", "accept", "accept", "accept"],
+        "final_state": {
+          "recv_expected": 4,
+          "consumed_counters": [0, 1, 2, 3]
+        }
+      }
+    },
+    {
+      "case_id": "SKIP_WINDOW_TOO_FAR_001",
+      "description": "Reject counter outside window (SKIP_WINDOW=2048)",
+      "scenario": {
+        "initial_state": {
+          "recv_expected": 0,
+          "consumed_counters": []
+        },
+        "incoming_counters": [2049],
+        "expected_results": ["C6P.RATCHET.SKIP_WINDOW_EXCEEDED"],
+        "final_state": {
+          "recv_expected": 0,
+          "consumed_counters": []
+        }
+      }
+    },
+    {
+      "case_id": "REPLAY_DUPLICATE_001",
+      "description": "Reject duplicate counter",
+      "scenario": {
+        "initial_state": {
+          "recv_expected": 0,
+          "consumed_counters": []
+        },
+        "incoming_counters": [0, 1, 0],
+        "expected_results": ["accept", "accept", "C6P.RATCHET.REPLAY_DETECTED"],
+        "final_state": {
+          "recv_expected": 2,
+          "consumed_counters": [0, 1]
+        }
+      }
+    },
+    {
+      "case_id": "REPLAY_BELOW_WINDOW_001",
+      "description": "Reject counter below recv_expected",
+      "scenario": {
+        "initial_state": {
+          "recv_expected": 10,
+          "consumed_counters": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        },
+        "incoming_counters": [5],
+        "expected_results": ["C6P.RATCHET.REPLAY_DETECTED"],
+        "final_state": {
+          "recv_expected": 10,
+          "consumed_counters": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        }
+      }
+    }
+  ]
+}

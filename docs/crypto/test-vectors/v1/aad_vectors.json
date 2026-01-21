@@ -1,0 +1,70 @@
+{
+  "version": "1.0",
+  "suite": "C6P_CRYPTO_V1",
+  "module": "aad",
+  "generated_by": "rust-c6p-test-vectors v0.1.0",
+  "generated_at": "2026-01-04T23:51:06.812974835+00:00",
+  "description": "Additional Authenticated Data (AAD) construction test vectors",
+  "vectors": [
+    {
+      "case_id": "AAD_001",
+      "description": "AAD for DM message (I2R, counter=0, 1024 bytes)",
+      "inputs": {
+        "session_id_hex": "0102030405060708",
+        "stream_id": 1,
+        "message_type": 1,
+        "counter": 0,
+        "payload_len": 1024
+      },
+      "outputs": {
+        "aad_hex": "010203040506070801010000000000000000000000000400",
+        "aad_len": 24
+      }
+    },
+    {
+      "case_id": "AAD_002",
+      "description": "AAD for DM message (R2I, counter=0, 512 bytes)",
+      "inputs": {
+        "session_id_hex": "0102030405060708",
+        "stream_id": 2,
+        "message_type": 1,
+        "counter": 0,
+        "payload_len": 512
+      },
+      "outputs": {
+        "aad_hex": "010203040506070802010000000000000000000000000200",
+        "aad_len": 24
+      }
+    },
+    {
+      "case_id": "AAD_003",
+      "description": "AAD with high counter (counter=2^32-1)",
+      "inputs": {
+        "session_id_hex": "0102030405060708",
+        "stream_id": 1,
+        "message_type": 1,
+        "counter": 4294967295,
+        "payload_len": 2048
+      },
+      "outputs": {
+        "aad_hex": "0102030405060708010100000000ffffffff000000000800",
+        "aad_len": 24
+      }
+    },
+    {
+      "case_id": "AAD_004",
+      "description": "AAD with zero-length payload",
+      "inputs": {
+        "session_id_hex": "0102030405060708",
+        "stream_id": 1,
+        "message_type": 1,
+        "counter": 1,
+        "payload_len": 0
+      },
+      "outputs": {
+        "aad_hex": "010203040506070801010000000000000001000000000000",
+        "aad_len": 24
+      }
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+[workspace]
+resolver = "2"
+members = [
+    "c6p-crypto", "c6p-handshake", "c6p-identity", "c6p-sessions",
+    "c6p-test-vectors",
+    "c6p-ios",  # Testing minimal UDL
+    "examples",
+    "benches",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85.0"
+authors = ["Convro Team"]
+license = "TBD"
+repository = "https://github.com/convro/convro-6-protocol"
+
+[workspace.dependencies]
+# Cryptographic primitives
+sha2 = "0.10"
+hkdf = "0.12"
+hmac = "0.12"
+chacha20poly1305 = "0.10"
+x25519-dalek = "2.0"
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+rand = "0.8"
+rand_core = { version = "0.6", features = ["getrandom"] }
+
+# Encoding/serialization
+hex = { version = "0.4", features = ["serde"] }
+base64 = "0.22"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Utilities
+anyhow = "1.0"
+thiserror = "1.0"
+zeroize = { version = "1.7", features = ["derive"] }
+clap = { version = "4.5", features = ["derive"] }
+
+# Testing
+criterion = "0.5"

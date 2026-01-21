@@ -1,0 +1,45 @@
+{
+  "version": "1.0",
+  "suite": "C6P_IDENTITY_V1",
+  "module": "device_id",
+  "generated_by": "rust-c6p-identity (TO BE GENERATED)",
+  "generated_at": "TBD",
+  "description": "Device ID derivation from IK_sig public key",
+  "vectors": [
+    {
+      "case_id": "DEVICE_ID_001",
+      "description": "Derive device_id from Ed25519 public key",
+      "inputs": {
+        "ik_sig_pub_b64u": "TODO (32 bytes Ed25519 public key)"
+      },
+      "intermediate": {
+        "hash_input_hex": "TODO (label || pub_key)",
+        "sha256_output_b64u": "TODO (32 bytes)"
+      },
+      "outputs": {
+        "device_id_hex": "TODO (16 bytes, hex32 lowercase)",
+        "device_id_bytes": "TODO (first 16 bytes of SHA-256)"
+      }
+    },
+    {
+      "case_id": "DEVICE_ID_002",
+      "description": "Determinism test - same input yields same device_id",
+      "inputs": {
+        "ik_sig_pub_b64u": "TODO (same as DEVICE_ID_001)"
+      },
+      "outputs": {
+        "device_id_hex": "TODO (MUST match DEVICE_ID_001)"
+      }
+    }
+  ],
+  "negative_vectors": [
+    {
+      "case_id": "DEVICE_ID_NEG_001",
+      "description": "Invalid Ed25519 public key length",
+      "inputs": {
+        "ik_sig_pub_b64u": "TODO (31 bytes instead of 32)"
+      },
+      "expected_error": "C6P.ENC.LENGTH_MISMATCH"
+    }
+  ]
+}

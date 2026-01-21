@@ -1,0 +1,47 @@
+[package]
+name = "c6p-ios"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["lib", "staticlib", "cdylib"]
+name = "c6p_ios"
+
+[dependencies]
+# C6P Core crates
+c6p-crypto = { path = "../c6p-crypto" }
+c6p-identity = { path = "../c6p-identity" }
+c6p-handshake = { path = "../c6p-handshake" }
+c6p-sessions = { path = "../c6p-sessions" }
+
+# UniFFI
+uniffi = { version = "0.28", features = ["cli"] }
+
+# Utilities
+thiserror.workspace = true
+hex.workspace = true
+subtle = "2.6"
+
+# Crypto (for key generation in FFI wrapper)
+ed25519-dalek.workspace = true
+x25519-dalek.workspace = true
+rand.workspace = true
+
+# Serialization (for wire format)
+serde.workspace = true
+serde_json.workspace = true
+
+[build-dependencies]
+uniffi = { version = "0.28", features = ["build"] }
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

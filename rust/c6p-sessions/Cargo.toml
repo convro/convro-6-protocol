@@ -1,0 +1,30 @@
+[package]
+name = "c6p-sessions"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Session management for Convro 6 Protocol (ratcheting, replay protection)"
+
+[dependencies]
+c6p-crypto = { path = "../c6p-crypto" }
+
+# Cryptographic primitives
+chacha20poly1305.workspace = true
+sha2.workspace = true
+hkdf.workspace = true
+hmac.workspace = true
+
+# Serialization
+serde.workspace = true
+
+# Security
+zeroize.workspace = true
+
+# Error handling
+thiserror = "2.0"
+
+[dev-dependencies]
+serde_json.workspace = true
+rand.workspace = true

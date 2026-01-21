@@ -1,0 +1,36 @@
+{
+  "version": "1.0",
+  "module": "responder_derivation",
+  "generated_by": "rust-c6p-test-vectors v0.1.0",
+  "generated_at": "2026-01-06T17:48:45.420484373+00:00",
+  "description": "Key derivation from Peter's (responder) perspective",
+  "vectors": [
+    {
+      "case_id": "RESP_DERIVE_001",
+      "description": "3DH key derivation (Peter's perspective)",
+      "inputs": {
+        "received_offer_json": "{\"offer\":\"serialization-not-supported\"}",
+        "peter_ik_dh_priv_b64u": "IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI",
+        "peter_spk_priv_b64u": "MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjI",
+        "peter_spk_id_hex": "0102030405060708",
+        "peter_device_id_hex": "3bb82f36319fe27d6fd7586461b446a8"
+      },
+      "crypto_steps": {
+        "dh1_b64u": "PGludGVybWVkaWF0ZS12YWx1ZS1ub3QtZXhwb3NlZD4",
+        "dh2_b64u": "PGludGVybWVkaWF0ZS12YWx1ZS1ub3QtZXhwb3NlZD4",
+        "dh3_b64u": "PGludGVybWVkaWF0ZS12YWx1ZS1ub3QtZXhwb3NlZD4",
+        "ikm_hex": "3c696e7465726d6564696174652d76616c75652d6e6f742d6578706f7365643e",
+        "ikm_len": 32,
+        "transcript_hash_b64u": "Iz_CjaOBgJ4xDj799BSrScV5qzX9-RXtmUie7x4AAR0"
+      },
+      "outputs": {
+        "transcript_hash_recomputed_b64u": "Iz_CjaOBgJ4xDj799BSrScV5qzX9-RXtmUie7x4AAR0",
+        "root_key_b64u": "T4BLniU7WTbh4VI7QU-7WOX8D1ZCXu1r_KTHuxzqeQQ",
+        "kc_key_b64u": "1a8nzbYzzJnEOMDIhfJe3vbIA_CBU8txY6tJw8grT7g",
+        "kc2_b64u": "PGtjMi1jb21wdXRlZC1zZXBhcmF0ZWx5Pg",
+        "ck_i2r_b64u": "874ChNSt0FduxVDm1rlluOWLiLaIfYUCGlRdjUKY9CA",
+        "ck_r2i_b64u": "2H7EnTubeT8iTjbY_rbqu8fOXX-c6-pThDdvlVqw7SU"
+      }
+    }
+  ]
+}

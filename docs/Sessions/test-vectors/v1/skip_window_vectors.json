@@ -1,0 +1,109 @@
+{
+  "version": "1.0",
+  "suite": "C6P_SESSIONS_V1",
+  "module": "skip_window",
+  "generated_by": "rust-c6p-sessions (TO BE GENERATED)",
+  "generated_at": "TBD",
+  "description": "Skip-window validation: accept/reject based on distance from recv_expected",
+  "skip_window_size": 2048,
+  "vectors": [
+    {
+      "case_id": "SKIP_001",
+      "description": "Within window (forward edge)",
+      "inputs": {
+        "recv_expected": 100,
+        "counter": 2148,
+        "skip_window": 2048
+      },
+      "outputs": {
+        "accept": true,
+        "skip_distance": 2048,
+        "reason": "counter == recv_expected + skip_window (edge case)"
+      }
+    },
+    {
+      "case_id": "SKIP_002",
+      "description": "Exceeds window (too far ahead)",
+      "inputs": {
+        "recv_expected": 100,
+        "counter": 2149,
+        "skip_window": 2048
+      },
+      "outputs": {
+        "accept": false,
+        "error_code": "C6P.RATCHET.SKIP_WINDOW_EXCEEDED",
+        "skip_distance": 2049
+      }
+    },
+    {
+      "case_id": "SKIP_003",
+      "description": "Within window (backward edge)",
+      "inputs": {
+        "recv_expected": 2100,
+        "counter": 52,
+        "skip_window": 2048
+      },
+      "outputs": {
+        "accept": true,
+        "skip_distance": 2048,
+        "reason": "counter == recv_expected - skip_window (edge case)"
+      }
+    },
+    {
+      "case_id": "SKIP_004",
+      "description": "Below window (too old)",
+      "inputs": {
+        "recv_expected": 2100,
+        "counter": 51,
+        "skip_window": 2048
+      },
+      "outputs": {
+        "accept": false,
+        "error_code": "C6P.RATCHET.COUNTER_BELOW_WINDOW",
+        "skip_distance": 2049
+      }
+    },
+    {
+      "case_id": "SKIP_005",
+      "description": "In-order message (skip_distance=0)",
+      "inputs": {
+        "recv_expected": 42,
+        "counter": 42,
+        "skip_window": 2048
+      },
+      "outputs": {
+        "accept": true,
+        "skip_distance": 0,
+        "out_of_order": false
+      }
+    },
+    {
+      "case_id": "SKIP_006",
+      "description": "Small skip (within window)",
+      "inputs": {
+        "recv_expected": 42,
+        "counter": 50,
+        "skip_window": 2048
+      },
+      "outputs": {
+        "accept": true,
+        "skip_distance": 8,
+        "out_of_order": true
+      }
+    },
+    {
+      "case_id": "SKIP_007",
+      "description": "Backward skip (within window)",
+      "inputs": {
+        "recv_expected": 50,
+        "counter": 42,
+        "skip_window": 2048
+      },
+      "outputs": {
+        "accept": true,
+        "skip_distance": 8,
+        "out_of_order": true
+      }
+    }
+  ]
+}

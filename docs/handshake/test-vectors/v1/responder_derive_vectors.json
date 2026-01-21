@@ -1,0 +1,50 @@
+{
+  "version": "1.0",
+  "suite": "ISLAND_ACCORD_V1",
+  "module": "responder_derivation",
+  "generated_by": "rust-c6p-handshake (TO BE GENERATED)",
+  "generated_at": "TBD",
+  "description": "Responder-side key derivation from offer to root/KC",
+  "vectors": [
+    {
+      "case_id": "RESPONDER_DERIVE_001",
+      "description": "Derive from offer (3DH, no OTP)",
+      "inputs": {
+        "offer": {
+          "version": 1,
+          "suite_id": 1,
+          "session_id_hex": "TODO",
+          "initiator_device_id_hex": "TODO",
+          "responder_device_id_hex": "TODO",
+          "initiator_identity_dh_pub_b64u": "TODO",
+          "initiator_identity_sig_pub_b64u": "TODO",
+          "initiator_ephemeral_dh_pub_b64u": "TODO",
+          "used_spk_id_hex": "TODO",
+          "used_spk_pub_b64u": "TODO",
+          "used_otp_id_hex": null,
+          "transcript_hash_b64u": "TODO",
+          "kc1_b64u": "TODO",
+          "offer_signature_b64u": "TODO"
+        },
+        "responder_ik_sig_pub_b64u": "TODO",
+        "responder_ik_dh_pub_b64u": "TODO",
+        "responder_spk_priv_b64u": "TODO (matching used_spk_id)"
+      },
+      "intermediate": {
+        "transcript_hash_recomputed_b64u": "TODO",
+        "transcript_match": true,
+        "offer_sig_verification": "ok",
+        "dh1_b64u": "TODO (mirrored)",
+        "dh2_b64u": "TODO (mirrored)",
+        "dh3_b64u": "TODO (mirrored)",
+        "ikm_hex": "TODO (96 bytes)"
+      },
+      "outputs": {
+        "root_key_b64u": "TODO (must match initiator)",
+        "kc_key_b64u": "TODO (must match initiator)",
+        "kc1_verification": "ok",
+        "kc2_b64u": "TODO"
+      }
+    }
+  ]
+}

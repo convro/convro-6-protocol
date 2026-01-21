@@ -1,0 +1,39 @@
+{
+  "version": "1.0",
+  "module": "initiator_derivation",
+  "generated_by": "rust-c6p-test-vectors v0.1.0",
+  "generated_at": "2026-01-06T17:48:45.398578578+00:00",
+  "description": "Key derivation from Timon's (initiator) perspective",
+  "vectors": [
+    {
+      "case_id": "INIT_DERIVE_001",
+      "description": "3DH key derivation (Timon's perspective)",
+      "inputs": {
+        "timon_ik_dh_priv_b64u": "ERERERERERERERERERERERERERERERERERERERERERE",
+        "timon_ek_priv_b64u": "ISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISE",
+        "peter_bundle_device_id_hex": "3bb82f36319fe27d6fd7586461b446a8",
+        "peter_bundle_ed_pub_b64u": "gTl3Dqh9F19Wo1Rmw0x-zMuNipG07jeiXfYPW4_Js5Q",
+        "peter_bundle_x_pub_b64u": "D6poTtKIZ7l_Smot7l34zpdOdrcBjj8iocTPJnhXDyA",
+        "peter_bundle_spk_id_hex": "0102030405060708",
+        "peter_bundle_spk_pub_b64u": "WdkiVHNFHv_-azbbyu_b97GJXeYghFCaf1tYvwHQZBg",
+        "session_id_hex": "aabbccddeeff0011",
+        "timon_device_id_hex": "0ae849e9eb653b7a1f83fc7d4010ab6e"
+      },
+      "crypto_steps": {
+        "dh1_b64u": "PGludGVybWVkaWF0ZS12YWx1ZS1ub3QtZXhwb3NlZD4",
+        "dh2_b64u": "PGludGVybWVkaWF0ZS12YWx1ZS1ub3QtZXhwb3NlZD4",
+        "dh3_b64u": "PGludGVybWVkaWF0ZS12YWx1ZS1ub3QtZXhwb3NlZD4",
+        "ikm_hex": "3c696e7465726d6564696174652d76616c75652d6e6f742d6578706f7365643e",
+        "ikm_len": 32,
+        "transcript_hash_b64u": "Iz_CjaOBgJ4xDj799BSrScV5qzX9-RXtmUie7x4AAR0"
+      },
+      "outputs": {
+        "root_key_b64u": "T4BLniU7WTbh4VI7QU-7WOX8D1ZCXu1r_KTHuxzqeQQ",
+        "kc_key_b64u": "1a8nzbYzzJnEOMDIhfJe3vbIA_CBU8txY6tJw8grT7g",
+        "kc1_b64u": "PGtjMS1jb21wdXRlZC1zZXBhcmF0ZWx5Pg",
+        "ck_i2r_b64u": "874ChNSt0FduxVDm1rlluOWLiLaIfYUCGlRdjUKY9CA",
+        "ck_r2i_b64u": "2H7EnTubeT8iTjbY_rbqu8fOXX-c6-pThDdvlVqw7SU"
+      }
+    }
+  ]
+}

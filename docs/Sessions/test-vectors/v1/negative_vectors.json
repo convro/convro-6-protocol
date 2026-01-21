@@ -1,0 +1,137 @@
+{
+  "version": "1.0",
+  "suite": "C6P_SESSIONS_V1",
+  "module": "negative_tests",
+  "generated_by": "rust-c6p-sessions (TO BE GENERATED)",
+  "generated_at": "TBD",
+  "description": "Error conditions: replay, skip-window exceeded, decryption failures, invalid states",
+  "vectors": [
+    {
+      "case_id": "NEG_REPLAY_001",
+      "description": "Replay attack (duplicate counter)",
+      "inputs": {
+        "session_id_hex": "0011223344556677",
+        "stream_id": 1,
+        "recv_expected": 5,
+        "consumed": [0, 1, 2, 3, 4],
+        "envelope": {
+          "counter": 3,
+          "ciphertext_b64u": "TODO (valid ciphertext for counter=3)"
+        }
+      },
+      "expected_error": "C6P.RATCHET.REPLAY_DETECTED",
+      "state_unchanged": true
+    },
+    {
+      "case_id": "NEG_SKIP_001",
+      "description": "Skip-window exceeded (too far ahead)",
+      "inputs": {
+        "recv_expected": 0,
+        "counter": 3000,
+        "skip_window": 2048
+      },
+      "expected_error": "C6P.RATCHET.SKIP_WINDOW_EXCEEDED",
+      "state_unchanged": true
+    },
+    {
+      "case_id": "NEG_SKIP_002",
+      "description": "Counter below window (too old)",
+      "inputs": {
+        "recv_expected": 3000,
+        "counter": 50,
+        "skip_window": 2048
+      },
+      "expected_error": "C6P.RATCHET.COUNTER_BELOW_WINDOW",
+      "state_unchanged": true
+    },
+    {
+      "case_id": "NEG_DECRYPT_001",
+      "description": "Tampered ciphertext (1 byte flipped)",
+      "inputs": {
+        "envelope": {
+          "counter": 0,
+          "ciphertext_b64u": "TODO (1 byte modified)",
+          "aad_hex": "TODO (correct AAD)"
+        },
+        "chain_key_b64u": "TODO (correct key)"
+      },
+      "expected_error": "C6P.RATCHET.DECRYPTION_FAILED",
+      "state_unchanged": true,
+      "reason": "AEAD tag mismatch"
+    },
+    {
+      "case_id": "NEG_DECRYPT_002",
+      "description": "Wrong AAD (stream_id mismatch)",
+      "inputs": {
+        "envelope": {
+          "counter": 0,
+          "ciphertext_b64u": "TODO (encrypted with stream_id=1)",
+          "aad_hex": "TODO (AAD with stream_id=2)"
+        }
+      },
+      "expected_error": "C6P.RATCHET.DECRYPTION_FAILED",
+      "reason": "AAD bound to wrong stream"
+    },
+    {
+      "case_id": "NEG_DECRYPT_003",
+      "description": "Wrong suite_key (different session)",
+      "inputs": {
+        "envelope": {
+          "counter": 0,
+          "ciphertext_b64u": "TODO (encrypted with session A key)"
+        },
+        "chain_key_b64u": "TODO (from session B)"
+      },
+      "expected_error": "C6P.RATCHET.DECRYPTION_FAILED",
+      "reason": "Wrong session key"
+    },
+    {
+      "case_id": "NEG_STATE_001",
+      "description": "Send on suspended session",
+      "inputs": {
+        "session_state": "SUSPENDED",
+        "operation": "send_message"
+      },
+      "expected_error": "C6P.SESSION.SUSPENDED"
+    },
+    {
+      "case_id": "NEG_STATE_002",
+      "description": "Send on terminated session",
+      "inputs": {
+        "session_state": "TERMINATED",
+        "operation": "send_message"
+      },
+      "expected_error": "C6P.SESSION.TERMINATED"
+    },
+    {
+      "case_id": "NEG_STATE_003",
+      "description": "Invalid state transition (TERMINATED → ACTIVE)",
+      "inputs": {
+        "current_state": "TERMINATED",
+        "requested_state": "ACTIVE"
+      },
+      "expected_error": "C6P.SESSION.INVALID_STATE_TRANSITION"
+    },
+    {
+      "case_id": "NEG_STREAM_001",
+      "description": "Invalid stream_id (not 0x01 or 0x02)",
+      "inputs": {
+        "envelope": {
+          "stream_id": 99,
+          "counter": 0
+        }
+      },
+      "expected_error": "C6P.RATCHET.INVALID_STREAM_ID"
+    },
+    {
+      "case_id": "NEG_STREAM_002",
+      "description": "Wrong direction (initiator sends on r2i)",
+      "inputs": {
+        "device_role": "initiator",
+        "attempted_stream_id": 2,
+        "allowed_stream_id": 1
+      },
+      "expected_error": "C6P.STREAM.WRONG_DIRECTION"
+    }
+  ]
+}

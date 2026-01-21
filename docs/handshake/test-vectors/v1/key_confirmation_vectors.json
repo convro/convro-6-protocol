@@ -1,0 +1,29 @@
+{
+  "version": "1.0",
+  "suite": "ISLAND_ACCORD_V1",
+  "module": "key_confirmation",
+  "generated_by": "rust-c6p-handshake (TO BE GENERATED)",
+  "generated_at": "TBD",
+  "description": "Key confirmation (KC1, KC2) computation and verification",
+  "vectors": [
+    {
+      "case_id": "KC_DIRECTIONAL_001",
+      "description": "Compute directional KC tags",
+      "inputs": {
+        "kc_key_b64u": "TODO",
+        "transcript_hash_b64u": "TODO",
+        "session_id_hex": "TODO",
+        "initiator_device_id_hex": "TODO",
+        "responder_device_id_hex": "TODO",
+        "suite_id": 1
+      },
+      "intermediate": {
+        "kc_payload_hex": "TODO (SHA-256 input)"
+      },
+      "outputs": {
+        "kc1_b64u": "TODO (HMAC with 'INIT')",
+        "kc2_b64u": "TODO (HMAC with 'RESP')"
+      }
+    }
+  ]
+}

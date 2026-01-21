@@ -1,0 +1,26 @@
+[package]
+name = "c6p-identity"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Identity management for Convro 6 Protocol (device IDs, fingerprints)"
+
+[dependencies]
+# Cryptographic primitives
+ed25519-dalek.workspace = true
+sha2.workspace = true
+
+# Encoding
+hex.workspace = true
+base64.workspace = true
+
+# Serialization
+serde.workspace = true
+
+# Error handling
+thiserror = "2.0"
+
+[dev-dependencies]
+serde_json.workspace = true

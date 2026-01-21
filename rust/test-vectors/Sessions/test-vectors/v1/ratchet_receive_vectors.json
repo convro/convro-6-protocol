@@ -1,0 +1,47 @@
+{
+  "version": "1.0",
+  "module": "ratchet_receive",
+  "generated_by": "rust-c6p-test-vectors v0.1.0",
+  "generated_at": "2026-01-06T17:48:45.453176933+00:00",
+  "description": "Message decryption with symmetric ratcheting (Peter receives)",
+  "vectors": [
+    {
+      "case_id": "RECV_001",
+      "description": "Basic receive: Peter receives from Timon (counter=0)",
+      "inputs": {
+        "initial_chain_key_b64u": "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI",
+        "ciphertext_b64u": "_1Rnr50-vGQPqSvZVnHUMrDizZFuOGncMWYxjR2NJtgA",
+        "counter": 0,
+        "session_id_hex": "0102030405060708",
+        "stream_id": 1,
+        "message_type": 1,
+        "suite_id": 1
+      },
+      "outputs": {
+        "plaintext_b64u": "SGVsbG8gZnJvbSBUaW1vbiE",
+        "plaintext_len": 17,
+        "chain_key_after_receive_b64u": "vfDyLwi44jm4Vv-IIialD1w-p-ahe-4aNHL9W8ggR34",
+        "recv_expected_after": 1
+      }
+    },
+    {
+      "case_id": "RECV_002",
+      "description": "Out-of-order: Peter receives counter=5 (skipping 0-4)",
+      "inputs": {
+        "initial_chain_key_b64u": "mZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZk",
+        "ciphertext_b64u": "wLxjDHIHSwHb_73pbovL5_34VUkrqVQ6xyKc-6ZS6hE",
+        "counter": 5,
+        "session_id_hex": "aabbccddeeff0011",
+        "stream_id": 2,
+        "message_type": 1,
+        "suite_id": 1
+      },
+      "outputs": {
+        "plaintext_b64u": "TWVzc2FnZSBudW1iZXIgNQ",
+        "plaintext_len": 16,
+        "chain_key_after_receive_b64u": "-ZJcmALEkrjMfUBFWITtT6m1InFzUwRY_bYZvzGyHxk",
+        "recv_expected_after": 6
+      }
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "version": "1.0",
+  "module": "key_confirmation",
+  "generated_by": "rust-c6p-test-vectors v0.1.0",
+  "generated_at": "2026-01-06T17:48:45.421313631+00:00",
+  "description": "Key confirmation tag (KC1/KC2) computation",
+  "vectors": [
+    {
+      "case_id": "KC_001",
+      "description": "Key confirmation tag computation (Timon & Peter)",
+      "inputs": {
+        "kc_key_b64u": "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI",
+        "transcript_hash_b64u": "ERERERERERERERERERERERERERERERERERERERERERE",
+        "session_id_hex": "aabbccddeeff0011",
+        "timon_device_id_hex": "0ae849e9eb653b7a1f83fc7d4010ab6e",
+        "peter_device_id_hex": "3bb82f36319fe27d6fd7586461b446a8"
+      },
+      "outputs": {
+        "kc_payload_hex": "1111111111111111111111111111111111111111111111111111111111111111aabbccddeeff00110ae849e9eb653b7a1f83fc7d4010ab6e3bb82f36319fe27d6fd7586461b446a8",
+        "kc1_b64u": "PGtjMS1ub3QtZXhwb3NlZC1ieS1hcGktYWFhYWFhYT4",
+        "kc2_b64u": "PGtjMi1ub3QtZXhwb3NlZC1ieS1hcGktYWFhYWFhYT4"
+      }
+    }
+  ]
+}
