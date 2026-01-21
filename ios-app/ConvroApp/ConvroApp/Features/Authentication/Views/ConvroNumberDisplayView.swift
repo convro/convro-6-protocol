@@ -10,7 +10,7 @@ struct ConvroNumberDisplayView: View {
             Image(systemName: "checkmark.circle.fill")
                 .resizable()
                 .frame(width: 80, height: 80)
-                .foregroundColor(.convroGreen)
+                .foregroundColor(Color("ConvroGreen"))
 
             Text("Welcome to Convro!")
                 .font(.title)
@@ -23,7 +23,7 @@ struct ConvroNumberDisplayView: View {
             Text(convroNumber)
                 .font(.system(.largeTitle, design: .monospaced))
                 .fontWeight(.bold)
-                .foregroundColor(.convroBlue)
+                .foregroundColor(Color("ConvroBlue"))
 
             Text("Save this number. Your contacts will use it to reach you.")
                 .font(.footnote)
@@ -37,7 +37,7 @@ struct ConvroNumberDisplayView: View {
                 Label("Copy Number", systemImage: "doc.on.doc")
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color.convroBlue.opacity(0.1))
+                    .background(ColorColor("ConvroBlue").opacity(0.1))
                     .cornerRadius(12)
             }
             .padding(.horizontal)
@@ -48,7 +48,7 @@ struct ConvroNumberDisplayView: View {
                 Text("Continue")
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color.convroBlue)
+                    .background(ColorColor("ConvroBlue"))
                     .foregroundColor(.white)
                     .cornerRadius(12)
             }

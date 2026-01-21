@@ -19,7 +19,7 @@ struct ContactRow: View {
 
             if contact.isVerified {
                 Image(systemName: "checkmark.seal.fill")
-                    .foregroundColor(.convroGreen)
+                    .foregroundColor(Color("ConvroGreen"))
             }
         }
     }

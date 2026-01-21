@@ -88,7 +88,7 @@ class ChatViewModel: ObservableObject {
 
     /// Send encrypted message with 64KB sealed sender padding
     func sendMessage() async {
-        guard !messageText.trim isEmpty else { return }
+        guard !messageText.trim.isEmpty else { return }
 
         // Get session ID for this conversation (or create new session via handshake)
         guard let sessionId = await getOrCreateSession() else {
@@ -112,20 +112,19 @@ class ChatViewModel: ObservableObject {
             )
 
             // Step 3: Create local message and add to UI
-            let localMessage = Message(
+            var localMessage = Message(
                 id: response.messageId,
-                conversationId: conversationId,
-                senderId: nil, // Sealed sender - no sender ID
-                senderConvroNumber: nil,
-                recipientConvroNumber: participantConvroNumber,
-                encryptedContent: String(data: encryptedEnvelope, encoding: .utf8),
-                decryptedContent: textToSend, // We know plaintext for sent messages
-                messageType: .sent,
-                status: .sent,
+                sessionId: Data(sessionId.utf8),
+                fromConvroNumber: nil, // Sealed sender hides sender
+                toConvroNumber: participantConvroNumber,
+                messageType: .sealedSender,
+                encryptedBlob: nil,
+                encryptedEnvelope: encryptedEnvelope,
                 createdAt: response.createdAt,
                 deliveredAt: nil,
-                readAt: nil
+                deliveryStatus: .pending
             )
+            localMessage.decryptedContent = textToSend // We know plaintext for sent messages
 
             messages.append(localMessage)
 
@@ -159,20 +158,19 @@ class ChatViewModel: ObservableObject {
             let plaintext = try messageEncryption.decryptMessage(envelopeData, sessionId: sessionId)
 
             // Step 2: Create message object
-            let message = Message(
+            var message = Message(
                 id: inboxMessage.messageId,
-                conversationId: conversationId,
-                senderId: nil, // Sealed sender
-                senderConvroNumber: participantConvroNumber,
-                recipientConvroNumber: nil,
-                encryptedContent: inboxMessage.encryptedEnvelope,
-                decryptedContent: plaintext,
-                messageType: .received,
-                status: .delivered,
+                sessionId: Data(sessionId.utf8),
+                fromConvroNumber: participantConvroNumber,
+                toConvroNumber: "", // Unknown for received sealed sender messages
+                messageType: .sealedSender,
+                encryptedBlob: nil,
+                encryptedEnvelope: Data(inboxMessage.encryptedEnvelope.utf8),
                 createdAt: inboxMessage.createdAt,
                 deliveredAt: Date(),
-                readAt: nil
+                deliveryStatus: .delivered
             )
+            message.decryptedContent = plaintext
 
             // Step 3: Add to UI
             messages.append(message)

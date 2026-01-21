@@ -12,7 +12,7 @@ struct ContactDetailView: View {
                 Image(systemName: "person.circle.fill")
                     .resizable()
                     .frame(width: 100, height: 100)
-                    .foregroundColor(contact.verified ? .convroGreen : .gray)
+                    .foregroundColor(contact.verified ? Color("ConvroGreen") : .gray)
 
                 // Contact Info
                 VStack(spacing: 8) {
@@ -28,9 +28,9 @@ struct ContactDetailView: View {
                     if contact.verified {
                         HStack {
                             Image(systemName: "checkmark.shield.fill")
-                                .foregroundColor(.convroGreen)
+                                .foregroundColor(Color("ConvroGreen"))
                             Text("Verified")
-                                .foregroundColor(.convroGreen)
+                                .foregroundColor(Color("ConvroGreen"))
                                 .fontWeight(.medium)
                         }
                         .padding(.top, 4)
@@ -50,7 +50,7 @@ struct ContactDetailView: View {
                             Text("Mark as Verified")
                                 .frame(maxWidth: .infinity)
                                 .padding()
-                                .background(Color.convroGreen)
+                                .background(ColorColor("ConvroGreen"))
                                 .foregroundColor(.white)
                                 .cornerRadius(12)
                         }

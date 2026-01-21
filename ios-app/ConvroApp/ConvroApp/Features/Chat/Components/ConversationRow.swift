@@ -40,7 +40,7 @@ struct ConversationRow: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Color.convroBlue)
+                        .background(Color("ConvroBlue"))
                         .cornerRadius(12)
                 }
             }

@@ -38,7 +38,7 @@ struct ChatView: View {
                     Image(systemName: "arrow.up.circle.fill")
                         .resizable()
                         .frame(width: 32, height: 32)
-                        .foregroundColor(.convroBlue)
+                        .foregroundColor(Color("ConvroBlue"))
                 }
                 .disabled(viewModel.messageText.isEmpty)
             }

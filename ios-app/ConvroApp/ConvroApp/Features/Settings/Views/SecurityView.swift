@@ -11,7 +11,7 @@ struct SecurityView: View {
 
             Section("Encryption") {
                 Text("End-to-end encryption: Active")
-                    .foregroundColor(.convroGreen)
+                    .foregroundColor(Color("ConvroGreen"))
             }
         }
         .navigationTitle("Security")
