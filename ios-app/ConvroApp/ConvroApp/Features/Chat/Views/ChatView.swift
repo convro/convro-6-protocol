@@ -5,7 +5,11 @@ struct ChatView: View {
     @FocusState private var isInputFocused: Bool
 
     init(conversation: Conversation) {
-        _viewModel = StateObject(wrappedValue: ChatViewModel(conversation: conversation))
+        _viewModel = StateObject(wrappedValue: ChatViewModel(
+            conversationId: UUID(uuidString: conversation.id) ?? UUID(),
+            participantConvroNumber: conversation.participant.convroNumber,
+            participantDisplayName: conversation.participant.displayName
+        ))
     }
 
     var body: some View {
@@ -45,7 +49,7 @@ struct ChatView: View {
             .padding()
             .background(Color.inputBackground)
         }
-        .navigationTitle(viewModel.conversation.participant.displayName)
+        .navigationTitle(viewModel.participantDisplayName ?? "Unknown")
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await viewModel.loadMessages()
