@@ -32,7 +32,7 @@ struct WelcomeView: View {
                 Text("Get Started")
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(ColorColor("ConvroBlue"))
+                    .background(Color("ConvroBlue"))
                     .foregroundColor(.white)
                     .cornerRadius(12)
             }

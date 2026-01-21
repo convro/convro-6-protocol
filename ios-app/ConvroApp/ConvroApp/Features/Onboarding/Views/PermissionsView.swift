@@ -15,7 +15,7 @@ struct PermissionsView: View {
             Button("Grant Permissions") { onContinue() }
                 .frame(maxWidth: .infinity)
                 .padding()
-                .background(ColorColor("ConvroBlue"))
+                .background(Color("ConvroBlue"))
                 .foregroundColor(.white)
                 .cornerRadius(12)
                 .padding(.horizontal)

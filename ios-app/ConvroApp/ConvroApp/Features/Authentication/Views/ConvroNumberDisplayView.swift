@@ -37,7 +37,7 @@ struct ConvroNumberDisplayView: View {
                 Label("Copy Number", systemImage: "doc.on.doc")
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(ColorColor("ConvroBlue").opacity(0.1))
+                    .background(Color("ConvroBlue").opacity(0.1))
                     .cornerRadius(12)
             }
             .padding(.horizontal)
@@ -48,7 +48,7 @@ struct ConvroNumberDisplayView: View {
                 Text("Continue")
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(ColorColor("ConvroBlue"))
+                    .background(Color("ConvroBlue"))
                     .foregroundColor(.white)
                     .cornerRadius(12)
             }

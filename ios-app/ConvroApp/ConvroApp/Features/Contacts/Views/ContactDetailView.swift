@@ -50,7 +50,7 @@ struct ContactDetailView: View {
                             Text("Mark as Verified")
                                 .frame(maxWidth: .infinity)
                                 .padding()
-                                .background(ColorColor("ConvroGreen"))
+                                .background(Color("ConvroGreen"))
                                 .foregroundColor(.white)
                                 .cornerRadius(12)
                         }
