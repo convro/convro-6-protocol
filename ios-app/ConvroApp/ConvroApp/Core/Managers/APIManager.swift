@@ -567,29 +567,33 @@ struct InboxResponse: Codable {
     let messages: [InboxMessage]
 }
 
-struct InboxMessage: Codable {
+struct InboxMessage: Codable, Identifiable {
     let messageId: UUID
     let encryptedEnvelope: String
     let createdAt: Date
+
+    var id: UUID { messageId }
 }
 
 struct ConversationsResponse: Codable {
     let conversations: [ConversationResponse]
 }
 
-struct ConversationResponse: Codable {
+struct ConversationResponse: Codable, Identifiable {
     let conversationId: UUID
     let participantConvroNumber: String
     let participantDisplayName: String?
     let lastMessageAt: Date?
     let unreadCount: Int
+
+    var id: UUID { conversationId }
 }
 
 struct ContactsResponse: Codable {
     let contacts: [ContactResponse]
 }
 
-struct ContactResponse: Codable {
+struct ContactResponse: Codable, Identifiable {
     let contactId: UUID
     let convroNumber: String
     let displayName: String?
@@ -597,6 +601,8 @@ struct ContactResponse: Codable {
     let fingerprint: String
     let verified: Bool
     let createdAt: Date
+
+    var id: UUID { contactId }
 }
 
 struct PresenceResponse: Codable {
