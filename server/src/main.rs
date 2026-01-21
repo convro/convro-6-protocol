@@ -9,7 +9,8 @@ use tower_http::{
 use convro_server::{
     api, config::Settings, db,
     middleware as app_middleware,
-    services::{AuthService, ConversationService, DeviceService, MessageService, PrekeyService, SealedMessageService},
+    services::{AuthService, ContactService, ConversationService, DeviceService, MessageService, PrekeyService, SealedMessageService, UserService},
+    websocket::Hub,
 };
 
 #[tokio::main]
@@ -63,6 +64,12 @@ async fn main() -> anyhow::Result<()> {
     let message_service = MessageService::new(db_pool.clone());
     let conversation_service = ConversationService::new(db_pool.clone());
     let sealed_message_service = SealedMessageService::new(db_pool.clone());
+    let user_service = UserService::new(db_pool.clone());
+    let contact_service = ContactService::new(db_pool.clone());
+
+    // Create WebSocket hub
+    let websocket_hub = Hub::new();
+    tracing::info!("✅ WebSocket hub created");
 
     // Create rate limiter state
     let rate_limit_state = Arc::new(app_middleware::RateLimitState::new(
@@ -114,6 +121,9 @@ async fn main() -> anyhow::Result<()> {
                 message_service,
                 conversation_service,
                 sealed_message_service,
+                user_service,
+                contact_service,
+                websocket_hub,
             ),
         )
         // Security headers (outermost - applied to all responses)
@@ -203,9 +213,17 @@ fn api_routes(
     message_service: MessageService,
     conversation_service: ConversationService,
     sealed_message_service: SealedMessageService,
+    user_service: UserService,
+    contact_service: ContactService,
+    websocket_hub: convro_server::websocket::HubHandle,
 ) -> Router {
     // Public routes (no auth)
     let public_routes = api::auth_router(api::auth::AppState { auth_service });
+
+    // WebSocket routes (public, auth handled inside WebSocket handler)
+    let websocket_routes = api::websocket_router(api::websocket::AppState {
+        hub: websocket_hub,
+    });
 
     // Protected routes (require JWT)
     let protected_routes = Router::new()
@@ -224,10 +242,19 @@ fn api_routes(
         .merge(api::sealed_messages_router(api::sealed_messages::AppState {
             sealed_message_service,
         }))
+        .merge(api::users_router(api::users::AppState {
+            user_service,
+        }))
+        .merge(api::contacts_router(api::contacts::AppState {
+            contact_service,
+        }))
         .layer(middleware::from_fn(app_middleware::require_auth));
 
-    // Combine public + protected
-    Router::new().merge(public_routes).merge(protected_routes)
+    // Combine public + websocket + protected
+    Router::new()
+        .merge(public_routes)
+        .merge(websocket_routes)
+        .merge(protected_routes)
 }
 
 /// Health check endpoint
