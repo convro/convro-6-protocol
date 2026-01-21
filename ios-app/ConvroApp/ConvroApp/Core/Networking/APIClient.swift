@@ -63,7 +63,27 @@ class APIClient {
 
         // Decode success response
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+
+        // Custom ISO8601 formatter that supports microseconds
+        let dateFormatter = ISO8601DateFormatter()
+        dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let dateString = try container.decode(String.self)
+
+            if let date = dateFormatter.date(from: dateString) {
+                return date
+            }
+
+            // Fallback to standard ISO8601 without fractional seconds
+            dateFormatter.formatOptions = [.withInternetDateTime]
+            if let date = dateFormatter.date(from: dateString) {
+                return date
+            }
+
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Cannot decode date string \(dateString)")
+        }
+
         decoder.keyDecodingStrategy = .convertFromSnakeCase
 
         do {

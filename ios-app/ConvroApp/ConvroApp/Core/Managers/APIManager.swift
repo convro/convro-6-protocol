@@ -472,17 +472,6 @@ struct AuthResponse: Codable {
     let accountStatus: String
     let tokens: TokenData
 
-    enum CodingKeys: String, CodingKey {
-        case userId = "user_id"
-        case username
-        case convroNumber = "convro_number"
-        case displayName = "display_name"
-        case createdAt = "created_at"
-        case lastLogin = "last_login"
-        case accountStatus = "account_status"
-        case tokens
-    }
-
     var accessToken: String { tokens.accessToken }
     var refreshToken: String { tokens.refreshToken }
 }
@@ -492,13 +481,6 @@ struct TokenData: Codable {
     let refreshToken: String
     let expiresIn: Int
     let tokenType: String
-
-    enum CodingKeys: String, CodingKey {
-        case accessToken = "access_token"
-        case refreshToken = "refresh_token"
-        case expiresIn = "expires_in"
-        case tokenType = "token_type"
-    }
 }
 
 struct TokenRefreshResponse: Codable {
