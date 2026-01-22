@@ -47,15 +47,16 @@ async fn main() -> anyhow::Result<()> {
     })?;
 
     // Run database migrations
-    tracing::info!("🔄 Running database migrations...");
-    sqlx::migrate!("../database/migrations")
-        .run(&db_pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Database migration failed: {}", e);
-            e
-        })?;
-    tracing::info!("✅ Database migrations complete");
+    // NOTE: Migrations disabled - schema loaded directly via schema.sql
+    // tracing::info!("🔄 Running database migrations...");
+    // sqlx::migrate!("../database/migrations")
+    //     .run(&db_pool)
+    //     .await
+    //     .map_err(|e| {
+    //         tracing::error!("Database migration failed: {}", e);
+    //         e
+    //     })?;
+    tracing::info!("✅ Database schema ready (loaded from schema.sql)");
 
     // Create services
     let auth_service = AuthService::new(db_pool.clone());
