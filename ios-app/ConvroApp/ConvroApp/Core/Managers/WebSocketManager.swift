@@ -122,6 +122,26 @@ class WebSocketManager: NSObject, ObservableObject {
                 // Heartbeat response
                 break
 
+            case "hello":
+                // Server greeting - connection established
+                print("👋 WebSocket hello received")
+
+            case "authenticated":
+                // Authentication successful
+                print("✅ WebSocket authenticated")
+
+            case "error":
+                // Server error
+                if let payload = message.payload,
+                   let errorDict = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+                   let errorMessage = errorDict["message"] as? String {
+                    print("❌ WebSocket error: \(errorMessage)")
+                }
+
+            case "goodbye":
+                // Server disconnect
+                print("👋 WebSocket goodbye received")
+
             default:
                 print("⚠️ Unknown WebSocket message type: \(message.type)")
             }
