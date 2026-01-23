@@ -31,9 +31,11 @@ pub struct ContactResponse {
 
 /// Add contact request
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct AddContactRequest {
+    #[serde(alias = "convroNumber")]
     pub convro_number: String,
+
+    #[serde(alias = "displayName")]
     pub display_name: Option<String>,
 }
 
