@@ -52,8 +52,7 @@ impl DeviceRepository {
                 app_version,
                 registered_at,
                 last_seen,
-                is_active,
-                updated_at
+                is_active
             "#,
         )
         .bind(user_id)
@@ -98,8 +97,7 @@ impl DeviceRepository {
                 app_version,
                 registered_at,
                 last_seen,
-                is_active,
-                updated_at
+                is_active
             FROM device_identities
             WHERE user_id = $1
             ORDER BY registered_at DESC
@@ -127,8 +125,7 @@ impl DeviceRepository {
                 app_version,
                 registered_at,
                 last_seen,
-                is_active,
-                updated_at
+                is_active
             FROM device_identities
             WHERE device_identity_id = $1
             "#,

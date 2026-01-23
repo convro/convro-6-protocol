@@ -17,7 +17,6 @@ pub struct Device {
     pub registered_at: DateTime<Utc>,
     pub last_seen: Option<DateTime<Utc>>,
     pub is_active: bool,
-    pub updated_at: DateTime<Utc>,
 }
 
 /// Register device request
