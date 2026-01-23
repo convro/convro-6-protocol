@@ -25,6 +25,33 @@ fn format_convro_number(number: u32) -> String {
     format!("+99 {} {}", first_three, last_three)
 }
 
+/// Normalize Convro Number input to standard format
+/// Accepts: "107849" (6 digits) or "+99 107 849" (full format)
+/// Returns: "+99 107 849" (standardized)
+pub fn normalize(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+
+    // If already in full format, validate and return
+    if trimmed.starts_with("+99") {
+        return if is_valid_format(trimmed) {
+            Some(trimmed.to_string())
+        } else {
+            None
+        };
+    }
+
+    // If 6 digits only (e.g., "107849"), format it
+    if trimmed.len() == 6 && trimmed.chars().all(|c| c.is_ascii_digit()) {
+        if let Ok(number) = trimmed.parse::<u32>() {
+            if (100_000..1_000_000).contains(&number) {
+                return Some(format_convro_number(number));
+            }
+        }
+    }
+
+    None
+}
+
 /// Validate Convro Number format
 pub fn is_valid_format(convro_number: &str) -> bool {
     // Format: +99 XXX XXX
@@ -112,5 +139,24 @@ mod tests {
 
         // Should have close to 1000 unique numbers (with high probability)
         assert!(numbers.len() > 990);
+    }
+
+    #[test]
+    fn test_normalize() {
+        // Test 6-digit input
+        assert_eq!(normalize("107849"), Some("+99 107 849".to_string()));
+        assert_eq!(normalize("100000"), Some("+99 100 000".to_string()));
+        assert_eq!(normalize("999999"), Some("+99 999 999".to_string()));
+
+        // Test full format input (already normalized)
+        assert_eq!(normalize("+99 107 849"), Some("+99 107 849".to_string()));
+        assert_eq!(normalize("+99 100 000"), Some("+99 100 000".to_string()));
+
+        // Test invalid inputs
+        assert_eq!(normalize("12345"), None);      // Too short
+        assert_eq!(normalize("1234567"), None);    // Too long
+        assert_eq!(normalize("abc123"), None);     // Non-numeric
+        assert_eq!(normalize("099999"), None);     // Out of range
+        assert_eq!(normalize("+98 123 456"), None); // Wrong prefix
     }
 }

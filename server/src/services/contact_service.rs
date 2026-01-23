@@ -47,15 +47,24 @@ impl ContactService {
         user_id: Uuid,
         request: AddContactRequest,
     ) -> AppResult<ContactResponse> {
+        // Normalize Convro Number (accept "107849" or "+99 107 849")
+        let normalized_number = crate::utils::convro_number::normalize(&request.convro_number)
+            .ok_or_else(|| {
+                AppError::ValidationError(format!(
+                    "Invalid Convro Number format: {}. Must be 6 digits (e.g., 107849)",
+                    request.convro_number
+                ))
+            })?;
+
         // Check if contact user exists
         let contact_user = self
             .user_repo
-            .find_by_convro_number(&request.convro_number)
+            .find_by_convro_number(&normalized_number)
             .await?
             .ok_or_else(|| {
                 AppError::NotFound(format!(
                     "User with Convro Number {} not found",
-                    request.convro_number
+                    normalized_number
                 ))
             })?;
 
@@ -64,7 +73,7 @@ impl ContactService {
             .contact_repo
             .create(
                 user_id,
-                request.convro_number.clone(),
+                normalized_number,
                 Some(contact_user.user_id),
                 request.display_name,
             )

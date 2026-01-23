@@ -34,7 +34,7 @@ pub struct ContactResponse {
 #[derive(Debug, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct AddContactRequest {
-    #[validate(length(min = 7, max = 15))]
+    #[validate(length(min = 6, max = 15))]
     pub convro_number: String,
 
     #[validate(length(max = 100))]
