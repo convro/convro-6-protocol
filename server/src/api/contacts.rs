@@ -1,4 +1,5 @@
 use axum::{
+    body::Bytes,
     extract::{Path, State},
     routing::{delete, get, post},
     Json, Router,
@@ -39,11 +40,25 @@ async fn list_contacts(
 async fn add_contact(
     State(state): State<AppState>,
     claims: Claims,
-    Json(request): Json<AddContactRequest>,
+    body: Bytes,
 ) -> AppResult<Json<ContactResponse>> {
+    // Log raw body for debugging
+    let body_str = String::from_utf8_lossy(&body);
     tracing::info!(
-        "Add contact request: user_id={}, convro_number='{}' (len={}), display_name={:?}",
+        "POST /contacts - user_id={}, raw_body: {}",
         claims.sub,
+        body_str
+    );
+
+    // Try to deserialize
+    let request: AddContactRequest = serde_json::from_slice(&body)
+        .map_err(|e| {
+            tracing::error!("JSON deserialization failed: {}", e);
+            crate::errors::AppError::ValidationError(format!("Invalid JSON: {}", e))
+        })?;
+
+    tracing::info!(
+        "Deserialized: convro_number='{}' (len={}), display_name={:?}",
         request.convro_number,
         request.convro_number.len(),
         request.display_name
