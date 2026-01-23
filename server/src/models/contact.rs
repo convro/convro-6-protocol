@@ -1,7 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use validator::Validate;
 
 /// Contact model (from database)
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -31,13 +30,10 @@ pub struct ContactResponse {
 }
 
 /// Add contact request
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AddContactRequest {
-    #[validate(length(min = 6, max = 15))]
     pub convro_number: String,
-
-    #[validate(length(max = 100))]
     pub display_name: Option<String>,
 }
 
