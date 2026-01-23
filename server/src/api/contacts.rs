@@ -41,6 +41,14 @@ async fn add_contact(
     claims: Claims,
     Json(request): Json<AddContactRequest>,
 ) -> AppResult<Json<ContactResponse>> {
+    tracing::info!(
+        "Add contact request: user_id={}, convro_number='{}' (len={}), display_name={:?}",
+        claims.sub,
+        request.convro_number,
+        request.convro_number.len(),
+        request.display_name
+    );
+
     let contact = state.contact_service.add_contact(claims.sub, request).await?;
     Ok(Json(contact))
 }
