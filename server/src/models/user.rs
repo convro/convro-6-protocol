@@ -30,6 +30,28 @@ pub struct CreateUserRequest {
 
     #[validate(length(max = 100))]
     pub display_name: Option<String>,
+
+    // Device identity fields
+    #[serde(alias = "deviceId")]
+    #[validate(length(equal = 64))] // 32 bytes = 64 hex chars
+    pub device_id: String,
+
+    #[serde(alias = "identityPubX25519")]
+    #[validate(length(equal = 64))]
+    pub identity_key: String,
+
+    // Optional device info
+    #[serde(alias = "deviceName")]
+    pub device_name: Option<String>,
+
+    #[serde(alias = "devicePlatform")]
+    pub device_platform: Option<String>,
+
+    #[serde(alias = "deviceOsVersion")]
+    pub device_os_version: Option<String>,
+
+    #[serde(alias = "appVersion")]
+    pub app_version: Option<String>,
 }
 
 /// Login request

@@ -34,7 +34,7 @@ pub fn router(state: AppState) -> Router {
 
 /// POST /auth/register - Register new user
 ///
-/// Creates a new user account and assigns a Convro Number.
+/// Creates a new user account, device identity, and assigns a Convro Number.
 async fn register(
     State(state): State<AppState>,
     Json(req): Json<CreateUserRequest>,
@@ -43,10 +43,20 @@ async fn register(
     req.validate()
         .map_err(|e| AppError::ValidationError(e.to_string()))?;
 
-    // Register user via service
+    // Register user and device via service
     let (user, tokens) = state
         .auth_service
-        .register_user(req.username, req.password, req.display_name)
+        .register_user(
+            req.username,
+            req.password,
+            req.display_name,
+            req.device_id,
+            req.identity_key,
+            req.device_name,
+            req.device_platform,
+            req.device_os_version,
+            req.app_version,
+        )
         .await?;
 
     let response = RegisterResponse {

@@ -7,7 +7,7 @@ use crate::{
         auth::AuthTokens,
         user::User,
     },
-    repositories::UserRepository,
+    repositories::{UserRepository, DeviceRepository},
     utils::{generate_convro_number, hash_password, jwt, verify_password},
 };
 
@@ -22,14 +22,21 @@ impl AuthService {
         Self { pool }
     }
 
-    /// Register new user
+    /// Register new user with device identity
     pub async fn register_user(
         &self,
         username: String,
         password: String,
         display_name: Option<String>,
+        device_id: String,
+        identity_key: String,
+        device_name: Option<String>,
+        device_platform: Option<String>,
+        device_os_version: Option<String>,
+        app_version: Option<String>,
     ) -> AppResult<(User, AuthTokens)> {
         let user_repo = UserRepository::new(self.pool.clone());
+        let device_repo = DeviceRepository::new(self.pool.clone());
 
         // Check if username exists
         if user_repo.find_by_username(&username).await?.is_some() {
@@ -45,6 +52,33 @@ impl AuthService {
         // Create user in database
         let user = user_repo
             .create(username, password_hash, convro_number, display_name)
+            .await?;
+
+        // Decode device keys from hex
+        let device_id_bytes = hex::decode(&device_id)
+            .map_err(|_| AppError::ValidationError("Invalid device_id format".to_string()))?;
+        let identity_key_bytes = hex::decode(&identity_key)
+            .map_err(|_| AppError::ValidationError("Invalid identity_key format".to_string()))?;
+
+        // Validate key sizes
+        if device_id_bytes.len() != 32 {
+            return Err(AppError::ValidationError("device_id must be 32 bytes".to_string()));
+        }
+        if identity_key_bytes.len() != 32 {
+            return Err(AppError::ValidationError("identity_key must be 32 bytes".to_string()));
+        }
+
+        // Create device identity
+        device_repo
+            .create(
+                user.user_id,
+                device_id_bytes,
+                identity_key_bytes,
+                device_name,
+                device_platform,
+                device_os_version,
+                app_version,
+            )
             .await?;
 
         // Generate JWT tokens
