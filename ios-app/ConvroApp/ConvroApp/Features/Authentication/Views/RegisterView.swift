@@ -32,7 +32,7 @@ struct RegisterView: View {
                     } label: {
                         Text("Create Account")
                             .frame(maxWidth: .infinity)
-                            .fontWeight(.semibold)
+                            .font(.body.weight(.semibold))
                     }
                     .disabled(!viewModel.isValid || viewModel.isLoading)
                 }

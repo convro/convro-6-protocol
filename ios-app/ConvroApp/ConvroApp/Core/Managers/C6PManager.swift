@@ -1,5 +1,4 @@
 import Foundation
-import C6PProtocol
 
 // MARK: - C6P Manager
 /// Core manager for C6P operations (handshake, encryption, sessions)
@@ -70,7 +69,7 @@ class C6PManager: ObservableObject {
     }
 
     /// Compute fingerprint from Ed25519 public key
-    func computeFingerprint(ed25519Pub: [UInt8]) throws -> String {
+    nonisolated func computeFingerprint(ed25519Pub: [UInt8]) throws -> String {
         return try identityComputeFingerprint(ed25519Pub: ed25519Pub)
     }
 
@@ -225,7 +224,7 @@ class C6PManager: ObservableObject {
     // MARK: - Utilities
 
     /// Convert bytes to hex string
-    func bytesToHex(_ data: [UInt8]) -> String {
+    nonisolated func bytesToHex(_ data: [UInt8]) -> String {
         return utilsBytesToHex(data: data)
     }
 

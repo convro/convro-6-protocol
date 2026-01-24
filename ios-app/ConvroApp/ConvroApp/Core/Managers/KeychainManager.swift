@@ -1,6 +1,5 @@
 import Foundation
 import Security
-import C6PProtocol
 
 // MARK: - Keychain Manager
 /// Secure storage manager for keys, identities, and sensitive data

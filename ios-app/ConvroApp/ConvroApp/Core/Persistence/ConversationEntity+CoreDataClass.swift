@@ -10,34 +10,59 @@ public class ConversationEntity: NSManagedObject {
         return NSFetchRequest<ConversationEntity>(entityName: "ConversationEntity")
     }
 
-    // MARK: - Properties
-    @NSManaged public var id: UUID
+    // MARK: - Properties (matching new Conversation struct)
+    @NSManaged public var id: String
+    @NSManaged public var participantUserId: UUID
     @NSManaged public var participantConvroNumber: String
-    @NSManaged public var participantDisplayName: String?
-    @NSManaged public var lastMessageAt: Date?
+    @NSManaged public var participantDisplayName: String
+    @NSManaged public var lastMessageId: UUID?
+    @NSManaged public var lastMessageType: String?
+    @NSManaged public var lastMessageTimestamp: Date?
     @NSManaged public var unreadCount: Int32
+    @NSManaged public var lastActivity: Date
 
     // MARK: - Relationships
     @NSManaged public var messages: NSSet?
 
     // MARK: - Convert to Conversation
     func toConversation() -> Conversation {
+        let participant = Participant(
+            userId: participantUserId,
+            convroNumber: participantConvroNumber,
+            displayName: participantDisplayName
+        )
+
+        var lastMessage: LastMessage? = nil
+        if let msgId = lastMessageId,
+           let msgType = lastMessageType,
+           let msgTime = lastMessageTimestamp {
+            lastMessage = LastMessage(
+                messageId: msgId,
+                messageType: msgType,
+                timestamp: msgTime
+            )
+        }
+
         return Conversation(
             id: id,
-            participantConvroNumber: participantConvroNumber,
-            participantDisplayName: participantDisplayName,
-            lastMessageAt: lastMessageAt,
-            unreadCount: Int(unreadCount)
+            participant: participant,
+            lastMessage: lastMessage,
+            unreadCount: Int(unreadCount),
+            lastActivity: lastActivity
         )
     }
 
     // MARK: - Update from Conversation
     func update(from conversation: Conversation) {
         self.id = conversation.id
-        self.participantConvroNumber = conversation.participantConvroNumber
-        self.participantDisplayName = conversation.participantDisplayName
-        self.lastMessageAt = conversation.lastMessageAt
+        self.participantUserId = conversation.participant.userId
+        self.participantConvroNumber = conversation.participant.convroNumber
+        self.participantDisplayName = conversation.participant.displayName
+        self.lastMessageId = conversation.lastMessage?.messageId
+        self.lastMessageType = conversation.lastMessage?.messageType
+        self.lastMessageTimestamp = conversation.lastMessage?.timestamp
         self.unreadCount = Int32(conversation.unreadCount)
+        self.lastActivity = conversation.lastActivity
     }
 }
 

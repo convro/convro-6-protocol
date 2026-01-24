@@ -158,7 +158,7 @@ extension KeychainManager {
 
     /// Get access token from Keychain
     func getAccessToken() throws -> String {
-        guard let tokenData = try load(key: "access_token"),
+        guard let tokenData = try? retrieve(forKey: "access_token"),
               let token = String(data: tokenData, encoding: .utf8) else {
             throw KeychainError.itemNotFound
         }

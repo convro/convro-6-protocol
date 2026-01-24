@@ -10,15 +10,18 @@ public class MessageEntity: NSManagedObject {
         return NSFetchRequest<MessageEntity>(entityName: "MessageEntity")
     }
 
-    // MARK: - Properties
+    // MARK: - Properties (matching new Message struct)
     @NSManaged public var id: UUID
-    @NSManaged public var conversationId: UUID?
-    @NSManaged public var senderConvroNumber: String
-    @NSManaged public var content: String
-    @NSManaged public var timestamp: Date
-    @NSManaged public var isFromCurrentUser: Bool
+    @NSManaged public var sessionId: Data
+    @NSManaged public var fromConvroNumber: String?
+    @NSManaged public var toConvroNumber: String
+    @NSManaged public var messageType: String
+    @NSManaged public var encryptedBlob: Data?
+    @NSManaged public var encryptedEnvelope: Data?
+    @NSManaged public var createdAt: Date
+    @NSManaged public var deliveredAt: Date?
     @NSManaged public var deliveryStatus: String
-    @NSManaged public var sessionId: String?
+    @NSManaged public var decryptedContent: String?
 
     // MARK: - Relationships
     @NSManaged public var conversation: ConversationEntity?
@@ -27,25 +30,30 @@ public class MessageEntity: NSManagedObject {
     func toMessage() -> Message {
         return Message(
             id: id,
-            conversationId: conversationId,
-            senderConvroNumber: senderConvroNumber,
-            content: content,
-            timestamp: timestamp,
-            isFromCurrentUser: isFromCurrentUser,
-            deliveryStatus: DeliveryStatus(rawValue: deliveryStatus) ?? .pending,
-            sessionId: sessionId
+            sessionId: sessionId,
+            fromConvroNumber: fromConvroNumber,
+            toConvroNumber: toConvroNumber,
+            messageType: MessageType(rawValue: messageType) ?? .sealedSender,
+            encryptedBlob: encryptedBlob,
+            encryptedEnvelope: encryptedEnvelope,
+            createdAt: createdAt,
+            deliveredAt: deliveredAt,
+            deliveryStatus: DeliveryStatus(rawValue: deliveryStatus) ?? .pending
         )
     }
 
     // MARK: - Update from Message
     func update(from message: Message) {
         self.id = message.id
-        self.conversationId = message.conversationId
-        self.senderConvroNumber = message.senderConvroNumber
-        self.content = message.content
-        self.timestamp = message.timestamp
-        self.isFromCurrentUser = message.isFromCurrentUser
-        self.deliveryStatus = message.deliveryStatus.rawValue
         self.sessionId = message.sessionId
+        self.fromConvroNumber = message.fromConvroNumber
+        self.toConvroNumber = message.toConvroNumber
+        self.messageType = message.messageType.rawValue
+        self.encryptedBlob = message.encryptedBlob
+        self.encryptedEnvelope = message.encryptedEnvelope
+        self.createdAt = message.createdAt
+        self.deliveredAt = message.deliveredAt
+        self.deliveryStatus = message.deliveryStatus.rawValue
+        self.decryptedContent = message.decryptedContent
     }
 }

@@ -17,7 +17,7 @@ class KeychainWrapper {
 
         let status = SecItemAdd(query as CFDictionary, nil)
         guard status == errSecSuccess else {
-            throw KeychainError.unhandledError(status: status)
+            throw KeychainWrapperError.unhandledError(status: status)
         }
     }
 
@@ -34,11 +34,11 @@ class KeychainWrapper {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
 
         guard status == errSecSuccess else {
-            throw KeychainError.unhandledError(status: status)
+            throw KeychainWrapperError.unhandledError(status: status)
         }
 
         guard let data = result as? Data else {
-            throw KeychainError.invalidData
+            throw KeychainWrapperError.invalidData
         }
 
         return data
@@ -54,13 +54,13 @@ class KeychainWrapper {
 
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw KeychainError.unhandledError(status: status)
+            throw KeychainWrapperError.unhandledError(status: status)
         }
     }
 }
 
-// MARK: - Keychain Error
-enum KeychainError: Error {
+// MARK: - Keychain Wrapper Error
+enum KeychainWrapperError: Error {
     case unhandledError(status: OSStatus)
     case invalidData
 }

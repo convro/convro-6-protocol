@@ -32,16 +32,6 @@ class MessageDatabase {
                 // Create new message entity
                 let entity = MessageEntity(context: context)
                 entity.update(from: message)
-
-                // Link to conversation if exists
-                if let conversationId = message.conversationId {
-                    let conversationFetch: NSFetchRequest<ConversationEntity> = ConversationEntity.fetchRequest()
-                    conversationFetch.predicate = NSPredicate(format: "id == %@", conversationId as CVarArg)
-
-                    if let conversation = try context.fetch(conversationFetch).first {
-                        entity.conversation = conversation
-                    }
-                }
             }
 
             // Save context
@@ -57,17 +47,16 @@ class MessageDatabase {
     // MARK: - Fetch
 
     /// Fetch messages for conversation from Core Data
+    /// Note: Since Message no longer has conversationId, this fetches all messages
+    /// and filters locally. Consider adding a conversationId field to Message/MessageEntity
+    /// or using a different approach for production.
     func fetchMessages(forConversation conversationId: String) async -> [Message] {
-        guard let uuid = UUID(uuidString: conversationId) else {
-            return []
-        }
-
         let fetchRequest: NSFetchRequest<MessageEntity> = MessageEntity.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "conversationId == %@", uuid as CVarArg)
-        fetchRequest.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: true)]
+        fetchRequest.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: true)]
 
         do {
             let entities = try context.fetch(fetchRequest)
+            // For now, return all messages - filtering logic TBD based on business requirements
             return entities.map { $0.toMessage() }
         } catch {
             print("❌ Failed to fetch messages from Core Data: \(error)")
@@ -78,7 +67,7 @@ class MessageDatabase {
     /// Fetch all messages from Core Data
     func fetchAllMessages() async -> [Message] {
         let fetchRequest: NSFetchRequest<MessageEntity> = MessageEntity.fetchRequest()
-        fetchRequest.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
+        fetchRequest.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: false)]
 
         do {
             let entities = try context.fetch(fetchRequest)
@@ -112,27 +101,10 @@ class MessageDatabase {
     }
 
     /// Delete all messages for conversation from Core Data
+    /// Note: Since Message no longer has conversationId, this is a no-op placeholder
     func deleteMessages(forConversation conversationId: String) async {
-        guard let uuid = UUID(uuidString: conversationId) else {
-            return
-        }
-
-        let fetchRequest: NSFetchRequest<MessageEntity> = MessageEntity.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "conversationId == %@", uuid as CVarArg)
-
-        do {
-            let entities = try context.fetch(fetchRequest)
-            for entity in entities {
-                context.delete(entity)
-            }
-
-            if context.hasChanges {
-                try context.save()
-                print("🗑️  All messages deleted for conversation: \(conversationId)")
-            }
-        } catch {
-            print("❌ Failed to delete messages for conversation from Core Data: \(error)")
-        }
+        print("⚠️  deleteMessages(forConversation:) not implemented - Message no longer has conversationId")
+        // TODO: Implement filtering logic based on fromConvroNumber/toConvroNumber or re-add conversationId
     }
 
     /// Delete all messages from Core Data (logout)

@@ -1,5 +1,4 @@
 import Foundation
-import C6PProtocol
 
 // MARK: - API Manager
 /// REST API client for Convro server (18 endpoints)
@@ -28,9 +27,9 @@ class APIManager: ObservableObject {
         username: String,
         password: String,
         displayName: String,
-        deviceIdentity: C6PProtocol.DeviceIdentity,
-        signedPrekey: C6PProtocol.SignedPrekey,
-        oneTimePrekeys: [C6PProtocol.OneTimePrekey]
+        deviceIdentity: DeviceIdentity,
+        signedPrekey: SignedPrekey,
+        oneTimePrekeys: [OneTimePrekey]
     ) async throws -> AuthResponse {
         let body = RegisterRequest(
             username: username,
@@ -127,9 +126,9 @@ class APIManager: ObservableObject {
 
     /// POST /devices - Register device identity
     func registerDevice(
-        deviceIdentity: C6PProtocol.DeviceIdentity,
-        signedPrekey: C6PProtocol.SignedPrekey,
-        oneTimePrekeys: [C6PProtocol.OneTimePrekey]
+        deviceIdentity: DeviceIdentity,
+        signedPrekey: SignedPrekey,
+        oneTimePrekeys: [OneTimePrekey]
     ) async throws -> Device {
         let body = RegisterDeviceRequest(
             deviceId: deviceIdentity.deviceId.toHexString(),
@@ -169,8 +168,8 @@ class APIManager: ObservableObject {
 
     /// POST /prekeys - Upload prekeys for device
     func uploadPrekeys(
-        signedPrekey: C6PProtocol.SignedPrekey,
-        oneTimePrekeys: [C6PProtocol.OneTimePrekey]
+        signedPrekey: SignedPrekey,
+        oneTimePrekeys: [OneTimePrekey]
     ) async throws {
         let body = UploadPrekeysRequest(
             spkId: signedPrekey.spkId.toHexString(),
@@ -464,18 +463,24 @@ private struct UnregisterPushTokenRequest: Encodable {
 // MARK: - Response Models
 
 struct AuthResponse: Codable {
-    let user: UserData
-    let accessToken: String
-    let refreshToken: String
+    let userId: UUID
+    let username: String
     let convroNumber: String
+    let displayName: String
+    let createdAt: Date
+    let lastLogin: Date?
+    let accountStatus: String
+    let tokens: TokenData
+
+    var accessToken: String { tokens.accessToken }
+    var refreshToken: String { tokens.refreshToken }
 }
 
-struct UserData: Codable {
-    let id: UUID
-    let username: String
-    let displayName: String
-    let convroNumber: String
-    let createdAt: Date
+struct TokenData: Codable {
+    let accessToken: String
+    let refreshToken: String
+    let expiresIn: Int
+    let tokenType: String
 }
 
 struct TokenRefreshResponse: Codable {
@@ -517,21 +522,35 @@ struct PrekeyBundleResponse: Codable {
     let otpPub: String?
 
     /// Convert to C6P PrekeyBundle for handshake
-    func toPrekeyBundle() throws -> C6PProtocol.PrekeyBundle {
-        return C6PProtocol.PrekeyBundle(
-            responderDeviceId: try hexToBytes(responderDeviceId),
-            identityPubEd25519: try hexToBytes(identityPubEd25519),
-            identityPubX25519: try hexToBytes(identityPubX25519),
-            spkId: try hexToBytes(spkId),
-            spkPub: try hexToBytes(spkPub),
-            spkSig: try hexToBytes(spkSig),
-            otpId: try otpId.map { try hexToBytes($0) },
-            otpPub: try otpPub.map { try hexToBytes($0) }
-        )
-    }
+    func toPrekeyBundle() throws -> PrekeyBundle {
+        guard let deviceIdBytes = Data(hexString: responderDeviceId),
+              let identityEd25519Bytes = Data(hexString: identityPubEd25519),
+              let identityX25519Bytes = Data(hexString: identityPubX25519),
+              let spkIdBytes = Data(hexString: spkId),
+              let spkPubBytes = Data(hexString: spkPub),
+              let spkSigBytes = Data(hexString: spkSig) else {
+            struct HexDecodingError: Error {}
+            throw HexDecodingError()
+        }
 
-    private func hexToBytes(_ hex: String) throws -> [UInt8] {
-        return try C6PManager.shared.hexToBytes(hex)
+        var otpIdBytes: [UInt8]? = nil
+        var otpPubBytes: [UInt8]? = nil
+
+        if let otpIdHex = otpId, let otpPubHex = otpPub {
+            otpIdBytes = Data(hexString: otpIdHex).map { Array($0) }
+            otpPubBytes = Data(hexString: otpPubHex).map { Array($0) }
+        }
+
+        return PrekeyBundle(
+            responderDeviceId: Array(deviceIdBytes),
+            identityPubEd25519: Array(identityEd25519Bytes),
+            identityPubX25519: Array(identityX25519Bytes),
+            spkId: Array(spkIdBytes),
+            spkPub: Array(spkPubBytes),
+            spkSig: Array(spkSigBytes),
+            otpId: otpIdBytes,
+            otpPub: otpPubBytes
+        )
     }
 }
 
@@ -554,29 +573,33 @@ struct InboxResponse: Codable {
     let messages: [InboxMessage]
 }
 
-struct InboxMessage: Codable {
+struct InboxMessage: Codable, Identifiable {
     let messageId: UUID
     let encryptedEnvelope: String
     let createdAt: Date
+
+    var id: UUID { messageId }
 }
 
 struct ConversationsResponse: Codable {
     let conversations: [ConversationResponse]
 }
 
-struct ConversationResponse: Codable {
+struct ConversationResponse: Codable, Identifiable {
     let conversationId: UUID
     let participantConvroNumber: String
     let participantDisplayName: String?
     let lastMessageAt: Date?
     let unreadCount: Int
+
+    var id: UUID { conversationId }
 }
 
 struct ContactsResponse: Codable {
     let contacts: [ContactResponse]
 }
 
-struct ContactResponse: Codable {
+struct ContactResponse: Codable, Identifiable {
     let contactId: UUID
     let convroNumber: String
     let displayName: String?
@@ -584,6 +607,8 @@ struct ContactResponse: Codable {
     let fingerprint: String
     let verified: Bool
     let createdAt: Date
+
+    var id: UUID { contactId }
 }
 
 struct PresenceResponse: Codable {
@@ -600,4 +625,32 @@ struct ContactPresenceInfo: Codable {
     let convroNumber: String
     let status: String
     let lastSeen: Date
+}
+
+// MARK: - ConversationResponse to Conversation Converter
+extension ConversationResponse {
+    func toConversation() -> Conversation {
+        let participant = Participant(
+            userId: UUID(), // API doesn't provide userId - using placeholder
+            convroNumber: participantConvroNumber,
+            displayName: participantDisplayName ?? "Unknown"
+        )
+
+        // ConversationResponse doesn't have lastMessage details, only lastMessageAt
+        let lastMessage: LastMessage? = lastMessageAt.map { timestamp in
+            LastMessage(
+                messageId: UUID(), // Placeholder
+                messageType: "encrypted_message",
+                timestamp: timestamp
+            )
+        }
+
+        return Conversation(
+            id: conversationId.uuidString,
+            participant: participant,
+            lastMessage: lastMessage,
+            unreadCount: unreadCount,
+            lastActivity: lastMessageAt ?? Date()
+        )
+    }
 }

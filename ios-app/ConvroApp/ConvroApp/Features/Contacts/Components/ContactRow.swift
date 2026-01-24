@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ContactRow: View {
-    let contact: Contact
+    let contact: ContactResponse
 
     var body: some View {
         HStack {
@@ -11,15 +11,15 @@ struct ContactRow: View {
                 .foregroundColor(.gray)
 
             VStack(alignment: .leading) {
-                Text(contact.displayName).fontWeight(.semibold)
+                Text(contact.displayName ?? contact.convroNumber).fontWeight(.semibold)
                 Text(contact.convroNumber).font(.caption).foregroundColor(.secondary)
             }
 
             Spacer()
 
-            if contact.isVerified {
+            if contact.verified {
                 Image(systemName: "checkmark.seal.fill")
-                    .foregroundColor(.convroGreen)
+                    .foregroundColor(Color("ConvroGreen"))
             }
         }
     }

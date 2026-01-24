@@ -17,7 +17,7 @@ struct ConvroNumber: Codable, Equatable, Hashable {
         }
 
         let remaining = digits.dropFirst(3)
-        let chunks = remaining.chunked(into: 3)
+        let chunks = String(remaining).chunked(into: 3)
         return "+99 " + chunks.joined(separator: " ")
     }
 

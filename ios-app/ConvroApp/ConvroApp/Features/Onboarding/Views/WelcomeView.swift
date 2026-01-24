@@ -8,7 +8,7 @@ struct WelcomeView: View {
             Image(systemName: "lock.shield.fill")
                 .resizable()
                 .frame(width: 100, height: 100)
-                .foregroundColor(.convroBlue)
+                .foregroundColor(Color("ConvroBlue"))
 
             Text("Welcome to Convro")
                 .font(.largeTitle)
@@ -32,7 +32,7 @@ struct WelcomeView: View {
                 Text("Get Started")
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color.convroBlue)
+                    .background(Color("ConvroBlue"))
                     .foregroundColor(.white)
                     .cornerRadius(12)
             }
@@ -49,7 +49,7 @@ struct FeatureRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
-                .foregroundColor(.convroBlue)
+                .foregroundColor(Color("ConvroBlue"))
             VStack(alignment: .leading) {
                 Text(title).fontWeight(.semibold)
                 Text(description).font(.caption).foregroundColor(.secondary)

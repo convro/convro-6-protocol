@@ -68,9 +68,9 @@ class DeviceIdentityManager: ObservableObject {
         // Mark as registered
         self.isRegistered = true
 
-        print("✅ Device registered: \(response.user.convroNumber)")
-        print("   Username: \(response.user.username)")
-        print("   Display name: \(response.user.displayName)")
+        print("✅ Device registered: \(response.convroNumber)")
+        print("   Username: \(response.username)")
+        print("   Display name: \(response.displayName)")
     }
 
     /// Generate and upload new signed prekey (rotation)
