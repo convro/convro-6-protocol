@@ -36,9 +36,29 @@ pub struct CreateUserRequest {
     #[validate(length(equal = 64))] // 32 bytes = 64 hex chars
     pub device_id: String,
 
+    #[serde(alias = "identityPubEd25519")]
+    #[validate(length(equal = 64))]
+    pub identity_pub_ed25519: String,
+
     #[serde(alias = "identityPubX25519")]
     #[validate(length(equal = 64))]
     pub identity_key: String,
+
+    // Signed prekey
+    #[serde(alias = "spkId")]
+    pub spk_id: String,
+
+    #[serde(alias = "spkPub")]
+    #[validate(length(equal = 64))]
+    pub spk_pub: String,
+
+    #[serde(alias = "spkSig")]
+    #[validate(length(equal = 128))] // 64 bytes = 128 hex chars
+    pub spk_sig: String,
+
+    // One-time prekeys
+    #[serde(alias = "oneTimePrekeys")]
+    pub one_time_prekeys: Vec<OneTimePrekeyData>,
 
     // Optional device info
     #[serde(alias = "deviceName")]
@@ -52,6 +72,16 @@ pub struct CreateUserRequest {
 
     #[serde(alias = "appVersion")]
     pub app_version: Option<String>,
+}
+
+/// One-time prekey data from iOS
+#[derive(Debug, Deserialize)]
+pub struct OneTimePrekeyData {
+    #[serde(alias = "otpId")]
+    pub otp_id: String,
+
+    #[serde(alias = "otpPub")]
+    pub otp_pub: String,
 }
 
 /// Login request

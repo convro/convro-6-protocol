@@ -43,7 +43,7 @@ async fn register(
     req.validate()
         .map_err(|e| AppError::ValidationError(e.to_string()))?;
 
-    // Register user and device via service
+    // Register user, device, and prekeys via service
     let (user, tokens) = state
         .auth_service
         .register_user(
@@ -52,6 +52,10 @@ async fn register(
             req.display_name,
             req.device_id,
             req.identity_key,
+            req.spk_id,
+            req.spk_pub,
+            req.spk_sig,
+            req.one_time_prekeys,
             req.device_name,
             req.device_platform,
             req.device_os_version,
