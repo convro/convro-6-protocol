@@ -22,6 +22,7 @@ impl SealedMessageRepository {
         &self,
         to_user_id: Uuid,
         encrypted_envelope: Vec<u8>, // Must be exactly 64KB
+        message_type: Option<String>,
     ) -> AppResult<SealedMessage> {
         // Verify size (database constraint will also check this)
         if encrypted_envelope.len() != 65536 {
@@ -31,10 +32,13 @@ impl SealedMessageRepository {
             )));
         }
 
+        // Default message type to 'sealed' if not provided
+        let msg_type = message_type.unwrap_or_else(|| "sealed".to_string());
+
         let message = sqlx::query_as::<_, SealedMessage>(
             r#"
-            INSERT INTO messages_sealed (to_user_id, encrypted_envelope)
-            VALUES ($1, $2)
+            INSERT INTO messages_sealed (to_user_id, encrypted_envelope, message_type)
+            VALUES ($1, $2, $3)
             RETURNING
                 message_id,
                 to_user_id,
@@ -49,6 +53,7 @@ impl SealedMessageRepository {
         )
         .bind(to_user_id)
         .bind(&encrypted_envelope)
+        .bind(&msg_type)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| {

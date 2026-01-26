@@ -33,6 +33,7 @@ impl SealedMessageService {
         &self,
         to_convro_number: String,
         encrypted_envelope: Vec<u8>,
+        message_type: Option<String>,
     ) -> AppResult<SealedMessage> {
         // Find recipient by Convro Number
         let recipient = self
@@ -54,7 +55,7 @@ impl SealedMessageService {
         // Create sealed message
         let message = self
             .sealed_message_repo
-            .create(recipient.user_id, padded_envelope)
+            .create(recipient.user_id, padded_envelope, message_type)
             .await?;
 
         tracing::info!(

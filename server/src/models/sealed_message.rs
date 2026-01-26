@@ -27,6 +27,10 @@ pub struct SendSealedMessageRequest {
     /// Encrypted envelope (base64-encoded, will be 64KB after padding)
     #[validate(length(min = 1))]
     pub encrypted_envelope: String,
+
+    /// Message type (optional) - for handshake messages
+    #[serde(alias = "messageType", alias = "message_type")]
+    pub message_type: Option<String>,
 }
 
 /// Send sealed message response
