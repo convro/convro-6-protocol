@@ -557,10 +557,14 @@ struct PrekeyBundleResponse: Codable {
             otpPubBytes = Data(hexString: otp.publicKey).map { Array($0) }
         }
 
-        // For Ed25519, we use device_id (which is Ed25519 public key in backend)
+        // C6P expects 16-byte device_id, but backend sends 32-byte Ed25519 key
+        // Use first 16 bytes as device_id (truncate Ed25519 key)
+        let deviceIdArray = Array(deviceIdBytes.prefix(16))
+
+        // For Ed25519, we use full device_id (which is Ed25519 public key in backend)
         return PrekeyBundle(
-            responderDeviceId: Array(deviceIdBytes),
-            identityPubEd25519: Array(deviceIdBytes), // device_id is Ed25519
+            responderDeviceId: deviceIdArray, // First 16 bytes only
+            identityPubEd25519: Array(deviceIdBytes), // Full 32 bytes
             identityPubX25519: Array(identityX25519Bytes),
             spkId: spkIdBytes,
             spkPub: Array(spkPubBytes),
