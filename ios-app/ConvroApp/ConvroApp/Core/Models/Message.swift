@@ -27,6 +27,7 @@ struct Message: Identifiable, Codable {
         case createdAt = "created_at"
         case deliveredAt = "delivered_at"
         case deliveryStatus = "delivery_status"
+        case decryptedContent = "decrypted_content"
     }
 }
 

@@ -24,7 +24,7 @@ class ChatViewModel: ObservableObject {
     private let apiManager = APIManager.shared
     private let messageEncryption = MessageEncryptionService.shared
     private let webSocketManager = WebSocketManager.shared
-    private let messageDatabase = MessageDatabase.shared
+    private let messageStorage = MessageStorage.shared
 
     // MARK: - Combine
     private var cancellables = Set<AnyCancellable>()
@@ -77,7 +77,7 @@ class ChatViewModel: ObservableObject {
         defer { isLoading = false }
 
         // Load from local cache first (Core Data persistent storage)
-        messages = await messageDatabase.fetchMessages(forConversation: conversationId.uuidString)
+        messages = await messageStorage.fetchMessages(forConversation: conversationId.uuidString)
         
         // Note: Server-side pagination will be implemented when message history API is added.
         // Current architecture uses local Core Data as source of truth for message history.
@@ -129,7 +129,9 @@ class ChatViewModel: ObservableObject {
             messages.append(localMessage)
 
             // Step 4: Save to local database
-            await messageDatabase.saveMessage(localMessage)
+            await messageStorage.saveMessage(localMessage)
+            // Step 5: Update conversation list
+            await updateConversation(withMessage: localMessage)
 
             print("✅ Message sent: \(response.messageId)")
 
@@ -176,7 +178,9 @@ class ChatViewModel: ObservableObject {
             messages.append(message)
 
             // Step 4: Save to local database
-            await messageDatabase.saveMessage(message)
+            await messageStorage.saveMessage(message)
+            // Step 5: Update conversation list
+            await updateConversation(withMessage: message)
 
             // Step 5: Mark as delivered on server
             try? await apiManager.markAsDelivered(messageId: inboxMessage.messageId)
@@ -312,3 +316,21 @@ private extension String {
         return trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
+
+    // MARK: - Conversation Sync
+    
+    /// Update conversation after sending/receiving message
+    private func updateConversation(withMessage message: Message) async {
+        let conversation = StoredConversation(
+            id: conversationId.uuidString,
+            participantConvroNumber: participantConvroNumber,
+            participantDisplayName: participantDisplayName,
+            lastMessageText: message.decryptedContent,
+            lastActivityAt: message.createdAt,
+            unreadCount: 0, // Reset unread for active conversation
+            sessionId: sessionId
+        )
+        
+        await messageStorage.saveConversation(conversation)
+        print("💾 Conversation updated: \(conversationId)")
+    }
