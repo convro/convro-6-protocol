@@ -165,6 +165,8 @@ struct StoredConversation: Codable, Identifiable {
             ),
             lastMessage: lastMessageText.map { text in
                 LastMessage(
+                    messageId: nil,
+                    messageType: nil,
                     text: text,
                     timestamp: lastActivityAt,
                     fromMe: false // Simplified for now
