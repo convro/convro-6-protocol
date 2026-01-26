@@ -106,11 +106,6 @@ class ChatViewModel: ObservableObject {
 
     /// Poll inbox for new messages
     private func pollNewMessages() async {
-        guard let sessionId = sessionId else {
-            // No session yet, skip polling
-            return
-        }
-
         do {
             let inboxMessages = try await apiManager.fetchInbox()
 
@@ -121,14 +116,60 @@ class ChatViewModel: ObservableObject {
                     continue
                 }
 
-                // Check if message is for this conversation (from participant)
-                // Since sealed sender hides fromConvroNumber, we need to decrypt to verify
-                await handleIncomingMessage(inboxMessage)
+                // Handle based on message type
+                switch inboxMessage.messageType {
+                case "handshake_offer":
+                    await handleHandshakeOffer(inboxMessage)
+                case "handshake_accept":
+                    // Ignore - we're responder, not initiator
+                    print("⚠️ Received handshake_accept as responder (ignoring)")
+                case "sealed_sender":
+                    // Normal encrypted message
+                    if sessionId != nil {
+                        await handleIncomingMessage(inboxMessage)
+                    } else {
+                        print("⚠️ Received sealed_sender but no session yet")
+                    }
+                default:
+                    print("⚠️ Unknown message type: \(inboxMessage.messageType)")
+                }
             }
 
         } catch {
             print("⚠️ Polling failed: \(error)")
             // Don't show error - polling is background operation
+        }
+    }
+
+    /// Handle incoming handshake offer (responder flow)
+    private func handleHandshakeOffer(_ inboxMessage: InboxMessage) async {
+        print("🤝 Received handshake offer from participant")
+
+        do {
+            // Step 1: Decode base64 envelope
+            guard let offerData = Data(base64Encoded: inboxMessage.encryptedEnvelope) else {
+                print("❌ Failed to decode handshake offer")
+                return
+            }
+            let offerBytes = [UInt8](offerData)
+
+            // Step 2: Accept handshake offer
+            let handshakeCoordinator = HandshakeCoordinator()
+            let newSessionId = try await handshakeCoordinator.respondToHandshakeOffer(offerBytes: offerBytes)
+
+            // Step 3: Store session ID
+            self.sessionId = newSessionId
+            print("✅ Handshake accepted - session ID: \(newSessionId)")
+
+            // Step 4: Mark handshake message as delivered
+            try? await apiManager.markAsDelivered(messageId: inboxMessage.messageId)
+
+            // Step 5: Reload messages now that we have session
+            await loadMessages()
+
+        } catch {
+            print("❌ Failed to accept handshake: \(error)")
+            errorMessage = "Failed to establish secure session: \(error.localizedDescription)"
         }
     }
 

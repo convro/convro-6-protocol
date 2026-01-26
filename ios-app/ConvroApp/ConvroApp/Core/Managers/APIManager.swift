@@ -593,6 +593,7 @@ struct InboxResponse: Codable {
 
 struct InboxMessage: Codable, Identifiable {
     let messageId: UUID
+    let messageType: String // "handshake_offer", "handshake_accept", "sealed_sender"
     let encryptedEnvelope: String
     let createdAt: Date
 
