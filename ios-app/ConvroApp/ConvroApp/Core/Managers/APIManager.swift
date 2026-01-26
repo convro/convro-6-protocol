@@ -512,40 +512,57 @@ struct DevicesResponse: Codable {
 }
 
 struct PrekeyBundleResponse: Codable {
-    let responderDeviceId: String
-    let identityPubEd25519: String
-    let identityPubX25519: String
-    let spkId: String
-    let spkPub: String
-    let spkSig: String
-    let otpId: String?
-    let otpPub: String?
+    let userId: UUID
+    let convroNumber: String
+    let deviceIdentityId: UUID
+    let deviceId: String
+    let identityKey: String
+    let signedPrekey: SignedPrekeyInfo
+    let oneTimePrekey: OneTimePrekeyInfo?
+
+    struct SignedPrekeyInfo: Codable {
+        let spkId: Int32
+        let publicKey: String
+        let signature: String
+    }
+
+    struct OneTimePrekeyInfo: Codable {
+        let otpId: String
+        let publicKey: String
+    }
 
     /// Convert to C6P PrekeyBundle for handshake
     func toPrekeyBundle() throws -> PrekeyBundle {
-        guard let deviceIdBytes = Data(hexString: responderDeviceId),
-              let identityEd25519Bytes = Data(hexString: identityPubEd25519),
-              let identityX25519Bytes = Data(hexString: identityPubX25519),
-              let spkIdBytes = Data(hexString: spkId),
-              let spkPubBytes = Data(hexString: spkPub),
-              let spkSigBytes = Data(hexString: spkSig) else {
+        guard let deviceIdBytes = Data(hexString: deviceId),
+              let identityX25519Bytes = Data(hexString: identityKey),
+              let spkPubBytes = Data(hexString: signedPrekey.publicKey),
+              let spkSigBytes = Data(hexString: signedPrekey.signature) else {
             struct HexDecodingError: Error {}
             throw HexDecodingError()
         }
 
+        // Convert spk_id (Int32) to 4 bytes
+        var spkId = signedPrekey.spkId.bigEndian
+        let spkIdBytes = withUnsafeBytes(of: &spkId) { Array($0) }
+
         var otpIdBytes: [UInt8]? = nil
         var otpPubBytes: [UInt8]? = nil
 
-        if let otpIdHex = otpId, let otpPubHex = otpPub {
-            otpIdBytes = Data(hexString: otpIdHex).map { Array($0) }
-            otpPubBytes = Data(hexString: otpPubHex).map { Array($0) }
+        if let otp = oneTimePrekey {
+            // OTP ID is UUID string, convert to bytes
+            if let uuid = UUID(uuidString: otp.otpId) {
+                var uuidBytes = uuid.uuid
+                otpIdBytes = withUnsafeBytes(of: &uuidBytes) { Array($0) }
+            }
+            otpPubBytes = Data(hexString: otp.publicKey).map { Array($0) }
         }
 
+        // For Ed25519, we use device_id (which is Ed25519 public key in backend)
         return PrekeyBundle(
             responderDeviceId: Array(deviceIdBytes),
-            identityPubEd25519: Array(identityEd25519Bytes),
+            identityPubEd25519: Array(deviceIdBytes), // device_id is Ed25519
             identityPubX25519: Array(identityX25519Bytes),
-            spkId: Array(spkIdBytes),
+            spkId: spkIdBytes,
             spkPub: Array(spkPubBytes),
             spkSig: Array(spkSigBytes),
             otpId: otpIdBytes,
