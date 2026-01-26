@@ -6,7 +6,7 @@ use validator::Validate;
 /// Signed Prekey
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedPrekey {
-    pub spk_id: i32,
+    pub spk_id: i64,
     pub public_key: Vec<u8>,  // X25519 public key (32 bytes)
     pub signature: Vec<u8>,   // Ed25519 signature (64 bytes)
     pub expires_at: Option<DateTime<Utc>>,
@@ -33,7 +33,7 @@ pub struct UploadPrekeysRequest {
 /// Signed Prekey DTO (hex-encoded)
 #[derive(Debug, Serialize, Deserialize, Validate)]
 pub struct SignedPrekeyDto {
-    pub spk_id: i32,
+    pub spk_id: i64,
 
     #[validate(length(equal = 64))] // 32 bytes hex
     pub public_key: String,
@@ -63,7 +63,7 @@ pub struct PrekeyBundle {
     pub identity_key: Vec<u8>,
     pub signed_prekey: Vec<u8>,
     pub signed_prekey_signature: Vec<u8>,
-    pub signed_prekey_id: i32,
+    pub signed_prekey_id: i64,
     pub one_time_prekey: Option<Vec<u8>>,
     pub otp_id: Option<Uuid>,
 }
@@ -82,7 +82,7 @@ pub struct PrekeyBundleResponse {
 
 #[derive(Debug, Serialize)]
 pub struct SignedPrekeyResponse {
-    pub spk_id: i32,
+    pub spk_id: i64,
     pub public_key: String,   // Hex-encoded
     pub signature: String,    // Hex-encoded
 }
