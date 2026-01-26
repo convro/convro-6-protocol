@@ -556,10 +556,12 @@ struct PrekeyBundleResponse: Codable {
         var otpPubBytes: [UInt8]? = nil
 
         if let otp = oneTimePrekey {
-            // OTP ID is UUID string, convert to 16 bytes
+            // OTP ID is UUID string (16 bytes), but C6P expects 8 bytes
+            // Use first 8 bytes of UUID
             if let uuid = UUID(uuidString: otp.otpId) {
                 var uuidBytes = uuid.uuid
-                otpIdBytes = withUnsafeBytes(of: &uuidBytes) { Array($0) }
+                let fullUuidBytes = withUnsafeBytes(of: &uuidBytes) { Array($0) }
+                otpIdBytes = Array(fullUuidBytes.prefix(8)) // First 8 bytes only
             }
             otpPubBytes = Data(hexString: otp.publicKey).map { Array($0) }
         }
