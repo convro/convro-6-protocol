@@ -42,8 +42,15 @@ impl SealedMessageService {
             .await?
             .ok_or_else(|| AppError::NotFound("Recipient not found".to_string()))?;
 
-        // Pad envelope to 64KB (if not already padded)
-        let padded_envelope = if encrypted_envelope.len() == padding::SEALED_ENVELOPE_SIZE {
+        // Check if this is a handshake message (don't pad handshake messages)
+        let is_handshake = message_type.as_ref().map_or(false, |t| {
+            t == "handshake_offer" || t == "handshake_accept"
+        });
+
+        // Pad envelope to 64KB (only for regular sealed messages, not handshakes)
+        let final_envelope = if is_handshake {
+            encrypted_envelope // Keep handshake messages as-is (small wire format)
+        } else if encrypted_envelope.len() == padding::SEALED_ENVELOPE_SIZE {
             encrypted_envelope
         } else {
             padding::pad_sealed_envelope(encrypted_envelope)?
@@ -55,7 +62,7 @@ impl SealedMessageService {
         // Create sealed message
         let message = self
             .sealed_message_repo
-            .create(recipient.user_id, padded_envelope, message_type)
+            .create(recipient.user_id, final_envelope, message_type, is_handshake)
             .await?;
 
         tracing::info!(

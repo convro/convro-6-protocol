@@ -21,15 +21,24 @@ impl SealedMessageRepository {
     pub async fn create(
         &self,
         to_user_id: Uuid,
-        encrypted_envelope: Vec<u8>, // Must be exactly 64KB
+        encrypted_envelope: Vec<u8>, // Must be exactly 64KB for sealed messages, variable for handshakes
         message_type: Option<String>,
+        is_handshake: bool,
     ) -> AppResult<SealedMessage> {
-        // Verify size (database constraint will also check this)
-        if encrypted_envelope.len() != 65536 {
+        // Verify size (only for non-handshake messages)
+        if !is_handshake && encrypted_envelope.len() != 65536 {
             return Err(AppError::ValidationError(format!(
-                "Encrypted envelope must be exactly 64KB, got {} bytes",
+                "Sealed message envelope must be exactly 64KB, got {} bytes",
                 encrypted_envelope.len()
             )));
+        }
+
+        // Handshake messages can be any size (C6P wire format)
+        if is_handshake {
+            tracing::debug!(
+                "Handshake message size: {} bytes (no padding)",
+                encrypted_envelope.len()
+            );
         }
 
         // Default message type to 'sealed' if not provided
