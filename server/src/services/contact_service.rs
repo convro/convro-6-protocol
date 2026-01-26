@@ -115,6 +115,13 @@ impl ContactService {
             None => return Ok(None), // Contact user not found (deleted?)
         };
 
+        // Get contact's user info (for display_name)
+        let contact_user = self.user_repo.find_by_id(contact_user_id).await?;
+        if contact_user.is_none() {
+            return Ok(None);
+        }
+        let contact_user = contact_user.unwrap();
+
         // Get contact's primary device to get identity key
         let devices = self.device_repo.list_by_user(contact_user_id).await?;
         let primary_device = devices.first();
@@ -127,10 +134,13 @@ impl ContactService {
             );
             let fingerprint = identity_pub_ed25519.clone();
 
+            // Use custom alias if set, otherwise use user's display_name
+            let display_name = contact.display_name.or(contact_user.display_name);
+
             Ok(Some(ContactResponse {
                 contact_id: contact.contact_id,
                 convro_number: contact.contact_convro_number,
-                display_name: contact.display_name,
+                display_name,
                 identity_pub_ed25519,
                 fingerprint,
                 verified: contact.is_verified,
