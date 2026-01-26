@@ -32,32 +32,32 @@ pub struct CreateUserRequest {
     pub display_name: Option<String>,
 
     // Device identity fields (Ed25519 and X25519 keys)
-    #[serde(alias = "identityPubEd25519")]
+    #[serde(alias = "identityPubEd25519", alias = "identity_pub_ed25519")]
     #[validate(length(equal = 64))] // Ed25519 public key (32 bytes = 64 hex)
     pub identity_pub_ed25519: String,
 
-    #[serde(alias = "identityPubX25519")]
+    #[serde(alias = "identityPubX25519", alias = "identity_pub_x25519")]
     #[validate(length(equal = 64))] // X25519 public key (32 bytes = 64 hex)
     pub identity_key: String,
 
     // Optional: iOS sends deviceId but it's not used (we use Ed25519 as device_id)
-    #[serde(alias = "deviceId")]
+    #[serde(alias = "deviceId", alias = "device_id")]
     pub device_id: Option<String>,
 
     // Signed prekey
-    #[serde(alias = "spkId")]
+    #[serde(alias = "spkId", alias = "spk_id")]
     pub spk_id: String,
 
-    #[serde(alias = "spkPub")]
+    #[serde(alias = "spkPub", alias = "spk_pub")]
     #[validate(length(equal = 64))]
     pub spk_pub: String,
 
-    #[serde(alias = "spkSig")]
+    #[serde(alias = "spkSig", alias = "spk_sig")]
     #[validate(length(equal = 128))] // 64 bytes = 128 hex chars
     pub spk_sig: String,
 
     // One-time prekeys
-    #[serde(alias = "oneTimePrekeys")]
+    #[serde(alias = "oneTimePrekeys", alias = "one_time_prekeys")]
     pub one_time_prekeys: Vec<OneTimePrekeyData>,
 
     // Optional device info
@@ -77,10 +77,10 @@ pub struct CreateUserRequest {
 /// One-time prekey data from iOS
 #[derive(Debug, Deserialize)]
 pub struct OneTimePrekeyData {
-    #[serde(alias = "otpId")]
+    #[serde(alias = "otpId", alias = "otp_id")]
     pub otp_id: String,
 
-    #[serde(alias = "otpPub")]
+    #[serde(alias = "otpPub", alias = "otp_pub")]
     pub otp_pub: String,
 }
 
