@@ -125,6 +125,7 @@ class ChatViewModel: ObservableObject {
                 deliveryStatus: .pending
             )
             localMessage.decryptedContent = textToSend // We know plaintext for sent messages
+            localMessage.isFromMe = true
 
             messages.append(localMessage)
 

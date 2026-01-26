@@ -15,6 +15,9 @@ struct Message: Identifiable, Codable {
 
     // Local decrypted content (not in API response)
     var decryptedContent: String?
+    
+    // Local flag indicating if this message was sent by current user
+    var isFromMe: Bool = false
 
     enum CodingKeys: String, CodingKey {
         case id = "message_id"
@@ -28,6 +31,7 @@ struct Message: Identifiable, Codable {
         case deliveredAt = "delivered_at"
         case deliveryStatus = "delivery_status"
         case decryptedContent = "decrypted_content"
+        case isFromMe = "is_from_me"
     }
 }
 
