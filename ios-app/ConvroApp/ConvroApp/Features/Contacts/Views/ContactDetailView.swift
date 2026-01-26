@@ -113,7 +113,7 @@ struct ContactDetailView: View {
         return Conversation(
             id: UUID().uuidString, // New conversation
             participant: Participant(
-                userId: contact.userId,
+                userId: contact.contactId, // Use contactId as userId
                 convroNumber: contact.convroNumber,
                 displayName: contact.displayName ?? "Unknown"
             ),
