@@ -288,38 +288,9 @@ class ChatViewModel: ObservableObject {
     func clearError() {
         errorMessage = nil
     }
-}
-
-// MARK: - Message Error
-enum MessageError: LocalizedError {
-    case invalidEnvelope
-    case encryptionFailed
-    case decryptionFailed
-    case sessionNotFound
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidEnvelope:
-            return "Invalid message envelope"
-        case .encryptionFailed:
-            return "Failed to encrypt message"
-        case .decryptionFailed:
-            return "Failed to decrypt message"
-        case .sessionNotFound:
-            return "No secure session found"
-        }
-    }
-}
-
-// MARK: - String Extension
-private extension String {
-    var trim: String {
-        return trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-}
 
     // MARK: - Conversation Sync
-    
+
     /// Update conversation after sending/receiving message
     private func updateConversation(withMessage message: Message) async {
         let conversation = StoredConversation(
@@ -331,7 +302,14 @@ private extension String {
             unreadCount: 0, // Reset unread for active conversation
             sessionId: sessionId
         )
-        
+
         await messageStorage.saveConversation(conversation)
         print("💾 Conversation updated: \(conversationId)")
     }
+}
+
+// MARK: - Message Error
+enum MessageError: LocalizedError {
+    case invalidEnvelope
+    case encryptionFailed
+    case decryptionFailed

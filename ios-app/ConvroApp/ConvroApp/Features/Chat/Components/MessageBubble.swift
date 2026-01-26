@@ -55,18 +55,3 @@ struct MessageBubble: View {
         }
     }
 }
-
-// MARK: - Custom Colors
-extension Color {
-    static let sentMessageBackground = Color("ConvroBlue")
-    static let receivedMessageBackground = Color(.systemGray5)
-}
-
-// MARK: - Date Extension
-private extension Date {
-    func timeAgo() -> String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: self, relativeTo: Date())
-    }
-}

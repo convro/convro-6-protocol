@@ -48,4 +48,5 @@ enum DeliveryStatus: String, Codable {
     case pending
     case delivered
     case read
+    case failed
 }
