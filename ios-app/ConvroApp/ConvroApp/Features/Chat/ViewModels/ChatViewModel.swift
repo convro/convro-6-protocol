@@ -29,6 +29,7 @@ class ChatViewModel: ObservableObject {
     // MARK: - Combine
     private var cancellables = Set<AnyCancellable>()
     private var typingTimer: Timer?
+    private var pollingTimer: Timer?
 
     // MARK: - Initialization
     init(conversationId: UUID, participantConvroNumber: String, participantDisplayName: String?) {
@@ -37,9 +38,15 @@ class ChatViewModel: ObservableObject {
         self.participantDisplayName = participantDisplayName
 
         setupWebSocketSubscriptions()
+        setupPolling()
         Task {
             await loadMessages()
         }
+    }
+
+    deinit {
+        pollingTimer?.invalidate()
+        typingTimer?.invalidate()
     }
 
     // MARK: - Setup
@@ -69,6 +76,16 @@ class ChatViewModel: ObservableObject {
         webSocketManager.subscribeToConversation(conversationId: conversationId)
     }
 
+    /// Setup polling for new messages (fallback if WebSocket fails)
+    private func setupPolling() {
+        // Poll every 3 seconds for new messages
+        pollingTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                await self?.pollNewMessages()
+            }
+        }
+    }
+
     // MARK: - Load Messages
 
     /// Load messages from local cache and server
@@ -76,12 +93,42 @@ class ChatViewModel: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
-        // Load from local cache first (Core Data persistent storage)
-        messages = await messageStorage.fetchMessages(forConversation: conversationId.uuidString)
-        
-        // Note: Server-side pagination will be implemented when message history API is added.
-        // Current architecture uses local Core Data as source of truth for message history.
-        // New messages arrive via WebSocket real-time updates and /messages/inbox polling.
+        // Load from local cache first (instant UI)
+        messages = await messageStorage.fetchMessages(
+            forConversation: conversationId.uuidString,
+            participantConvroNumber: participantConvroNumber
+        )
+
+        // Fetch new messages from server in background
+        await pollNewMessages()
+    }
+
+    /// Poll inbox for new messages
+    private func pollNewMessages() async {
+        guard let sessionId = sessionId else {
+            // No session yet, skip polling
+            return
+        }
+
+        do {
+            let inboxMessages = try await apiManager.fetchInbox()
+
+            // Process each inbox message
+            for inboxMessage in inboxMessages {
+                // Check if we already have this message
+                if messages.contains(where: { $0.id == inboxMessage.messageId }) {
+                    continue
+                }
+
+                // Check if message is for this conversation (from participant)
+                // Since sealed sender hides fromConvroNumber, we need to decrypt to verify
+                await handleIncomingMessage(inboxMessage)
+            }
+
+        } catch {
+            print("⚠️ Polling failed: \(error)")
+            // Don't show error - polling is background operation
+        }
     }
 
     // MARK: - Send Message
@@ -145,7 +192,7 @@ class ChatViewModel: ObservableObject {
 
     // MARK: - Receive Messages
 
-    /// Handle incoming message from WebSocket
+    /// Handle incoming message from WebSocket or polling
     private func handleIncomingMessage(_ inboxMessage: InboxMessage) async {
         guard let sessionId = sessionId else {
             print("⚠️ No session ID, cannot decrypt message")
@@ -174,16 +221,20 @@ class ChatViewModel: ObservableObject {
                 deliveryStatus: .delivered
             )
             message.decryptedContent = plaintext
+            message.isFromMe = false // Received message
 
-            // Step 3: Add to UI
-            messages.append(message)
+            // Step 3: Add to UI (only if not already present)
+            if !messages.contains(where: { $0.id == message.id }) {
+                messages.append(message)
+                messages.sort { $0.createdAt < $1.createdAt }
+            }
 
             // Step 4: Save to local database
             await messageStorage.saveMessage(message)
             // Step 5: Update conversation list
             await updateConversation(withMessage: message)
 
-            // Step 5: Mark as delivered on server
+            // Step 6: Mark as delivered on server
             try? await apiManager.markAsDelivered(messageId: inboxMessage.messageId)
 
             print("✅ Message received: \(inboxMessage.messageId)")

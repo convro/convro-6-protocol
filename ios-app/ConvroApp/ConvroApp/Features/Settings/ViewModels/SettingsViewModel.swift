@@ -15,6 +15,7 @@ class SettingsViewModel: ObservableObject {
     private let apiManager = APIManager.shared
     private let webSocketManager = WebSocketManager.shared
     private let keychainManager = KeychainManager.shared
+    private let messageStorage = MessageStorage.shared
 
     // MARK: - Biometric Info
     var biometricType: String {
@@ -167,7 +168,7 @@ class SettingsViewModel: ObservableObject {
             try await apiManager.logout()
 
             // Step 3: Clear local data
-            clearLocalData()
+            await clearLocalData()
 
             // Success
             logoutSuccess = true
@@ -180,7 +181,10 @@ class SettingsViewModel: ObservableObject {
     }
 
     /// Clear all local data on logout
-    private func clearLocalData() {
+    private func clearLocalData() async {
+        // Clear message storage (conversations, messages)
+        await messageStorage.clearCurrentUserData()
+
         // Clear biometric setting
         saveBiometricSetting(false)
         isBiometricEnabled = false

@@ -10,10 +10,40 @@ class MessageStorage {
 
     // MARK: - Properties
     private let userDefaults = UserDefaults.standard
-    private let messagesKey = "convro_messages"
-    private let conversationsKey = "convro_conversations"
+    private var currentUserConvroNumber: String?
+
+    // User-specific keys (scoped to current logged-in user)
+    private var messagesKey: String {
+        guard let user = currentUserConvroNumber else {
+            return "convro_messages" // Fallback
+        }
+        return "convro_messages_\(user)"
+    }
+
+    private var conversationsKey: String {
+        guard let user = currentUserConvroNumber else {
+            return "convro_conversations" // Fallback
+        }
+        return "convro_conversations_\(user)"
+    }
 
     private init() {}
+
+    // MARK: - User Management
+
+    /// Set current user (call after login)
+    func setCurrentUser(convroNumber: String) {
+        self.currentUserConvroNumber = convroNumber
+        print("💾 MessageStorage scoped to user: \(convroNumber)")
+    }
+
+    /// Clear all data for current user (call on logout)
+    func clearCurrentUserData() async {
+        await deleteAllMessages()
+        await deleteAllConversations()
+        self.currentUserConvroNumber = nil
+        print("🗑️ Cleared all data for current user")
+    }
 
     // MARK: - Messages
 
@@ -38,12 +68,17 @@ class MessageStorage {
     }
 
     /// Fetch messages for specific conversation
-    func fetchMessages(forConversation conversationId: String) async -> [Message] {
+    func fetchMessages(forConversation conversationId: String, participantConvroNumber: String) async -> [Message] {
         let allMessages = await fetchAllMessages()
 
         // Filter messages for this conversation (by participant's Convro number)
-        // Since we don't store conversationId, filter by toConvroNumber or fromConvroNumber
-        return allMessages.sorted { $0.createdAt < $1.createdAt }
+        // Match messages where participant is either sender or recipient
+        let filtered = allMessages.filter { message in
+            message.toConvroNumber == participantConvroNumber ||
+            message.fromConvroNumber == participantConvroNumber
+        }
+
+        return filtered.sorted { $0.createdAt < $1.createdAt }
     }
 
     /// Fetch all messages
