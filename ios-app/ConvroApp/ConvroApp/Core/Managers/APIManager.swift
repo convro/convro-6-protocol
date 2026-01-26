@@ -541,25 +541,28 @@ struct PrekeyBundleResponse: Codable {
             throw HexDecodingError()
         }
 
-        // Convert spk_id (Int32) to 4 bytes
+        // C6P expects 16-byte device_id, but backend sends 32-byte Ed25519 key
+        // Use first 16 bytes as device_id (truncate Ed25519 key)
+        let deviceIdArray = Array(deviceIdBytes.prefix(16))
+
+        // Convert spk_id (Int32) to 8 bytes (C6P expects 8 bytes, backend sends 4)
+        // Backend sends Int32 (4 bytes), pad with 4 zero bytes to make 8 bytes
         var spkId = signedPrekey.spkId.bigEndian
-        let spkIdBytes = withUnsafeBytes(of: &spkId) { Array($0) }
+        var spkIdBytes: [UInt8] = []
+        withUnsafeBytes(of: &spkId) { spkIdBytes.append(contentsOf: $0) }
+        spkIdBytes.append(contentsOf: [0, 0, 0, 0]) // Pad to 8 bytes
 
         var otpIdBytes: [UInt8]? = nil
         var otpPubBytes: [UInt8]? = nil
 
         if let otp = oneTimePrekey {
-            // OTP ID is UUID string, convert to bytes
+            // OTP ID is UUID string, convert to 16 bytes
             if let uuid = UUID(uuidString: otp.otpId) {
                 var uuidBytes = uuid.uuid
                 otpIdBytes = withUnsafeBytes(of: &uuidBytes) { Array($0) }
             }
             otpPubBytes = Data(hexString: otp.publicKey).map { Array($0) }
         }
-
-        // C6P expects 16-byte device_id, but backend sends 32-byte Ed25519 key
-        // Use first 16 bytes as device_id (truncate Ed25519 key)
-        let deviceIdArray = Array(deviceIdBytes.prefix(16))
 
         // For Ed25519, we use full device_id (which is Ed25519 public key in backend)
         return PrekeyBundle(
