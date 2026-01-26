@@ -80,8 +80,9 @@ class ChatViewModel: ObservableObject {
     private func setupPolling() {
         // Poll every 3 seconds for new messages
         pollingTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
             Task { @MainActor in
-                await self?.pollNewMessages()
+                await self.pollNewMessages()
             }
         }
     }
