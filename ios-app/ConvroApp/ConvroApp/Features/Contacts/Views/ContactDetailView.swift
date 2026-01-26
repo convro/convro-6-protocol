@@ -93,9 +93,15 @@ struct ContactDetailView: View {
         }
         .navigationTitle("Contact Details")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(isPresented: $navigateToChat) {
-            ChatView(conversation: createConversationFromContact())
-        }
+        .background(
+            NavigationLink(
+                destination: ChatView(conversation: createConversationFromContact()),
+                isActive: $navigateToChat
+            ) {
+                EmptyView()
+            }
+            .hidden()
+        )
         .alert("Verify Contact", isPresented: $showVerificationAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Verify") {
