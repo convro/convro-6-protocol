@@ -86,13 +86,21 @@ impl AuthService {
             )
             .await?;
 
-        // Parse spk_id from hex string to i32
+        // Parse spk_id from hex string to i32 (use first 4 bytes from 8-byte hex)
         let spk_id_bytes = hex::decode(&spk_id_str)
             .map_err(|_| AppError::ValidationError("Invalid spk_id format".to_string()))?;
-        let spk_id = i32::from_be_bytes(
-            spk_id_bytes.try_into()
-                .map_err(|_| AppError::ValidationError("spk_id must be 4 bytes".to_string()))?
-        );
+
+        // iOS sends 8 bytes, but DB expects i32 (4 bytes) - take first 4 bytes
+        let spk_id = if spk_id_bytes.len() >= 4 {
+            i32::from_be_bytes([
+                spk_id_bytes[0],
+                spk_id_bytes[1],
+                spk_id_bytes[2],
+                spk_id_bytes[3],
+            ])
+        } else {
+            return Err(AppError::ValidationError("spk_id must be at least 4 bytes".to_string()));
+        };
 
         // Decode signed prekey
         let spk_pub_bytes = hex::decode(&spk_pub)
@@ -119,10 +127,18 @@ impl AuthService {
         for (idx, otp_data) in one_time_prekeys.iter().enumerate() {
             let otp_id_bytes = hex::decode(&otp_data.otp_id)
                 .map_err(|_| AppError::ValidationError(format!("Invalid otp_id format at index {}", idx)))?;
-            let otp_id = i32::from_be_bytes(
-                otp_id_bytes.try_into()
-                    .map_err(|_| AppError::ValidationError(format!("otp_id must be 4 bytes at index {}", idx)))?
-            );
+
+            // iOS sends 8 bytes, but DB expects i32 (4 bytes) - take first 4 bytes
+            let otp_id = if otp_id_bytes.len() >= 4 {
+                i32::from_be_bytes([
+                    otp_id_bytes[0],
+                    otp_id_bytes[1],
+                    otp_id_bytes[2],
+                    otp_id_bytes[3],
+                ])
+            } else {
+                return Err(AppError::ValidationError(format!("otp_id must be at least 4 bytes at index {}", idx)));
+            };
 
             let otp_pub_bytes = hex::decode(&otp_data.otp_pub)
                 .map_err(|_| AppError::ValidationError(format!("Invalid otp_pub format at index {}", idx)))?;
