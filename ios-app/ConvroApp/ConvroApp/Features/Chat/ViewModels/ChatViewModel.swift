@@ -199,6 +199,12 @@ class ChatViewModel: ObservableObject {
 
         // Initiate handshake with participant
         do {
+            // Ensure device identity is loaded
+            guard DeviceIdentityManager.shared.deviceIdentity != nil else {
+                errorMessage = "Device identity not loaded. Please restart the app."
+                return nil
+            }
+
             // Create Contact object for handshake
             let contact = Contact(
                 id: UUID(),

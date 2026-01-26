@@ -14,6 +14,38 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Custom Header
+            HStack(spacing: 12) {
+                // Avatar
+                Image(systemName: "person.circle.fill")
+                    .resizable()
+                    .frame(width: 40, height: 40)
+                    .foregroundColor(.gray)
+
+                // Name and number
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(viewModel.participantDisplayName ?? "Unknown")
+                        .font(.headline)
+                        .lineLimit(1)
+
+                    Text(viewModel.participantConvroNumber)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Color(.systemBackground))
+            .overlay(
+                Rectangle()
+                    .frame(height: 0.5)
+                    .foregroundColor(Color(.systemGray4)),
+                alignment: .bottom
+            )
+
             // Messages List
             ScrollViewReader { proxy in
                 ScrollView {
@@ -59,8 +91,9 @@ struct ChatView: View {
                 alignment: .top
             )
         }
-        .navigationTitle(viewModel.participantDisplayName ?? viewModel.participantConvroNumber)
+        .navigationTitle("") // Hide default title
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(false) // Keep back arrow, hide label
         .toolbar(.hidden, for: .tabBar) // Hide tab bar in chat view
         .task {
             await viewModel.loadMessages()
