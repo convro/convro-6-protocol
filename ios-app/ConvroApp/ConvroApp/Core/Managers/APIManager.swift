@@ -205,9 +205,16 @@ class APIManager: ObservableObject {
     /// - For handshakes: Set messageType to "handshake_offer" or "handshake_accept"
     /// - For regular messages: Leave messageType as nil (uses sealed sender format)
     func sendMessage(toConvroNumber: String, encryptedEnvelope: Data, messageType: String? = nil) async throws -> MessageResponse {
-        // encryptedEnvelope is already 64KB padded + base64 encoded from MessageEncryptionService
-        // OR it's the serialized handshake offer/accept from FFI (JSON wire format)
-        let envelopeString = String(data: encryptedEnvelope, encoding: .utf8) ?? ""
+        let envelopeString: String
+
+        if messageType == "handshake_offer" || messageType == "handshake_accept" {
+            // Handshake messages: encryptedEnvelope is JSON wire format (not base64)
+            // Backend expects base64, so encode it
+            envelopeString = encryptedEnvelope.base64EncodedString()
+        } else {
+            // Regular messages: encryptedEnvelope is already base64-encoded from MessageEncryptionService
+            envelopeString = String(data: encryptedEnvelope, encoding: .utf8) ?? ""
+        }
 
         let body = SendMessageRequest(
             recipientConvroNumber: toConvroNumber,
