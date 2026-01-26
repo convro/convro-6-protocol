@@ -35,7 +35,7 @@ impl SealedMessageRepository {
 
         // Handshake messages can be any size (C6P wire format)
         if is_handshake {
-            tracing::debug!(
+            tracing::info!(
                 "Handshake message size: {} bytes (no padding)",
                 encrypted_envelope.len()
             );

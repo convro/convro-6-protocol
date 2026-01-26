@@ -85,7 +85,7 @@ async fn send_sealed_message(
         })?;
 
     // Decode base64 encrypted envelope
-    tracing::debug!("Decoding base64 envelope (first 50 chars): {}", &req.encrypted_envelope.chars().take(50).collect::<String>());
+    tracing::info!("Decoding base64 envelope (first 50 chars): {}", &req.encrypted_envelope.chars().take(50).collect::<String>());
     let encrypted_envelope = base64::Engine::decode(
         &base64::engine::general_purpose::STANDARD,
         &req.encrypted_envelope,
@@ -95,7 +95,7 @@ async fn send_sealed_message(
         AppError::ValidationError("Invalid base64 encrypted_envelope".to_string())
     })?;
 
-    tracing::debug!("Decoded envelope size: {} bytes", encrypted_envelope.len());
+    tracing::info!("Decoded envelope size: {} bytes", encrypted_envelope.len());
 
     // Send sealed message (service handles padding, timing obfuscation)
     let message = state
