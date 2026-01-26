@@ -44,6 +44,9 @@ impl SealedMessageRepository {
         // Default message type to 'sealed' if not provided
         let msg_type = message_type.unwrap_or_else(|| "sealed".to_string());
 
+        tracing::info!("Inserting into DB: to_user_id={}, envelope_len={}, msg_type={}",
+            to_user_id, encrypted_envelope.len(), msg_type);
+
         let message = sqlx::query_as::<_, SealedMessage>(
             r#"
             INSERT INTO messages_sealed (to_user_id, encrypted_envelope, message_type)
@@ -66,7 +69,9 @@ impl SealedMessageRepository {
         .fetch_one(&self.pool)
         .await
         .map_err(|e| {
+            tracing::error!("Database INSERT failed: {:?}", e);
             if let sqlx::Error::Database(db_err) = &e {
+                tracing::error!("DB error message: {}", db_err.message());
                 if db_err.message().contains("check constraint") {
                     return AppError::ValidationError(
                         "Encrypted envelope must be exactly 64KB".to_string(),
