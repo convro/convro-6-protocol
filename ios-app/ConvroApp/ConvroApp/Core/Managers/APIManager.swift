@@ -409,31 +409,19 @@ private struct OneTimePrekeyData: Codable {
 
 private struct SendMessageRequest: Encodable {
     let recipientConvroNumber: String
-    let encryptedEnvelope: String?
+    let encryptedEnvelope: String
     let messageType: String?
-    let encryptedBlob: String?
 
     enum CodingKeys: String, CodingKey {
         case recipientConvroNumber = "to_convro_number"
         case encryptedEnvelope = "encrypted_envelope"
         case messageType = "message_type"
-        case encryptedBlob = "encrypted_blob"
     }
 
     init(recipientConvroNumber: String, encryptedEnvelope: String, messageType: String?) {
         self.recipientConvroNumber = recipientConvroNumber
-
-        // If message_type is present (handshake), use encrypted_blob field
-        // Otherwise (regular message), use encrypted_envelope field
-        if let messageType = messageType {
-            self.messageType = messageType
-            self.encryptedBlob = encryptedEnvelope
-            self.encryptedEnvelope = nil
-        } else {
-            self.messageType = nil
-            self.encryptedBlob = nil
-            self.encryptedEnvelope = encryptedEnvelope
-        }
+        self.encryptedEnvelope = encryptedEnvelope
+        self.messageType = messageType
     }
 }
 
