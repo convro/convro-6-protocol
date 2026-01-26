@@ -521,7 +521,7 @@ struct PrekeyBundleResponse: Codable {
     let oneTimePrekey: OneTimePrekeyInfo?
 
     struct SignedPrekeyInfo: Codable {
-        let spkId: Int32
+        let spkId: Int64
         let publicKey: String
         let signature: String
     }
@@ -545,12 +545,9 @@ struct PrekeyBundleResponse: Codable {
         // Use first 16 bytes as device_id (truncate Ed25519 key)
         let deviceIdArray = Array(deviceIdBytes.prefix(16))
 
-        // Convert spk_id (Int32) to 8 bytes (C6P expects 8 bytes, backend sends 4)
-        // Backend sends Int32 (4 bytes), pad with 4 zero bytes to make 8 bytes
+        // Convert spk_id (Int64) to 8 bytes - backend now stores full 8 bytes
         var spkId = signedPrekey.spkId.bigEndian
-        var spkIdBytes: [UInt8] = []
-        withUnsafeBytes(of: &spkId) { spkIdBytes.append(contentsOf: $0) }
-        spkIdBytes.append(contentsOf: [0, 0, 0, 0]) // Pad to 8 bytes
+        let spkIdBytes = withUnsafeBytes(of: &spkId) { Array($0) }
 
         var otpIdBytes: [UInt8]? = nil
         var otpPubBytes: [UInt8]? = nil
