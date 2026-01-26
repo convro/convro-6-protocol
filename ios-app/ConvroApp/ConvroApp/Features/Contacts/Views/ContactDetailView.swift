@@ -4,6 +4,7 @@ struct ContactDetailView: View {
     let contact: ContactResponse
     @StateObject private var viewModel = ContactsListViewModel()
     @State private var showVerificationAlert = false
+    @State private var navigateToChat = false
 
     var body: some View {
         ScrollView {
@@ -36,6 +37,22 @@ struct ContactDetailView: View {
                         .padding(.top, 4)
                     }
                 }
+
+                // Send Message Button
+                Button {
+                    navigateToChat = true
+                } label: {
+                    HStack {
+                        Image(systemName: "message.fill")
+                        Text("Send Message")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color("ConvroBlue"))
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
+                }
+                .padding(.horizontal)
 
                 // Fingerprint Section
                 VStack(spacing: 16) {
@@ -76,6 +93,9 @@ struct ContactDetailView: View {
         }
         .navigationTitle("Contact Details")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(isPresented: $navigateToChat) {
+            ChatView(conversation: createConversationFromContact())
+        }
         .alert("Verify Contact", isPresented: $showVerificationAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Verify") {
@@ -86,6 +106,21 @@ struct ContactDetailView: View {
         } message: {
             Text("Have you verified this fingerprint out-of-band with \(contact.displayName ?? "this contact")?")
         }
+    }
+
+    /// Create a Conversation object from contact for chat navigation
+    private func createConversationFromContact() -> Conversation {
+        return Conversation(
+            id: UUID().uuidString, // New conversation
+            participant: Participant(
+                userId: contact.userId,
+                convroNumber: contact.convroNumber,
+                displayName: contact.displayName ?? "Unknown"
+            ),
+            lastMessage: nil,
+            unreadCount: 0,
+            lastActivity: Date()
+        )
     }
 }
 
