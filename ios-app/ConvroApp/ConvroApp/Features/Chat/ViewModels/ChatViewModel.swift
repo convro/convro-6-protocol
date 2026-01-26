@@ -199,11 +199,21 @@ class ChatViewModel: ObservableObject {
 
         // Initiate handshake with participant
         do {
-            // Ensure device identity is loaded
-            guard DeviceIdentityManager.shared.deviceIdentity != nil else {
+            // Ensure device identity is loaded (wait for it)
+            print("⏳ Waiting for device identity to load...")
+            var retries = 0
+            while C6PManager.shared.loadDeviceIdentity() == nil && retries < 10 {
+                try await Task.sleep(nanoseconds: 500_000_000) // 0.5s
+                retries += 1
+            }
+
+            guard C6PManager.shared.loadDeviceIdentity() != nil else {
                 errorMessage = "Device identity not loaded. Please restart the app."
+                print("❌ Device identity still nil after waiting")
                 return nil
             }
+
+            print("✅ Device identity loaded, proceeding with handshake")
 
             // Create Contact object for handshake
             let contact = Contact(
