@@ -70,9 +70,7 @@ class RegisterViewModel: ObservableObject {
             // Step 2.5: Save prekeys to Keychain BEFORE sending to server
             print("💾 Saving prekeys to Keychain...")
             try await KeychainManager.shared.saveSignedPrekey(spk)
-            for otp in otps {
-                try await KeychainManager.shared.saveOneTimePrekey(otp)
-            }
+            try await KeychainManager.shared.saveOneTimePrekeys(otps)
             print("✅ Saved \(otps.count) OTPs and 1 SPK to Keychain")
 
             // Step 3: Register with server
