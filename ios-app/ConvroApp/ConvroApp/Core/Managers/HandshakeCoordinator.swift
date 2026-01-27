@@ -88,6 +88,15 @@ class HandshakeCoordinator: ObservableObject {
         }
         print("✅ Signed prekey loaded successfully")
 
+        // Step 2.5: Load and print device identity for debugging
+        if let deviceIdentity = DeviceIdentityManager.shared.deviceIdentity {
+            print("🔍 MY Device ID: \(deviceIdentity.deviceId.toHexString())")
+        }
+        print("🔍 OFFER says responder device ID should be: (checking offer...)")
+        if let responderDeviceIdHex = offer.responderDeviceId {
+            print("🔍 OFFER responder_device_id: \(responderDeviceIdHex)")
+        }
+
         // Step 3: Load OTP if one was used (4DH vs 3DH)
         var otp: C6PProtocol.OneTimePrekey? = nil
         if let usedOtpIdHex = offer.usedOneTimePrekeyId {
@@ -190,12 +199,14 @@ enum HandshakeState: Equatable {
 // MARK: - Wire Format (for parsing offer)
 
 /// Minimal wire format for parsing handshake offer
-/// Only decodes fields we need (used_one_time_prekey_id)
+/// Only decodes fields we need (used_one_time_prekey_id, responder_device_id)
 private struct OfferWireFormat: Decodable {
     let usedOneTimePrekeyId: String?
+    let responderDeviceId: String?
 
     enum CodingKeys: String, CodingKey {
         case usedOneTimePrekeyId = "usedOneTimePrekeyId"
+        case responderDeviceId = "responderDeviceId"
     }
 }
 
