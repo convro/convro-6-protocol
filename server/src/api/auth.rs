@@ -76,7 +76,8 @@ async fn register(
             req.username,
             req.password,
             req.display_name,
-            req.identity_pub_ed25519,  // Ed25519 -> device_id in DB
+            req.device_id.ok_or_else(|| AppError::ValidationError("device_id is required".to_string()))?,
+            req.identity_pub_ed25519,   // Ed25519 public key for signature verification
             req.identity_key,           // X25519 -> identity_key in DB
             req.spk_id,
             req.spk_pub,

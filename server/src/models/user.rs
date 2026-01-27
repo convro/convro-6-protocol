@@ -31,7 +31,11 @@ pub struct CreateUserRequest {
     #[validate(length(max = 100))]
     pub display_name: Option<String>,
 
-    // Device identity fields (Ed25519 and X25519 keys)
+    // Device identity fields
+    #[serde(alias = "deviceId", alias = "device_id")]
+    #[validate(length(equal = 32))] // Device ID (16 bytes = 32 hex)
+    pub device_id: Option<String>,
+
     #[serde(alias = "identityPubEd25519", alias = "identity_pub_ed25519")]
     #[validate(length(equal = 64))] // Ed25519 public key (32 bytes = 64 hex)
     pub identity_pub_ed25519: String,
@@ -39,10 +43,6 @@ pub struct CreateUserRequest {
     #[serde(alias = "identityPubX25519", alias = "identity_pub_x25519")]
     #[validate(length(equal = 64))] // X25519 public key (32 bytes = 64 hex)
     pub identity_key: String,
-
-    // Optional: iOS sends deviceId but it's not used (we use Ed25519 as device_id)
-    #[serde(alias = "deviceId", alias = "device_id")]
-    pub device_id: Option<String>,
 
     // Signed prekey
     #[serde(alias = "spkId", alias = "spk_id")]

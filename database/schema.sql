@@ -90,7 +90,8 @@ CREATE TABLE device_identities (
     user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
 
     -- Device identity (from C6P identity_generate_identity)
-    device_id BYTEA NOT NULL, -- Ed25519 public key (32 bytes)
+    device_id BYTEA NOT NULL, -- Device ID (16 bytes, derived from Ed25519 public key)
+    identity_pub_ed25519 BYTEA, -- Ed25519 public key for signature verification (32 bytes)
     identity_key BYTEA NOT NULL, -- X25519 public key (32 bytes)
 
     -- Device metadata

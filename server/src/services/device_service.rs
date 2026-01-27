@@ -23,6 +23,7 @@ impl DeviceService {
         &self,
         user_id: Uuid,
         device_id: String,  // Hex-encoded
+        identity_pub_ed25519: String,  // Hex-encoded
         identity_key: String,  // Hex-encoded
         device_name: Option<String>,
         device_platform: Option<String>,
@@ -35,13 +36,22 @@ impl DeviceService {
         let device_id_bytes = hex::decode(&device_id)
             .map_err(|_| AppError::ValidationError("Invalid device_id format (must be hex)".to_string()))?;
 
+        let identity_pub_ed25519_bytes = hex::decode(&identity_pub_ed25519)
+            .map_err(|_| AppError::ValidationError("Invalid identity_pub_ed25519 format (must be hex)".to_string()))?;
+
         let identity_key_bytes = hex::decode(&identity_key)
             .map_err(|_| AppError::ValidationError("Invalid identity_key format (must be hex)".to_string()))?;
 
         // Validate sizes
-        if device_id_bytes.len() != 32 {
+        if device_id_bytes.len() != 16 {
             return Err(AppError::ValidationError(
-                "device_id must be 32 bytes (64 hex chars)".to_string(),
+                "device_id must be 16 bytes (32 hex chars)".to_string(),
+            ));
+        }
+
+        if identity_pub_ed25519_bytes.len() != 32 {
+            return Err(AppError::ValidationError(
+                "identity_pub_ed25519 must be 32 bytes (64 hex chars)".to_string(),
             ));
         }
 
@@ -56,6 +66,7 @@ impl DeviceService {
             .create(
                 user_id,
                 device_id_bytes,
+                Some(identity_pub_ed25519_bytes),
                 identity_key_bytes,
                 device_name,
                 device_platform,

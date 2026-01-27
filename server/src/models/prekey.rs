@@ -60,6 +60,7 @@ pub struct PrekeyBundle {
     pub convro_number: String,
     pub device_identity_id: Uuid,
     pub device_id: Vec<u8>,
+    pub identity_pub_ed25519: Option<Vec<u8>>, // Ed25519 public key
     pub identity_key: Vec<u8>,
     pub signed_prekey: Vec<u8>,
     pub signed_prekey_signature: Vec<u8>,
@@ -74,8 +75,9 @@ pub struct PrekeyBundleResponse {
     pub user_id: Uuid,
     pub convro_number: String,
     pub device_identity_id: Uuid,
-    pub device_id: String,          // Hex-encoded
-    pub identity_key: String,       // Hex-encoded
+    pub device_id: String,                  // Hex-encoded (16 bytes)
+    pub identity_pub_ed25519: Option<String>, // Hex-encoded Ed25519 public key (32 bytes)
+    pub identity_key: String,               // Hex-encoded X25519 public key (32 bytes)
     pub signed_prekey: SignedPrekeyResponse,
     pub one_time_prekey: Option<OneTimePrekeyResponse>,
 }
@@ -100,6 +102,7 @@ impl From<PrekeyBundle> for PrekeyBundleResponse {
             convro_number: bundle.convro_number,
             device_identity_id: bundle.device_identity_id,
             device_id: hex::encode(bundle.device_id),
+            identity_pub_ed25519: bundle.identity_pub_ed25519.map(|bytes| hex::encode(bytes)),
             identity_key: hex::encode(bundle.identity_key),
             signed_prekey: SignedPrekeyResponse {
                 spk_id: bundle.signed_prekey_id,

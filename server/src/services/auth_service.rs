@@ -29,6 +29,7 @@ impl AuthService {
         password: String,
         display_name: Option<String>,
         device_id: String,
+        identity_pub_ed25519: String,
         identity_key: String,
         spk_id_str: String,
         spk_pub: String,
@@ -62,12 +63,17 @@ impl AuthService {
         // Decode device keys from hex
         let device_id_bytes = hex::decode(&device_id)
             .map_err(|_| AppError::ValidationError("Invalid device_id format".to_string()))?;
+        let identity_pub_ed25519_bytes = hex::decode(&identity_pub_ed25519)
+            .map_err(|_| AppError::ValidationError("Invalid identity_pub_ed25519 format".to_string()))?;
         let identity_key_bytes = hex::decode(&identity_key)
             .map_err(|_| AppError::ValidationError("Invalid identity_key format".to_string()))?;
 
         // Validate key sizes
-        if device_id_bytes.len() != 32 {
-            return Err(AppError::ValidationError("device_id must be 32 bytes".to_string()));
+        if device_id_bytes.len() != 16 {
+            return Err(AppError::ValidationError("device_id must be 16 bytes".to_string()));
+        }
+        if identity_pub_ed25519_bytes.len() != 32 {
+            return Err(AppError::ValidationError("identity_pub_ed25519 must be 32 bytes".to_string()));
         }
         if identity_key_bytes.len() != 32 {
             return Err(AppError::ValidationError("identity_key must be 32 bytes".to_string()));
@@ -78,6 +84,7 @@ impl AuthService {
             .create(
                 user.user_id,
                 device_id_bytes,
+                Some(identity_pub_ed25519_bytes),
                 identity_key_bytes,
                 device_name,
                 device_platform,
