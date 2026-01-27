@@ -41,8 +41,8 @@ impl SealedMessageRepository {
             );
         }
 
-        // Default message type to 'sealed' if not provided
-        let msg_type = message_type.unwrap_or_else(|| "sealed".to_string());
+        // Default message type to 'sealed_sender' if not provided
+        let msg_type = message_type.unwrap_or_else(|| "sealed_sender".to_string());
 
         tracing::info!("Inserting into DB: to_user_id={}, envelope_len={}, msg_type={}",
             to_user_id, encrypted_envelope.len(), msg_type);

@@ -126,8 +126,8 @@ class ChatViewModel: ObservableObject {
                 case "handshake_accept":
                     // Ignore - we're responder, not initiator
                     print("⚠️ Received handshake_accept as responder (ignoring)")
-                case "sealed_sender":
-                    // Normal encrypted message
+                case "sealed_sender", "sealed":
+                    // Normal encrypted message (sealed_sender or legacy "sealed")
                     if sessionId != nil {
                         await handleIncomingMessage(inboxMessage)
                     } else {
