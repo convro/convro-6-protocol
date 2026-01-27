@@ -193,6 +193,14 @@ class SettingsViewModel: ObservableObject {
         user = nil
         devices = []
 
+        // CRITICAL: Clear ALL Keychain data (device identity, prekeys, session keys)
+        do {
+            try KeychainManager.shared.deleteAll()
+            print("🔑 Keychain cleared (device identity, prekeys, sessions)")
+        } catch {
+            print("⚠️ Failed to clear Keychain: \(error)")
+        }
+
         print("🧹 Local data cleared")
     }
 
