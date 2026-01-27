@@ -81,7 +81,12 @@ class HandshakeCoordinator: ObservableObject {
         let offer = try JSONDecoder().decode(OfferWireFormat.self, from: offerData)
 
         // Step 2: Load current signed prekey
-        let spk = try await KeychainManager.shared.loadSignedPrekey()
+        guard let spk = try? await KeychainManager.shared.loadSignedPrekey() else {
+            print("❌ CRITICAL: Signed prekey not found in Keychain!")
+            print("   This usually means the device identity wasn't generated properly.")
+            throw HandshakeError.prekeyBundleNotFound
+        }
+        print("✅ Signed prekey loaded successfully")
 
         // Step 3: Load OTP if one was used (4DH vs 3DH)
         var otp: C6PProtocol.OneTimePrekey? = nil
