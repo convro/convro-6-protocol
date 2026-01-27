@@ -510,8 +510,9 @@ struct PrekeyBundleResponse: Codable {
     let userId: UUID
     let convroNumber: String
     let deviceIdentityId: UUID
-    let deviceId: String
-    let identityKey: String
+    let deviceId: String                  // Device ID (16 bytes hex = 32 chars)
+    let identityPubEd25519: String?       // Ed25519 public key (32 bytes hex = 64 chars)
+    let identityKey: String               // X25519 public key (32 bytes hex = 64 chars)
     let signedPrekey: SignedPrekeyInfo
     let oneTimePrekey: OneTimePrekeyInfo?
 
@@ -536,9 +537,15 @@ struct PrekeyBundleResponse: Codable {
             throw HexDecodingError()
         }
 
-        // C6P expects 16-byte device_id, but backend sends 32-byte Ed25519 key
-        // Use first 16 bytes as device_id (truncate Ed25519 key)
-        let deviceIdArray = Array(deviceIdBytes.prefix(16))
+        // Device ID is already 16 bytes (no truncation needed)
+        let deviceIdArray = Array(deviceIdBytes)
+
+        // Get Ed25519 public key (fallback to empty if not provided for old data)
+        var identityPubEd25519Bytes: [UInt8] = []
+        if let identityPubEd25519 = identityPubEd25519,
+           let bytes = Data(hexString: identityPubEd25519) {
+            identityPubEd25519Bytes = Array(bytes)
+        }
 
         // Convert spk_id (Int64) to 8 bytes - backend now stores full 8 bytes
         var spkId = signedPrekey.spkId.bigEndian
@@ -558,11 +565,10 @@ struct PrekeyBundleResponse: Codable {
             otpPubBytes = Data(hexString: otp.publicKey).map { Array($0) }
         }
 
-        // For Ed25519, we use full device_id (which is Ed25519 public key in backend)
         return PrekeyBundle(
-            responderDeviceId: deviceIdArray, // First 16 bytes only
-            identityPubEd25519: Array(deviceIdBytes), // Full 32 bytes
-            identityPubX25519: Array(identityX25519Bytes),
+            responderDeviceId: deviceIdArray,                // Device ID (16 bytes)
+            identityPubEd25519: identityPubEd25519Bytes,     // Ed25519 public key (32 bytes)
+            identityPubX25519: Array(identityX25519Bytes),   // X25519 public key (32 bytes)
             spkId: spkIdBytes,
             spkPub: Array(spkPubBytes),
             spkSig: Array(spkSigBytes),
