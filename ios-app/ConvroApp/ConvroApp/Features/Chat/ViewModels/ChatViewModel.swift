@@ -109,8 +109,11 @@ class ChatViewModel: ObservableObject {
         do {
             let inboxMessages = try await apiManager.fetchInbox()
 
+            print("📬 Inbox polling: received \(inboxMessages.count) messages")
+
             // Process each inbox message
             for inboxMessage in inboxMessages {
+                print("📩 Processing message: \(inboxMessage.messageId), type: \(inboxMessage.messageType)")
                 // Check if we already have this message
                 if messages.contains(where: { $0.id == inboxMessage.messageId }) {
                     continue
@@ -137,6 +140,10 @@ class ChatViewModel: ObservableObject {
 
         } catch {
             print("⚠️ Polling failed: \(error)")
+            print("⚠️ Polling error details: \(error.localizedDescription)")
+            if let decodingError = error as? DecodingError {
+                print("❌ JSON Decoding Error: \(decodingError)")
+            }
             // Don't show error - polling is background operation
         }
     }
