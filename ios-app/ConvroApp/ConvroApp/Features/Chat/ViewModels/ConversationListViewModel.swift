@@ -63,15 +63,66 @@ class ConversationListViewModel: ObservableObject {
                 // Process each message
                 for inboxMessage in inboxMessages {
                     print("📩 New message in global inbox: \(inboxMessage.messageId), type: \(inboxMessage.messageType)")
+
+                    // If handshake_offer received, we need to create conversation
+                    if inboxMessage.messageType == "handshake_offer" {
+                        await handleIncomingHandshakeOffer(inboxMessage)
+                    }
                 }
 
                 // Refresh conversations from backend (might include new conversations)
                 await syncWithBackend()
+
+                // Also reload local storage in case we created new conversations
+                await loadConversations()
             }
 
         } catch {
             // Silent fail - polling is background operation
             print("⚠️ Global inbox polling failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Handle incoming handshake offer (create conversation for recipient)
+    private func handleIncomingHandshakeOffer(_ inboxMessage: InboxMessage) async {
+        print("🤝 NEW CONVERSATION: Received handshake offer!")
+
+        // Simple approach: Create conversation from ALL contacts
+        // The one who sent the handshake will have messages in their chat
+        // This ensures recipient sees the conversation immediately!
+
+        do {
+            // Fetch contacts
+            let contacts = try await apiManager.fetchContacts()
+
+            print("📋 Creating conversations for \(contacts.count) contacts (one of them sent handshake)")
+
+            // Create conversation for each contact
+            // The correct one will show handshake offer when opened
+            for contact in contacts {
+                // Check if conversation already exists
+                let existingConversations = await messageStorage.fetchAllConversations()
+                if existingConversations.contains(where: { $0.participantConvroNumber == contact.convroNumber }) {
+                    print("⏭️ Conversation already exists for \(contact.displayName ?? contact.convroNumber)")
+                    continue
+                }
+
+                let conversation = StoredConversation(
+                    id: UUID().uuidString,
+                    participantConvroNumber: contact.convroNumber,
+                    participantDisplayName: contact.displayName,
+                    lastMessageText: "🤝 New message",
+                    lastActivityAt: inboxMessage.createdAt,
+                    unreadCount: 1,
+                    sessionId: nil
+                )
+
+                await messageStorage.saveConversation(conversation)
+                print("💾 Created conversation for contact: \(contact.displayName ?? contact.convroNumber)")
+            }
+
+        } catch {
+            print("❌ Failed to create conversations: \(error)")
         }
     }
 
