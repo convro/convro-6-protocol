@@ -46,6 +46,10 @@ class APIClient {
 
         #if DEBUG
         print("📡 API Response: \(httpResponse.statusCode) for \(request.path)")
+        // Log raw response for inbox endpoint
+        if request.path.contains("/inbox"), let jsonString = String(data: data, encoding: .utf8) {
+            print("📦 Raw inbox response: \(jsonString)")
+        }
         #endif
 
         // Handle error responses
