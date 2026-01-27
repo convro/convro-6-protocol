@@ -93,7 +93,7 @@ class ConversationListViewModel: ObservableObject {
 
         do {
             // Fetch contacts
-            let contacts = try await apiManager.fetchContacts()
+            let contacts = try await apiManager.listContacts()
 
             print("📋 Creating conversations for \(contacts.count) contacts (one of them sent handshake)")
 
