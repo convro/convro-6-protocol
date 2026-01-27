@@ -89,11 +89,13 @@ class HandshakeCoordinator: ObservableObject {
             // Convert hex to bytes
             let otpIdBytes = try C6PManager.shared.hexToBytes(usedOtpIdHex)
 
-            // Load OTP from Keychain
-            otp = try await KeychainManager.shared.loadOneTimePrekey(otpId: otpIdBytes)
+            // Load OTP from Keychain (try? = fallback to 3DH if not found)
+            otp = try? await KeychainManager.shared.loadOneTimePrekey(otpId: otpIdBytes)
 
             if otp == nil {
                 print("⚠️ OTP \(usedOtpIdHex) not found in Keychain - falling back to 3DH")
+            } else {
+                print("✅ OTP \(usedOtpIdHex) loaded successfully - using 4DH")
             }
         }
 
