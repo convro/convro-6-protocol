@@ -2,24 +2,81 @@ import SwiftUI
 
 struct DeviceSetupView: View {
     var onComplete: () -> Void
+    @State private var isReady = false
 
     var body: some View {
-        VStack(spacing: 24) {
-            ProgressView("Generating device identity...")
+        ZStack {
+            Color.black.ignoresSafeArea()
 
-            Text("Setting up encryption keys...")
-                .foregroundColor(.secondary)
+            VStack(spacing: 0) {
+                // Illustration
+                AsyncImage(url: URL(string: "https://convro.eu/assets/IMG_4159-ntf-2.png")) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .padding(.horizontal, 40)
+                    case .failure:
+                        Color.clear.frame(height: 280)
+                    case .empty:
+                        ProgressView()
+                            .tint(.white)
+                            .frame(height: 280)
+                    @unknown default:
+                        Color.clear.frame(height: 280)
+                    }
+                }
+                .offset(y: -20)
 
-            Button("Complete Setup") { onComplete() }
+                // Text + Button
+                VStack(spacing: 16) {
+                    Text("Your secure identity")
+                        .font(.title)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+
+                    Text("We're generating your encryption keys.\nThis stays on your device — always.")
+                        .font(.body)
+                        .foregroundColor(Color.white.opacity(0.6))
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(4)
+
+                    if isReady {
+                        Button {
+                            onComplete()
+                        } label: {
+                            Text("Continue")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 16)
+                                .background(Color("ConvroBlue"))
+                                .foregroundColor(.white)
+                                .cornerRadius(16)
+                        }
+                        .padding(.top, 8)
+                    } else {
+                        ProgressView()
+                            .tint(Color("ConvroBlue"))
+                            .padding(.top, 16)
+                    }
+                }
+                .padding(.horizontal, 28)
+                .offset(y: -60)
+
+                Spacer()
+            }
+            .padding(.top, 40)
         }
+        .navigationBarHidden(true)
         .task {
-            // Generate device identity (Ed25519 + X25519 keypairs)
             do {
                 try await DeviceIdentityManager.shared.generateIdentity()
                 print("✅ Device identity generated in onboarding")
-                // Auto-saved to Keychain by DeviceIdentityManager
+                isReady = true
             } catch {
                 print("❌ Failed to generate device identity: \(error)")
+                isReady = true // Allow continue even on error
             }
         }
     }

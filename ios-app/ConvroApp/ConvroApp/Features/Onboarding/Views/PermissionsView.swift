@@ -4,42 +4,63 @@ struct PermissionsView: View {
     var onContinue: () -> Void
 
     var body: some View {
-        VStack(spacing: 24) {
-            Text("Permissions").font(.largeTitle).fontWeight(.bold)
+        ZStack {
+            Color.black.ignoresSafeArea()
 
-            VStack(spacing: 16) {
-                PermissionRow(icon: "bell.fill", title: "Notifications", description: "Receive new messages")
-                PermissionRow(icon: "faceid", title: "Biometrics", description: "Secure app unlock")
+            VStack(spacing: 0) {
+                // Illustration
+                AsyncImage(url: URL(string: "https://convro.eu/assets/IMG_4158-ntf-2.png")) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .padding(.horizontal, 40)
+                    case .failure:
+                        Color.clear.frame(height: 280)
+                    case .empty:
+                        ProgressView()
+                            .tint(.white)
+                            .frame(height: 280)
+                    @unknown default:
+                        Color.clear.frame(height: 280)
+                    }
+                }
+                .offset(y: -20)
+
+                // Text + Button
+                VStack(spacing: 16) {
+                    Text("Stay in the loop")
+                        .font(.title)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+
+                    Text("Enable notifications and biometrics\nto keep your messages secure and instant.")
+                        .font(.body)
+                        .foregroundColor(Color.white.opacity(0.6))
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(4)
+
+                    Button {
+                        onContinue()
+                    } label: {
+                        Text("Enable Permissions")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(Color("ConvroBlue"))
+                            .foregroundColor(.white)
+                            .cornerRadius(16)
+                    }
+                    .padding(.top, 8)
+                }
+                .padding(.horizontal, 28)
+                .offset(y: -60)
+
+                Spacer()
             }
-
-            Button("Grant Permissions") { onContinue() }
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(Color("ConvroBlue"))
-                .foregroundColor(.white)
-                .cornerRadius(12)
-                .padding(.horizontal)
+            .padding(.top, 40)
         }
-    }
-}
-
-struct PermissionRow: View {
-    let icon: String
-    let title: String
-    let description: String
-
-    var body: some View {
-        HStack {
-            Image(systemName: icon).frame(width: 40)
-            VStack(alignment: .leading) {
-                Text(title).fontWeight(.semibold)
-                Text(description).font(.caption).foregroundColor(.secondary)
-            }
-            Spacer()
-        }
-        .padding()
-        .background(Color(.systemGray6))
-        .cornerRadius(12)
-        .padding(.horizontal)
+        .navigationBarHidden(true)
     }
 }
