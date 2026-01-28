@@ -96,6 +96,8 @@ struct OnboardingFlowView: View {
     var body: some View {
         NavigationView {
             ZStack {
+                Color.black.ignoresSafeArea()
+
                 switch viewModel.currentStep {
                 case .welcome:
                     WelcomeView(onContinue: {
@@ -113,7 +115,9 @@ struct OnboardingFlowView: View {
                     })
                 }
             }
+            .navigationBarHidden(true)
         }
+        .navigationViewStyle(.stack)
     }
 }
 

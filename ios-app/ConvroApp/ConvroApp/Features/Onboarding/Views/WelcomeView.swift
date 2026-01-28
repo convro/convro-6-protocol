@@ -4,56 +4,81 @@ struct WelcomeView: View {
     var onContinue: () -> Void
 
     var body: some View {
-        VStack(spacing: 32) {
-            Image(systemName: "lock.shield.fill")
-                .resizable()
-                .frame(width: 100, height: 100)
-                .foregroundColor(Color("ConvroBlue"))
+        ZStack {
+            // Full black background
+            Color.black.ignoresSafeArea()
 
-            Text("Welcome to Convro")
-                .font(.largeTitle)
-                .fontWeight(.bold)
+            VStack(spacing: 0) {
+                // Top: Illustration
+                AsyncImage(url: URL(string: "https://convro.eu/assets/GRUM.png")) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .padding(.horizontal, 40)
+                    case .failure:
+                        Color.clear.frame(height: 280)
+                    case .empty:
+                        ProgressView()
+                            .tint(.white)
+                            .frame(height: 280)
+                    @unknown default:
+                        Color.clear.frame(height: 280)
+                    }
+                }
+                .frame(maxHeight: .infinity)
 
-            Text("End-to-end encrypted messaging with maximum privacy")
-                .multilineTextAlignment(.center)
-                .foregroundColor(.secondary)
-                .padding(.horizontal)
+                // Bottom: Content card
+                VStack(spacing: 16) {
+                    Text("Welcome to Convro")
+                        .font(.title)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
 
-            VStack(alignment: .leading, spacing: 16) {
-                FeatureRow(icon: "lock.fill", title: "Privacy-First", description: "Server never sees sender identity")
-                FeatureRow(icon: "shield.fill", title: "E2EE", description: "Military-grade encryption")
-                FeatureRow(icon: "timer", title: "Sealed Sender", description: "64KB padding, timestamp obfuscation")
+                    Text("Private messaging built on anonymity.\nNo phone number. No identity exposure. Ever.")
+                        .font(.body)
+                        .foregroundColor(Color.white.opacity(0.6))
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(4)
+
+                    Button {
+                        onContinue()
+                    } label: {
+                        Text("Get Started")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(Color("ConvroBlue"))
+                            .foregroundColor(.white)
+                            .cornerRadius(16)
+                    }
+                    .padding(.top, 8)
+                }
+                .padding(.horizontal, 28)
+                .padding(.top, 32)
+                .padding(.bottom, 48)
+                .background(
+                    RoundedCornerShape(radius: 32, corners: [.topLeft, .topRight])
+                        .fill(Color(red: 0.1, green: 0.1, blue: 0.1))
+                )
             }
-            .padding()
-
-            Button {
-                onContinue()
-            } label: {
-                Text("Get Started")
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color("ConvroBlue"))
-                    .foregroundColor(.white)
-                    .cornerRadius(12)
-            }
-            .padding(.horizontal)
         }
+        .navigationBarHidden(true)
     }
 }
 
-struct FeatureRow: View {
-    let icon: String
-    let title: String
-    let description: String
+// Custom shape for top-only rounded corners
+struct RoundedCornerShape: Shape {
+    var radius: CGFloat
+    var corners: UIRectCorner
 
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .foregroundColor(Color("ConvroBlue"))
-            VStack(alignment: .leading) {
-                Text(title).fontWeight(.semibold)
-                Text(description).font(.caption).foregroundColor(.secondary)
-            }
-        }
+    func path(in rect: CGRect) -> Path {
+        let path = UIBezierPath(
+            roundedRect: rect,
+            byRoundingCorners: corners,
+            cornerRadii: CGSize(width: radius, height: radius)
+        )
+        return Path(path.cgPath)
     }
 }
