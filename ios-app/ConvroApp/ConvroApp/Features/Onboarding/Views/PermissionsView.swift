@@ -1,4 +1,6 @@
 import SwiftUI
+import UserNotifications
+import LocalAuthentication
 
 struct PermissionsView: View {
     var onContinue: () -> Void
@@ -42,7 +44,7 @@ struct PermissionsView: View {
                         .lineSpacing(4)
 
                     Button {
-                        onContinue()
+                        requestPermissions()
                     } label: {
                         Text("Enable Permissions")
                             .font(.headline)
@@ -62,5 +64,26 @@ struct PermissionsView: View {
             .padding(.top, 40)
         }
         .navigationBarHidden(true)
+    }
+
+    private func requestPermissions() {
+        // Request push notifications
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { _, _ in
+            // Request biometrics (triggers Face ID / Touch ID prompt)
+            let context = LAContext()
+            var error: NSError?
+            if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) {
+                context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "Enable biometric unlock for Convro") { _, _ in
+                    DispatchQueue.main.async {
+                        onContinue()
+                    }
+                }
+            } else {
+                // No biometrics available, just continue
+                DispatchQueue.main.async {
+                    onContinue()
+                }
+            }
+        }
     }
 }
