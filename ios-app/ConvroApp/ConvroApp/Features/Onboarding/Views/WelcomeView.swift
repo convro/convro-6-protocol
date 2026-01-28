@@ -7,8 +7,8 @@ struct WelcomeView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            VStack(spacing: 24) {
-                // Illustration
+            VStack(spacing: 0) {
+                // Illustration - pushed to top
                 AsyncImage(url: URL(string: "https://convro.eu/assets/GRUM.png")) { phase in
                     switch phase {
                     case .success(let image):
@@ -26,8 +26,9 @@ struct WelcomeView: View {
                         Color.clear.frame(height: 280)
                     }
                 }
+                .offset(y: -20)
 
-                // Text + Button
+                // Text + Button - pulled up to overlap invisible space
                 VStack(spacing: 16) {
                     Text("Welcome to Convro")
                         .font(.title)
@@ -54,10 +55,11 @@ struct WelcomeView: View {
                     .padding(.top, 8)
                 }
                 .padding(.horizontal, 28)
+                .offset(y: -60)
 
                 Spacer()
             }
-            .padding(.top, 60)
+            .padding(.top, 40)
         }
         .navigationBarHidden(true)
     }
