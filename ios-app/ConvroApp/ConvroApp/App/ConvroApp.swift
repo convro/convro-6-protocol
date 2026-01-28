@@ -128,26 +128,32 @@ struct AuthenticationFlowView: View {
 
     var body: some View {
         NavigationView {
-            if showRegister {
-                RegisterView(
-                    onSuccess: {
-                        appCoordinator.userDidAuthenticate()
-                    },
-                    onBackToLogin: {
-                        showRegister = false
-                    }
-                )
-            } else {
-                LoginView(
-                    onSuccess: {
-                        appCoordinator.userDidAuthenticate()
-                    },
-                    onShowRegister: {
-                        showRegister = true
-                    }
-                )
+            ZStack {
+                Color.black.ignoresSafeArea()
+
+                if showRegister {
+                    RegisterView(
+                        onSuccess: {
+                            appCoordinator.userDidAuthenticate()
+                        },
+                        onBackToLogin: {
+                            showRegister = false
+                        }
+                    )
+                } else {
+                    LoginView(
+                        onSuccess: {
+                            appCoordinator.userDidAuthenticate()
+                        },
+                        onShowRegister: {
+                            showRegister = true
+                        }
+                    )
+                }
             }
+            .navigationBarHidden(true)
         }
+        .navigationViewStyle(.stack)
     }
 }
 

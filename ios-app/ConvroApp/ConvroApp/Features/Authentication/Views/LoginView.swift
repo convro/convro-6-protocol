@@ -7,27 +7,50 @@ struct LoginView: View {
     let onShowRegister: () -> Void
 
     var body: some View {
-        VStack(spacing: 24) {
-                // Logo
-                Image(systemName: "message.fill")
-                    .resizable()
-                    .frame(width: 80, height: 80)
-                    .foregroundColor(.blue)
+        ZStack {
+            Color.black.ignoresSafeArea()
 
-                Text("Convro")
-                    .font(.largeTitle)
+            VStack(spacing: 28) {
+                Spacer()
+
+                // Logo
+                AsyncImage(url: URL(string: "https://convro.eu/assets/images/L-Logo-7-5.png")) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 80, height: 80)
+                            .clipShape(RoundedRectangle(cornerRadius: 20))
+                    default:
+                        RoundedRectangle(cornerRadius: 20)
+                            .fill(Color(red: 0.1, green: 0.1, blue: 0.1))
+                            .frame(width: 80, height: 80)
+                    }
+                }
+
+                Text("Sign in to Convro")
+                    .font(.title2)
                     .fontWeight(.bold)
+                    .foregroundColor(.white)
 
                 // Input Fields
-                VStack(spacing: 16) {
+                VStack(spacing: 14) {
                     TextField("Username", text: $viewModel.username)
-                        .textFieldStyle(.roundedBorder)
                         .autocapitalization(.none)
+                        .disableAutocorrection(true)
+                        .padding()
+                        .background(Color(red: 0.1, green: 0.1, blue: 0.1))
+                        .cornerRadius(14)
+                        .foregroundColor(.white)
 
                     SecureField("Password", text: $viewModel.password)
-                        .textFieldStyle(.roundedBorder)
+                        .padding()
+                        .background(Color(red: 0.1, green: 0.1, blue: 0.1))
+                        .cornerRadius(14)
+                        .foregroundColor(.white)
                 }
-                .padding(.horizontal)
+                .padding(.horizontal, 28)
 
                 // Login Button
                 Button {
@@ -39,36 +62,44 @@ struct LoginView: View {
                     }
                 } label: {
                     Text("Login")
+                        .font(.headline)
                         .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.blue)
+                        .padding(.vertical, 16)
+                        .background(Color("ConvroBlue"))
                         .foregroundColor(.white)
-                        .cornerRadius(12)
+                        .cornerRadius(16)
                 }
-                .padding(.horizontal)
+                .padding(.horizontal, 28)
                 .disabled(viewModel.isLoading)
 
                 // Register Link
                 Button {
                     onShowRegister()
                 } label: {
-                    Text("Don't have an account? Register")
-                        .font(.footnote)
+                    HStack(spacing: 4) {
+                        Text("Don't have an account?")
+                            .foregroundColor(Color.white.opacity(0.4))
+                        Text("Register")
+                            .foregroundColor(Color("ConvroBlue"))
+                            .fontWeight(.semibold)
+                    }
+                    .font(.subheadline)
                 }
 
                 Spacer()
+                Spacer()
             }
-            .padding()
-            .navigationBarHidden(true)
-            .loadingOverlay(isLoading: viewModel.isLoading)
-            .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
-                Button("OK") {
-                    viewModel.clearError()
-                }
-            } message: {
-                if let error = viewModel.errorMessage {
-                    Text(error)
-                }
+        }
+        .navigationBarHidden(true)
+        .loadingOverlay(isLoading: viewModel.isLoading)
+        .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
+            Button("OK") {
+                viewModel.clearError()
             }
+        } message: {
+            if let error = viewModel.errorMessage {
+                Text(error)
+            }
+        }
     }
 }
