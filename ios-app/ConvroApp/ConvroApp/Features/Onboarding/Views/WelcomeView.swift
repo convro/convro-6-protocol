@@ -5,11 +5,10 @@ struct WelcomeView: View {
 
     var body: some View {
         ZStack {
-            // Full black background
             Color.black.ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                // Top: Illustration
+            VStack(spacing: 24) {
+                // Illustration
                 AsyncImage(url: URL(string: "https://convro.eu/assets/GRUM.png")) { phase in
                     switch phase {
                     case .success(let image):
@@ -27,9 +26,8 @@ struct WelcomeView: View {
                         Color.clear.frame(height: 280)
                     }
                 }
-                .frame(maxHeight: .infinity)
 
-                // Bottom: Content card
+                // Text + Button
                 VStack(spacing: 16) {
                     Text("Welcome to Convro")
                         .font(.title)
@@ -56,29 +54,11 @@ struct WelcomeView: View {
                     .padding(.top, 8)
                 }
                 .padding(.horizontal, 28)
-                .padding(.top, 32)
-                .padding(.bottom, 48)
-                .background(
-                    RoundedCornerShape(radius: 32, corners: [.topLeft, .topRight])
-                        .fill(Color(red: 0.1, green: 0.1, blue: 0.1))
-                )
+
+                Spacer()
             }
+            .padding(.top, 60)
         }
         .navigationBarHidden(true)
-    }
-}
-
-// Custom shape for top-only rounded corners
-struct RoundedCornerShape: Shape {
-    var radius: CGFloat
-    var corners: UIRectCorner
-
-    func path(in rect: CGRect) -> Path {
-        let path = UIBezierPath(
-            roundedRect: rect,
-            byRoundingCorners: corners,
-            cornerRadii: CGSize(width: radius, height: radius)
-        )
-        return Path(path.cgPath)
     }
 }
