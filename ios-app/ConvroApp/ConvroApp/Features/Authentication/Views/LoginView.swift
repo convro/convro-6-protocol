@@ -14,20 +14,11 @@ struct LoginView: View {
                 Spacer()
 
                 // Logo
-                AsyncImage(url: URL(string: "https://convro.eu/assets/images/L-Logo-7-5.png")) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 80, height: 80)
-                            .clipShape(RoundedRectangle(cornerRadius: 20))
-                    default:
-                        RoundedRectangle(cornerRadius: 20)
-                            .fill(Color(red: 0.1, green: 0.1, blue: 0.1))
-                            .frame(width: 80, height: 80)
-                    }
-                }
+                Image("L-Logo-7-5")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 80, height: 80)
+                    .clipShape(RoundedRectangle(cornerRadius: 20))
 
                 Text("Sign in to Convro")
                     .font(.title2)

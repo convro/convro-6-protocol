@@ -9,23 +9,10 @@ struct WelcomeView: View {
 
             VStack(spacing: 0) {
                 // Illustration - pushed to top
-                AsyncImage(url: URL(string: "https://convro.eu/assets/GRUM.png")) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .padding(.horizontal, 40)
-                    case .failure:
-                        Color.clear.frame(height: 280)
-                    case .empty:
-                        ProgressView()
-                            .tint(.white)
-                            .frame(height: 280)
-                    @unknown default:
-                        Color.clear.frame(height: 280)
-                    }
-                }
+                Image("GRUM")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .padding(.horizontal, 40)
                 .offset(y: -20)
 
                 // Text + Button - pulled up to overlap invisible space

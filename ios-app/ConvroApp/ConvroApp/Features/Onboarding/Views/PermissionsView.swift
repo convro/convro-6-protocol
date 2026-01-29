@@ -11,23 +11,10 @@ struct PermissionsView: View {
 
             VStack(spacing: 0) {
                 // Illustration
-                AsyncImage(url: URL(string: "https://convro.eu/assets/IMG_4158-ntf-2.png")) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .padding(.horizontal, 40)
-                    case .failure:
-                        Color.clear.frame(height: 280)
-                    case .empty:
-                        ProgressView()
-                            .tint(.white)
-                            .frame(height: 280)
-                    @unknown default:
-                        Color.clear.frame(height: 280)
-                    }
-                }
+                Image("IMG_4158-ntf-2")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .padding(.horizontal, 40)
                 .offset(y: -20)
 
                 // Text + Button
