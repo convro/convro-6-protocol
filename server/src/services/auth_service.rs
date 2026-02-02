@@ -101,10 +101,22 @@ impl AuthService {
             {
                 let prekey_service = PrekeyService::new(self.pool.clone());
 
+                // Parse spk_id from hex string to i32
+                // iOS sends spkId as hex-encoded bytes, we take first 4 bytes as i32
+                let spk_id_bytes = hex::decode(spk_id)
+                    .map_err(|_| AppError::ValidationError("Invalid spk_id format".to_string()))?;
+                let spk_id_int = if spk_id_bytes.len() >= 4 {
+                    i32::from_be_bytes([spk_id_bytes[0], spk_id_bytes[1], spk_id_bytes[2], spk_id_bytes[3]])
+                } else {
+                    // Pad with zeros if less than 4 bytes
+                    let mut padded = [0u8; 4];
+                    padded[4 - spk_id_bytes.len()..].copy_from_slice(&spk_id_bytes);
+                    i32::from_be_bytes(padded)
+                };
+
                 // Build signed prekey DTO
                 let signed_prekey_dto = SignedPrekeyDto {
-                    spk_id: hex::decode(spk_id)
-                        .map_err(|_| AppError::ValidationError("Invalid spk_id format".to_string()))?,
+                    spk_id: spk_id_int,
                     public_key: spk_pub.clone(),
                     signature: spk_sig.clone(),
                     expires_at: None,
