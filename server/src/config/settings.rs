@@ -8,6 +8,7 @@ pub struct Settings {
     pub jwt_secret: String,
     pub jwt_access_expiry: u64,
     pub jwt_refresh_expiry: u64,
+    #[serde(default)]
     pub cors_allowed_origins: Vec<String>,
     pub rate_limit_per_minute: u32,
     pub ws_heartbeat_interval: u64,
