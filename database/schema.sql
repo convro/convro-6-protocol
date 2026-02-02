@@ -177,6 +177,10 @@ CREATE TABLE one_time_prekeys (
     one_time_prekey BYTEA NOT NULL, -- X25519 public key (32 bytes)
     otp_key_id INTEGER NOT NULL,
 
+    -- Client's original OTP ID (hex-encoded, 16 chars = 8 bytes)
+    -- This is returned in prekey bundle so client can match it to Keychain
+    client_otp_id VARCHAR(16) NOT NULL,
+
     -- Lifecycle
     uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     consumed_at TIMESTAMP WITH TIME ZONE,
@@ -191,10 +195,12 @@ CREATE INDEX idx_otp_device ON one_time_prekeys(device_identity_id);
 CREATE INDEX idx_otp_available ON one_time_prekeys(device_identity_id, consumed_at)
     WHERE consumed_at IS NULL;
 CREATE INDEX idx_otp_consumed ON one_time_prekeys(consumed_at) WHERE consumed_at IS NOT NULL;
+CREATE INDEX idx_otp_client_id ON one_time_prekeys(client_otp_id);
 
 -- Comments
 COMMENT ON TABLE one_time_prekeys IS 'Single-use prekeys for forward secrecy in handshake';
 COMMENT ON COLUMN one_time_prekeys.consumed_at IS 'NULL = available, NOT NULL = already used';
+COMMENT ON COLUMN one_time_prekeys.client_otp_id IS 'Client hex-encoded OTP ID (16 chars), returned in bundle for Keychain lookup';
 
 -- ============================================================================
 -- TABLE: sessions

@@ -15,7 +15,7 @@ pub struct SignedPrekey {
 /// One-Time Prekey
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OneTimePrekey {
-    pub otp_id: i32,
+    pub otp_id: String,       // Client's hex-encoded OTP ID (16 chars = 8 bytes)
     pub public_key: Vec<u8>,  // X25519 public key (32 bytes)
 }
 
@@ -47,8 +47,11 @@ pub struct SignedPrekeyDto {
 /// One-Time Prekey DTO (hex-encoded)
 #[derive(Debug, Serialize, Deserialize, Validate)]
 pub struct OneTimePrekeyDto {
-    pub otp_id: i32,
+    #[serde(alias = "otpId")]  // Accept both otp_id and otpId from clients
+    #[validate(length(equal = 16))]  // 8 bytes = 16 hex chars
+    pub otp_id: String,
 
+    #[serde(alias = "otpPub")]  // Accept both public_key and otpPub from clients
     #[validate(length(equal = 64))]
     pub public_key: String,
 }
@@ -65,53 +68,60 @@ pub struct PrekeyBundle {
     pub signed_prekey_signature: Vec<u8>,
     pub signed_prekey_id: i32,
     pub one_time_prekey: Option<Vec<u8>>,
-    pub otp_id: Option<Uuid>,
+    pub client_otp_id: Option<String>,  // Client's original hex-encoded OTP ID
 }
 
-/// Prekey bundle response (for API)
+/// Prekey bundle response (for API) - flat structure matching iOS client expectations
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PrekeyBundleResponse {
     pub user_id: Uuid,
     pub convro_number: String,
     pub device_identity_id: Uuid,
-    pub device_id: String,          // Hex-encoded
-    pub identity_key: String,       // Hex-encoded
-    pub signed_prekey: SignedPrekeyResponse,
-    pub one_time_prekey: Option<OneTimePrekeyResponse>,
-}
 
-#[derive(Debug, Serialize)]
-pub struct SignedPrekeyResponse {
-    pub spk_id: i32,
-    pub public_key: String,   // Hex-encoded
-    pub signature: String,    // Hex-encoded
-}
+    // Device identity (flat)
+    pub responder_device_id: String,      // Hex-encoded Ed25519 pub key (device_id)
+    pub identity_pub_ed25519: String,     // Hex-encoded Ed25519 pub key (identity_key)
+    pub identity_pub_x25519: String,      // Hex-encoded X25519 pub key (same as identity_key for now)
 
-#[derive(Debug, Serialize)]
-pub struct OneTimePrekeyResponse {
-    pub otp_id: Uuid,
-    pub public_key: String,   // Hex-encoded
+    // Signed prekey (flat)
+    pub spk_id: String,                   // Hex-encoded SPK ID
+    pub spk_pub: String,                  // Hex-encoded X25519 pub key
+    pub spk_sig: String,                  // Hex-encoded Ed25519 signature
+
+    // One-time prekey (flat, optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub otp_id: Option<String>,           // Client's original hex OTP ID
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub otp_pub: Option<String>,          // Hex-encoded X25519 pub key
 }
 
 impl From<PrekeyBundle> for PrekeyBundleResponse {
     fn from(bundle: PrekeyBundle) -> Self {
+        // Extract OTP fields if present
+        let (otp_id, otp_pub) = match (bundle.client_otp_id, bundle.one_time_prekey) {
+            (Some(id), Some(key)) => (Some(id), Some(hex::encode(key))),
+            _ => (None, None),
+        };
+
         Self {
             user_id: bundle.user_id,
             convro_number: bundle.convro_number,
             device_identity_id: bundle.device_identity_id,
-            device_id: hex::encode(bundle.device_id),
-            identity_key: hex::encode(bundle.identity_key),
-            signed_prekey: SignedPrekeyResponse {
-                spk_id: bundle.signed_prekey_id,
-                public_key: hex::encode(bundle.signed_prekey),
-                signature: hex::encode(bundle.signed_prekey_signature),
-            },
-            one_time_prekey: bundle.one_time_prekey.zip(bundle.otp_id).map(|(key, id)| {
-                OneTimePrekeyResponse {
-                    otp_id: id,
-                    public_key: hex::encode(key),
-                }
-            }),
+
+            // Device identity
+            responder_device_id: hex::encode(&bundle.device_id),
+            identity_pub_ed25519: hex::encode(&bundle.device_id),  // Ed25519 pub is device_id
+            identity_pub_x25519: hex::encode(&bundle.identity_key), // X25519 DH key
+
+            // Signed prekey
+            spk_id: hex::encode(bundle.signed_prekey_id.to_be_bytes()),
+            spk_pub: hex::encode(&bundle.signed_prekey),
+            spk_sig: hex::encode(&bundle.signed_prekey_signature),
+
+            // One-time prekey
+            otp_id,
+            otp_pub,
         }
     }
 }

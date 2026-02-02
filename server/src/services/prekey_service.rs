@@ -72,11 +72,11 @@ impl PrekeyService {
                 ))
             })?;
 
-        // If OTP is present, consume it
-        if let Some(otp_id) = bundle.otp_id {
+        // If OTP is present, log for debugging
+        if let Some(ref client_otp_id) = bundle.client_otp_id {
             // Note: We don't consume here - the client should call consume_otp
             // after successfully using it in handshake
-            tracing::debug!("OTP reserved for handshake: {}", otp_id);
+            tracing::debug!("OTP reserved for handshake: client_otp_id={}", client_otp_id);
         }
 
         Ok(bundle)
@@ -140,6 +140,20 @@ impl PrekeyService {
     fn parse_one_time_prekeys(&self, dtos: Vec<OneTimePrekeyDto>) -> AppResult<Vec<OneTimePrekey>> {
         dtos.into_iter()
             .map(|dto| {
+                // Validate OTP ID format (hex string, 16 chars = 8 bytes)
+                if dto.otp_id.len() != 16 {
+                    return Err(AppError::ValidationError(
+                        "otp_id must be 16 hex characters (8 bytes)".to_string(),
+                    ));
+                }
+
+                // Validate OTP ID is valid hex
+                if hex::decode(&dto.otp_id).is_err() {
+                    return Err(AppError::ValidationError(
+                        "otp_id must be valid hex string".to_string(),
+                    ));
+                }
+
                 let public_key = hex::decode(&dto.public_key).map_err(|_| {
                     AppError::ValidationError(
                         "Invalid one_time_prekey format (must be hex)".to_string(),
@@ -153,7 +167,7 @@ impl PrekeyService {
                 }
 
                 Ok(OneTimePrekey {
-                    otp_id: dto.otp_id,
+                    otp_id: dto.otp_id,  // Keep as hex string
                     public_key,
                 })
             })

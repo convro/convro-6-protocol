@@ -5,9 +5,11 @@ use crate::{
     errors::{AppError, AppResult},
     models::{
         auth::AuthTokens,
-        user::User,
+        prekey::{OneTimePrekeyDto, SignedPrekeyDto},
+        user::{CreateUserRequest, User},
     },
-    repositories::UserRepository,
+    repositories::{DeviceRepository, UserRepository},
+    services::PrekeyService,
     utils::{generate_convro_number, hash_password, jwt, verify_password},
 };
 
@@ -22,30 +24,128 @@ impl AuthService {
         Self { pool }
     }
 
-    /// Register new user
-    pub async fn register_user(
-        &self,
-        username: String,
-        password: String,
-        display_name: Option<String>,
-    ) -> AppResult<(User, AuthTokens)> {
+    /// Register new user with device identity and prekeys
+    pub async fn register_user(&self, req: CreateUserRequest) -> AppResult<(User, AuthTokens)> {
         let user_repo = UserRepository::new(self.pool.clone());
 
         // Check if username exists
-        if user_repo.find_by_username(&username).await?.is_some() {
+        if user_repo.find_by_username(&req.username).await?.is_some() {
             return Err(AppError::Conflict("Username already exists".to_string()));
         }
 
         // Hash password
-        let password_hash = hash_password(&password)?;
+        let password_hash = hash_password(&req.password)?;
 
         // Generate Convro Number (random strategy with collision detection)
         let convro_number = self.generate_unique_convro_number(&user_repo).await?;
 
         // Create user in database
         let user = user_repo
-            .create(username, password_hash, convro_number, display_name)
+            .create(
+                req.username.clone(),
+                password_hash,
+                convro_number,
+                req.display_name.clone(),
+            )
             .await?;
+
+        // Register device identity if provided
+        if let (Some(identity_ed25519), Some(identity_x25519)) =
+            (&req.identity_pub_ed25519, &req.identity_pub_x25519)
+        {
+            let device_repo = DeviceRepository::new(self.pool.clone());
+
+            // Decode hex keys
+            let ed25519_key = hex::decode(identity_ed25519).map_err(|_| {
+                AppError::ValidationError("Invalid identity_pub_ed25519 format".to_string())
+            })?;
+            let x25519_key = hex::decode(identity_x25519).map_err(|_| {
+                AppError::ValidationError("Invalid identity_pub_x25519 format".to_string())
+            })?;
+
+            // Validate key sizes
+            if ed25519_key.len() != 32 {
+                return Err(AppError::ValidationError(
+                    "identity_pub_ed25519 must be 32 bytes".to_string(),
+                ));
+            }
+            if x25519_key.len() != 32 {
+                return Err(AppError::ValidationError(
+                    "identity_pub_x25519 must be 32 bytes".to_string(),
+                ));
+            }
+
+            // Create device identity
+            // Note: device_id column stores Ed25519 key, identity_key stores X25519 key
+            let device = device_repo
+                .create(
+                    user.user_id,
+                    ed25519_key,  // device_id column = Ed25519 public key
+                    x25519_key,   // identity_key column = X25519 public key
+                    Some("Primary Device".to_string()),
+                    Some("iOS".to_string()),
+                    None,
+                    None,
+                )
+                .await?;
+
+            tracing::info!(
+                "Device registered during signup: {} for user {}",
+                device.device_identity_id,
+                user.user_id
+            );
+
+            // Upload prekeys if provided
+            if let (Some(spk_id), Some(spk_pub), Some(spk_sig)) =
+                (&req.spk_id, &req.spk_pub, &req.spk_sig)
+            {
+                let prekey_service = PrekeyService::new(self.pool.clone());
+
+                // Build signed prekey DTO
+                let signed_prekey_dto = SignedPrekeyDto {
+                    spk_id: hex::decode(spk_id)
+                        .map_err(|_| AppError::ValidationError("Invalid spk_id format".to_string()))?,
+                    public_key: spk_pub.clone(),
+                    signature: spk_sig.clone(),
+                    expires_at: None,
+                };
+
+                // Build one-time prekey DTOs
+                let one_time_prekeys_dto: Vec<OneTimePrekeyDto> = req
+                    .one_time_prekeys
+                    .as_ref()
+                    .map(|otps| {
+                        otps.iter()
+                            .map(|otp| OneTimePrekeyDto {
+                                otp_id: otp.otp_id.clone(),
+                                public_key: otp.otp_pub.clone(),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                if !one_time_prekeys_dto.is_empty() {
+                    let bundle_id = prekey_service
+                        .upload_prekeys(
+                            device.device_identity_id,
+                            signed_prekey_dto,
+                            one_time_prekeys_dto,
+                        )
+                        .await?;
+
+                    tracing::info!(
+                        "Prekeys uploaded during signup: bundle_id={} for device {}",
+                        bundle_id,
+                        device.device_identity_id
+                    );
+                } else {
+                    tracing::warn!(
+                        "No one-time prekeys provided during signup for device {}",
+                        device.device_identity_id
+                    );
+                }
+            }
+        }
 
         // Generate JWT tokens
         let tokens = self.generate_tokens(&user)?;

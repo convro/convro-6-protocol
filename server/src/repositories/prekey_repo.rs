@@ -66,14 +66,16 @@ impl PrekeyRepository {
                 INSERT INTO one_time_prekeys (
                     device_identity_id,
                     one_time_prekey,
-                    otp_key_id
+                    otp_key_id,
+                    client_otp_id
                 )
-                VALUES ($1, $2, $3)
+                VALUES ($1, $2, $3, $4)
                 "#,
             )
             .bind(device_identity_id)
             .bind(otp.public_key)
-            .bind(otp.otp_id)
+            .bind(0i32)  // otp_key_id is now unused, kept for schema compatibility
+            .bind(&otp.otp_id)  // client's hex-encoded OTP ID
             .execute(&mut *tx)
             .await?;
         }
@@ -92,6 +94,7 @@ impl PrekeyRepository {
     /// Fetch prekey bundle for handshake (includes OTP reservation)
     pub async fn fetch_bundle(&self, convro_number: &str) -> AppResult<Option<PrekeyBundle>> {
         // This query matches the one in database schema (with LATERAL join for OTP)
+        // Returns client_otp_id so client can match it to Keychain
         let result = sqlx::query_as::<_, PrekeyBundle>(
             r#"
             SELECT
@@ -104,12 +107,12 @@ impl PrekeyRepository {
                 pb.signed_prekey_signature,
                 pb.signed_prekey_id,
                 otp.one_time_prekey,
-                otp.otp_id
+                otp.client_otp_id
             FROM users u
             JOIN device_identities di ON u.user_id = di.user_id
             JOIN prekey_bundles pb ON di.device_identity_id = pb.device_identity_id
             LEFT JOIN LATERAL (
-                SELECT otp_id, one_time_prekey
+                SELECT client_otp_id, one_time_prekey
                 FROM one_time_prekeys
                 WHERE device_identity_id = di.device_identity_id
                   AND consumed_at IS NULL

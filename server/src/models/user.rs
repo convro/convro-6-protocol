@@ -19,8 +19,9 @@ pub struct User {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Create user request (registration)
+/// Create user request (registration with device identity and prekeys)
 #[derive(Debug, Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateUserRequest {
     #[validate(length(min = 3, max = 50))]
     pub username: String,
@@ -28,8 +29,48 @@ pub struct CreateUserRequest {
     #[validate(length(min = 8))]
     pub password: String,
 
+    #[serde(alias = "displayName")]
     #[validate(length(max = 100))]
     pub display_name: Option<String>,
+
+    // Device identity fields (hex-encoded)
+    #[serde(alias = "deviceId")]
+    #[validate(length(equal = 64))]  // 32 bytes = 64 hex chars
+    pub device_id: Option<String>,
+
+    #[serde(alias = "identityPubEd25519")]
+    #[validate(length(equal = 64))]
+    pub identity_pub_ed25519: Option<String>,
+
+    #[serde(alias = "identityPubX25519")]
+    #[validate(length(equal = 64))]
+    pub identity_pub_x25519: Option<String>,
+
+    // Signed prekey fields (hex-encoded)
+    #[serde(alias = "spkId")]
+    pub spk_id: Option<String>,
+
+    #[serde(alias = "spkPub")]
+    #[validate(length(equal = 64))]
+    pub spk_pub: Option<String>,
+
+    #[serde(alias = "spkSig")]
+    #[validate(length(equal = 128))]
+    pub spk_sig: Option<String>,
+
+    // One-time prekeys
+    #[serde(alias = "oneTimePrekeys")]
+    pub one_time_prekeys: Option<Vec<OneTimePrekeyInput>>,
+}
+
+/// One-time prekey input from client
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OneTimePrekeyInput {
+    #[serde(alias = "otpId")]
+    pub otp_id: String,      // Hex-encoded OTP ID (16 chars)
+    #[serde(alias = "otpPub")]
+    pub otp_pub: String,     // Hex-encoded public key (64 chars)
 }
 
 /// Login request
