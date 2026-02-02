@@ -466,7 +466,7 @@ struct AuthResponse: Codable {
     let userId: UUID
     let username: String
     let convroNumber: String
-    let displayName: String
+    let displayName: String?
     let createdAt: Date
     let lastLogin: Date?
     let accountStatus: String
