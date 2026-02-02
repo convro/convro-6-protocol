@@ -17,7 +17,9 @@ public class ConversationEntity: NSManagedObject {
     @NSManaged public var participantDisplayName: String
     @NSManaged public var lastMessageId: UUID?
     @NSManaged public var lastMessageType: String?
+    @NSManaged public var lastMessageText: String?
     @NSManaged public var lastMessageTimestamp: Date?
+    @NSManaged public var lastMessageFromMe: Bool
     @NSManaged public var unreadCount: Int32
     @NSManaged public var lastActivity: Date
 
@@ -33,13 +35,14 @@ public class ConversationEntity: NSManagedObject {
         )
 
         var lastMessage: LastMessage? = nil
-        if let msgId = lastMessageId,
-           let msgType = lastMessageType,
+        if let msgText = lastMessageText,
            let msgTime = lastMessageTimestamp {
             lastMessage = LastMessage(
-                messageId: msgId,
-                messageType: msgType,
-                timestamp: msgTime
+                messageId: lastMessageId,
+                messageType: lastMessageType,
+                text: msgText,
+                timestamp: msgTime,
+                fromMe: lastMessageFromMe
             )
         }
 
@@ -60,7 +63,9 @@ public class ConversationEntity: NSManagedObject {
         self.participantDisplayName = conversation.participant.displayName
         self.lastMessageId = conversation.lastMessage?.messageId
         self.lastMessageType = conversation.lastMessage?.messageType
+        self.lastMessageText = conversation.lastMessage?.text
         self.lastMessageTimestamp = conversation.lastMessage?.timestamp
+        self.lastMessageFromMe = conversation.lastMessage?.fromMe ?? false
         self.unreadCount = Int32(conversation.unreadCount)
         self.lastActivity = conversation.lastActivity
     }

@@ -577,6 +577,7 @@ struct InboxMessage: Codable, Identifiable {
     let messageId: UUID
     let encryptedEnvelope: String
     let createdAt: Date
+    let messageType: String?
 
     var id: UUID { messageId }
 }

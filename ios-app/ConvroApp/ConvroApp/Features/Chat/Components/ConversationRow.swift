@@ -26,7 +26,7 @@ struct ConversationRow: View {
 
                 // Last message preview
                 if let lastMessage = conversation.lastMessage {
-                    Text(lastMessage.messageType == "encrypted_message" ? "Encrypted message" : "Handshake")
+                    Text(lastMessage.text)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .lineLimit(1)
