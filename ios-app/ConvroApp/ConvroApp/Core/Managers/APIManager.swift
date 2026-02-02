@@ -640,9 +640,11 @@ extension ConversationResponse {
         // ConversationResponse doesn't have lastMessage details, only lastMessageAt
         let lastMessage: LastMessage? = lastMessageAt.map { timestamp in
             LastMessage(
-                messageId: UUID(), // Placeholder
+                messageId: nil,
                 messageType: "encrypted_message",
-                timestamp: timestamp
+                text: "Encrypted message",
+                timestamp: timestamp,
+                fromMe: false
             )
         }
 
