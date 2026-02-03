@@ -1,4 +1,5 @@
 use axum::{
+    body::Bytes,
     extract::State,
     http::StatusCode,
     routing::post,
@@ -34,19 +35,59 @@ pub fn router(state: AppState) -> Router {
 
 /// POST /auth/register - Register new user
 ///
-/// Creates a new user account and assigns a Convro Number.
+/// Creates a new user account, device identity, and assigns a Convro Number.
 async fn register(
     State(state): State<AppState>,
-    Json(req): Json<CreateUserRequest>,
+    body: Bytes,
 ) -> AppResult<(StatusCode, Json<RegisterResponse>)> {
+    // Log raw body for debugging
+    let body_str = String::from_utf8_lossy(&body);
+    tracing::info!("POST /auth/register - raw_body: {}", body_str);
+
+    // Deserialize request
+    let req: CreateUserRequest = serde_json::from_slice(&body)
+        .map_err(|e| {
+            tracing::error!("Registration JSON deserialization failed: {}", e);
+            AppError::ValidationError(format!("Invalid JSON: {}", e))
+        })?;
+
+    tracing::info!(
+        "Registration attempt - username: {}, has_identity_pub_ed25519: {}, has_identity_key: {}, has_spk_id: {}, has_spk_pub: {}, has_spk_sig: {}, otp_count: {}",
+        req.username,
+        !req.identity_pub_ed25519.is_empty(),
+        !req.identity_key.is_empty(),
+        !req.spk_id.is_empty(),
+        !req.spk_pub.is_empty(),
+        !req.spk_sig.is_empty(),
+        req.one_time_prekeys.len()
+    );
+
     // Validate request
     req.validate()
-        .map_err(|e| AppError::ValidationError(e.to_string()))?;
+        .map_err(|e| {
+            tracing::error!("Registration validation failed: {}", e);
+            AppError::ValidationError(e.to_string())
+        })?;
 
-    // Register user via service
+    // Register user, device, and prekeys via service
     let (user, tokens) = state
         .auth_service
-        .register_user(req.username, req.password, req.display_name)
+        .register_user(
+            req.username,
+            req.password,
+            req.display_name,
+            req.device_id.ok_or_else(|| AppError::ValidationError("device_id is required".to_string()))?,
+            req.identity_pub_ed25519,   // Ed25519 public key for signature verification
+            req.identity_key,           // X25519 -> identity_key in DB
+            req.spk_id,
+            req.spk_pub,
+            req.spk_sig,
+            req.one_time_prekeys,
+            req.device_name,
+            req.device_platform,
+            req.device_os_version,
+            req.app_version,
+        )
         .await?;
 
     let response = RegisterResponse {

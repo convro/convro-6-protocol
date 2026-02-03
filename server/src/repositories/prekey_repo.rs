@@ -99,6 +99,7 @@ impl PrekeyRepository {
                 u.convro_number,
                 di.device_identity_id,
                 di.device_id,
+                di.identity_pub_ed25519,
                 di.identity_key,
                 pb.signed_prekey,
                 pb.signed_prekey_signature,

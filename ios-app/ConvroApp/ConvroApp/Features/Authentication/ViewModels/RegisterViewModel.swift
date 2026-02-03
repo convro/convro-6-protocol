@@ -67,6 +67,12 @@ class RegisterViewModel: ObservableObject {
             let spk = try c6pManager.generateSignedPrekey()
             let otps = try (0..<10).map { _ in try c6pManager.generateOneTimePrekey() }
 
+            // Step 2.5: Save prekeys to Keychain BEFORE sending to server
+            print("💾 Saving prekeys to Keychain...")
+            try await KeychainManager.shared.saveSignedPrekey(spk)
+            try await KeychainManager.shared.saveOneTimePrekeys(otps)
+            print("✅ Saved \(otps.count) OTPs and 1 SPK to Keychain")
+
             // Step 3: Register with server
             print("📡 Registering with server...")
             let response = try await apiManager.register(

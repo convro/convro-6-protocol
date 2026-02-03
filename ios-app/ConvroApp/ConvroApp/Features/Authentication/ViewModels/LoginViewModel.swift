@@ -14,6 +14,7 @@ class LoginViewModel: ObservableObject {
     // MARK: - Dependencies
     private let apiManager = APIManager.shared
     private let webSocketManager = WebSocketManager.shared
+    private let messageStorage = MessageStorage.shared
 
     // MARK: - Actions
 
@@ -33,6 +34,9 @@ class LoginViewModel: ObservableObject {
 
             // Save current user's Convro Number to UserDefaults
             UserDefaults.standard.set(response.convroNumber, forKey: "current_user_convro_number")
+
+            // Set current user for MessageStorage (scopes data to this user)
+            messageStorage.setCurrentUser(convroNumber: response.convroNumber)
 
             // Connect WebSocket for real-time updates
             await webSocketManager.connect(accessToken: response.accessToken)

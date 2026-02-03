@@ -8,6 +8,7 @@ pub struct Settings {
     pub jwt_secret: String,
     pub jwt_access_expiry: u64,
     pub jwt_refresh_expiry: u64,
+    #[serde(skip)]
     pub cors_allowed_origins: Vec<String>,
     pub rate_limit_per_minute: u32,
     pub ws_heartbeat_interval: u64,
@@ -26,12 +27,21 @@ impl Settings {
 
         let mut config: Settings = settings.try_deserialize()?;
 
-        // Parse CORS origins (comma-separated string)
+        // Parse CORS origins (comma-separated string) - override deserialized value
         if let Ok(origins) = std::env::var("CORS_ALLOWED_ORIGINS") {
             config.cors_allowed_origins = origins
                 .split(',')
                 .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
                 .collect();
+        }
+
+        // If still empty, use defaults
+        if config.cors_allowed_origins.is_empty() {
+            config.cors_allowed_origins = vec![
+                "http://localhost:3000".to_string(),
+                "http://127.0.0.1:3000".to_string(),
+            ];
         }
 
         // Validate JWT secret length

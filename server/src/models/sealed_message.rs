@@ -27,6 +27,10 @@ pub struct SendSealedMessageRequest {
     /// Encrypted envelope (base64-encoded, will be 64KB after padding)
     #[validate(length(min = 1))]
     pub encrypted_envelope: String,
+
+    /// Message type (optional) - for handshake messages
+    #[serde(alias = "messageType", alias = "message_type")]
+    pub message_type: Option<String>,
 }
 
 /// Send sealed message response
@@ -41,6 +45,7 @@ pub struct SendSealedMessageResponse {
 #[derive(Debug, Serialize)]
 pub struct SealedMessageResponse {
     pub message_id: Uuid,
+    pub message_type: String, // "handshake_offer", "handshake_accept", "sealed_sender"
     pub encrypted_envelope: String, // Base64-encoded
     pub created_at: DateTime<Utc>,
     pub delivered_at: Option<DateTime<Utc>>,
@@ -60,6 +65,7 @@ impl SealedMessage {
     pub fn to_response(&self) -> SealedMessageResponse {
         SealedMessageResponse {
             message_id: self.message_id,
+            message_type: self.message_type.clone(),
             encrypted_envelope: base64::Engine::encode(
                 &base64::engine::general_purpose::STANDARD,
                 &self.encrypted_envelope,

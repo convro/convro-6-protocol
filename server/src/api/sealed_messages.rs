@@ -70,23 +70,41 @@ async fn send_sealed_message(
     _claims: Claims, // Sender authenticated but identity NOT stored
     Json(req): Json<SendSealedMessageRequest>,
 ) -> AppResult<(StatusCode, Json<SendSealedMessageResponse>)> {
+    tracing::info!(
+        "POST /messages - to_convro_number: {}, envelope_len: {}, message_type: {:?}",
+        req.to_convro_number,
+        req.encrypted_envelope.len(),
+        req.message_type
+    );
+
     // Validate request
     req.validate()
-        .map_err(|e| AppError::ValidationError(e.to_string()))?;
+        .map_err(|e| {
+            tracing::error!("Validation error: {}", e);
+            AppError::ValidationError(e.to_string())
+        })?;
 
     // Decode base64 encrypted envelope
+    tracing::info!("Decoding base64 envelope (first 50 chars): {}", &req.encrypted_envelope.chars().take(50).collect::<String>());
     let encrypted_envelope = base64::Engine::decode(
         &base64::engine::general_purpose::STANDARD,
         &req.encrypted_envelope,
     )
-    .map_err(|_| {
+    .map_err(|e| {
+        tracing::error!("Base64 decode failed: {:?}", e);
         AppError::ValidationError("Invalid base64 encrypted_envelope".to_string())
     })?;
+
+    tracing::info!("Decoded envelope size: {} bytes", encrypted_envelope.len());
 
     // Send sealed message (service handles padding, timing obfuscation)
     let message = state
         .sealed_message_service
-        .send_sealed_message(req.to_convro_number.clone(), encrypted_envelope)
+        .send_sealed_message(
+            req.to_convro_number.clone(),
+            encrypted_envelope,
+            req.message_type.clone(),
+        )
         .await?;
 
     tracing::info!(

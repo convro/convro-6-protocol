@@ -22,6 +22,7 @@ struct ConversationListView: View {
                 await viewModel.loadConversations()
             }
         }
+        .toolbar(.visible, for: .tabBar) // Show tab bar when returning from chat
         .task {
             await viewModel.loadConversations()
         }

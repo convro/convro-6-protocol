@@ -32,14 +32,18 @@ struct Participant: Codable {
 
 // MARK: - Last Message
 struct LastMessage: Codable {
-    let messageId: UUID
-    let messageType: String
+    let messageId: UUID?
+    let messageType: String?
+    let text: String
     let timestamp: Date
+    let fromMe: Bool
 
     enum CodingKeys: String, CodingKey {
         case messageId = "message_id"
         case messageType = "message_type"
+        case text
         case timestamp
+        case fromMe = "from_me"
     }
 }
 

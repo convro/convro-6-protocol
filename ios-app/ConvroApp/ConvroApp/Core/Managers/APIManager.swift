@@ -205,9 +205,16 @@ class APIManager: ObservableObject {
     /// - For handshakes: Set messageType to "handshake_offer" or "handshake_accept"
     /// - For regular messages: Leave messageType as nil (uses sealed sender format)
     func sendMessage(toConvroNumber: String, encryptedEnvelope: Data, messageType: String? = nil) async throws -> MessageResponse {
-        // encryptedEnvelope is already 64KB padded + base64 encoded from MessageEncryptionService
-        // OR it's the serialized handshake offer/accept from FFI (JSON wire format)
-        let envelopeString = String(data: encryptedEnvelope, encoding: .utf8) ?? ""
+        let envelopeString: String
+
+        if messageType == "handshake_offer" || messageType == "handshake_accept" {
+            // Handshake messages: encryptedEnvelope is JSON wire format (not base64)
+            // Backend expects base64, so encode it
+            envelopeString = encryptedEnvelope.base64EncodedString()
+        } else {
+            // Regular messages: encryptedEnvelope is already base64-encoded from MessageEncryptionService
+            envelopeString = String(data: encryptedEnvelope, encoding: .utf8) ?? ""
+        }
 
         let body = SendMessageRequest(
             recipientConvroNumber: toConvroNumber,
@@ -409,31 +416,19 @@ private struct OneTimePrekeyData: Codable {
 
 private struct SendMessageRequest: Encodable {
     let recipientConvroNumber: String
-    let encryptedEnvelope: String?
+    let encryptedEnvelope: String
     let messageType: String?
-    let encryptedBlob: String?
 
     enum CodingKeys: String, CodingKey {
         case recipientConvroNumber = "to_convro_number"
         case encryptedEnvelope = "encrypted_envelope"
         case messageType = "message_type"
-        case encryptedBlob = "encrypted_blob"
     }
 
     init(recipientConvroNumber: String, encryptedEnvelope: String, messageType: String?) {
         self.recipientConvroNumber = recipientConvroNumber
-
-        // If message_type is present (handshake), use encrypted_blob field
-        // Otherwise (regular message), use encrypted_envelope field
-        if let messageType = messageType {
-            self.messageType = messageType
-            self.encryptedBlob = encryptedEnvelope
-            self.encryptedEnvelope = nil
-        } else {
-            self.messageType = nil
-            self.encryptedBlob = nil
-            self.encryptedEnvelope = encryptedEnvelope
-        }
+        self.encryptedEnvelope = encryptedEnvelope
+        self.messageType = messageType
     }
 }
 
@@ -512,40 +507,69 @@ struct DevicesResponse: Codable {
 }
 
 struct PrekeyBundleResponse: Codable {
-    let responderDeviceId: String
-    let identityPubEd25519: String
-    let identityPubX25519: String
-    let spkId: String
-    let spkPub: String
-    let spkSig: String
-    let otpId: String?
-    let otpPub: String?
+    let userId: UUID
+    let convroNumber: String
+    let deviceIdentityId: UUID
+    let deviceId: String                  // Device ID (16 bytes hex = 32 chars)
+    let identityPubEd25519: String?       // Ed25519 public key (32 bytes hex = 64 chars)
+    let identityKey: String               // X25519 public key (32 bytes hex = 64 chars)
+    let signedPrekey: SignedPrekeyInfo
+    let oneTimePrekey: OneTimePrekeyInfo?
+
+    struct SignedPrekeyInfo: Codable {
+        let spkId: Int64
+        let publicKey: String
+        let signature: String
+    }
+
+    struct OneTimePrekeyInfo: Codable {
+        let otpId: String
+        let publicKey: String
+    }
 
     /// Convert to C6P PrekeyBundle for handshake
     func toPrekeyBundle() throws -> PrekeyBundle {
-        guard let deviceIdBytes = Data(hexString: responderDeviceId),
-              let identityEd25519Bytes = Data(hexString: identityPubEd25519),
-              let identityX25519Bytes = Data(hexString: identityPubX25519),
-              let spkIdBytes = Data(hexString: spkId),
-              let spkPubBytes = Data(hexString: spkPub),
-              let spkSigBytes = Data(hexString: spkSig) else {
+        guard let deviceIdBytes = Data(hexString: deviceId),
+              let identityX25519Bytes = Data(hexString: identityKey),
+              let spkPubBytes = Data(hexString: signedPrekey.publicKey),
+              let spkSigBytes = Data(hexString: signedPrekey.signature) else {
             struct HexDecodingError: Error {}
             throw HexDecodingError()
         }
 
+        // Device ID is already 16 bytes (no truncation needed)
+        let deviceIdArray = Array(deviceIdBytes)
+
+        // Get Ed25519 public key (fallback to empty if not provided for old data)
+        var identityPubEd25519Bytes: [UInt8] = []
+        if let identityPubEd25519 = identityPubEd25519,
+           let bytes = Data(hexString: identityPubEd25519) {
+            identityPubEd25519Bytes = Array(bytes)
+        }
+
+        // Convert spk_id (Int64) to 8 bytes - backend now stores full 8 bytes
+        var spkId = signedPrekey.spkId.bigEndian
+        let spkIdBytes = withUnsafeBytes(of: &spkId) { Array($0) }
+
         var otpIdBytes: [UInt8]? = nil
         var otpPubBytes: [UInt8]? = nil
 
-        if let otpIdHex = otpId, let otpPubHex = otpPub {
-            otpIdBytes = Data(hexString: otpIdHex).map { Array($0) }
-            otpPubBytes = Data(hexString: otpPubHex).map { Array($0) }
+        if let otp = oneTimePrekey {
+            // OTP ID is UUID string (16 bytes), but C6P expects 8 bytes
+            // Use first 8 bytes of UUID
+            if let uuid = UUID(uuidString: otp.otpId) {
+                var uuidBytes = uuid.uuid
+                let fullUuidBytes = withUnsafeBytes(of: &uuidBytes) { Array($0) }
+                otpIdBytes = Array(fullUuidBytes.prefix(8)) // First 8 bytes only
+            }
+            otpPubBytes = Data(hexString: otp.publicKey).map { Array($0) }
         }
 
         return PrekeyBundle(
-            responderDeviceId: Array(deviceIdBytes),
-            identityPubEd25519: Array(identityEd25519Bytes),
-            identityPubX25519: Array(identityX25519Bytes),
-            spkId: Array(spkIdBytes),
+            responderDeviceId: deviceIdArray,                // Device ID (16 bytes)
+            identityPubEd25519: identityPubEd25519Bytes,     // Ed25519 public key (32 bytes)
+            identityPubX25519: Array(identityX25519Bytes),   // X25519 public key (32 bytes)
+            spkId: spkIdBytes,
             spkPub: Array(spkPubBytes),
             spkSig: Array(spkSigBytes),
             otpId: otpIdBytes,
@@ -575,6 +599,7 @@ struct InboxResponse: Codable {
 
 struct InboxMessage: Codable, Identifiable {
     let messageId: UUID
+    let messageType: String // "handshake_offer", "handshake_accept", "sealed_sender"
     let encryptedEnvelope: String
     let createdAt: Date
 
@@ -639,9 +664,11 @@ extension ConversationResponse {
         // ConversationResponse doesn't have lastMessage details, only lastMessageAt
         let lastMessage: LastMessage? = lastMessageAt.map { timestamp in
             LastMessage(
-                messageId: UUID(), // Placeholder
-                messageType: "encrypted_message",
-                timestamp: timestamp
+                messageId: nil,
+                messageType: nil,
+                text: "[Message]", // Placeholder - backend doesn't send text
+                timestamp: timestamp,
+                fromMe: false
             )
         }
 

@@ -81,7 +81,21 @@ class HandshakeCoordinator: ObservableObject {
         let offer = try JSONDecoder().decode(OfferWireFormat.self, from: offerData)
 
         // Step 2: Load current signed prekey
-        let spk = try await KeychainManager.shared.loadSignedPrekey()
+        guard let spk = try? await KeychainManager.shared.loadSignedPrekey() else {
+            print("❌ CRITICAL: Signed prekey not found in Keychain!")
+            print("   This usually means the device identity wasn't generated properly.")
+            throw HandshakeError.prekeyBundleNotFound
+        }
+        print("✅ Signed prekey loaded successfully")
+
+        // Step 2.5: Load and print device identity for debugging
+        if let deviceIdentity = DeviceIdentityManager.shared.deviceIdentity {
+            print("🔍 MY Device ID: \(deviceIdentity.deviceId.toHexString())")
+        }
+        print("🔍 OFFER says responder device ID should be: (checking offer...)")
+        if let responderDeviceIdHex = offer.responderDeviceId {
+            print("🔍 OFFER responder_device_id: \(responderDeviceIdHex)")
+        }
 
         // Step 3: Load OTP if one was used (4DH vs 3DH)
         var otp: C6PProtocol.OneTimePrekey? = nil
@@ -89,11 +103,13 @@ class HandshakeCoordinator: ObservableObject {
             // Convert hex to bytes
             let otpIdBytes = try C6PManager.shared.hexToBytes(usedOtpIdHex)
 
-            // Load OTP from Keychain
-            otp = try await KeychainManager.shared.loadOneTimePrekey(otpId: otpIdBytes)
+            // Load OTP from Keychain (try? = fallback to 3DH if not found)
+            otp = try? await KeychainManager.shared.loadOneTimePrekey(otpId: otpIdBytes)
 
             if otp == nil {
                 print("⚠️ OTP \(usedOtpIdHex) not found in Keychain - falling back to 3DH")
+            } else {
+                print("✅ OTP \(usedOtpIdHex) loaded successfully - using 4DH")
             }
         }
 
@@ -183,12 +199,14 @@ enum HandshakeState: Equatable {
 // MARK: - Wire Format (for parsing offer)
 
 /// Minimal wire format for parsing handshake offer
-/// Only decodes fields we need (used_one_time_prekey_id)
+/// Only decodes fields we need (used_one_time_prekey_id, responder_device_id)
 private struct OfferWireFormat: Decodable {
     let usedOneTimePrekeyId: String?
+    let responderDeviceId: String?
 
     enum CodingKeys: String, CodingKey {
         case usedOneTimePrekeyId = "usedOneTimePrekeyId"
+        case responderDeviceId = "responderDeviceId"
     }
 }
 

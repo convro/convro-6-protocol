@@ -44,6 +44,7 @@ async fn register_device(
         .register_device(
             claims.sub,
             req.device_id,
+            req.identity_pub_ed25519,
             req.identity_key,
             req.device_name,
             req.device_platform,

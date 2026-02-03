@@ -33,16 +33,34 @@ impl SealedMessageService {
         &self,
         to_convro_number: String,
         encrypted_envelope: Vec<u8>,
+        message_type: Option<String>,
     ) -> AppResult<SealedMessage> {
+        tracing::info!("send_sealed_message called: to={}, envelope_size={}, message_type={:?}",
+            to_convro_number, encrypted_envelope.len(), message_type);
+
         // Find recipient by Convro Number
         let recipient = self
             .user_repo
             .find_by_convro_number(&to_convro_number)
             .await?
-            .ok_or_else(|| AppError::NotFound("Recipient not found".to_string()))?;
+            .ok_or_else(|| {
+                tracing::error!("Recipient not found: {}", to_convro_number);
+                AppError::NotFound("Recipient not found".to_string())
+            })?;
 
-        // Pad envelope to 64KB (if not already padded)
-        let padded_envelope = if encrypted_envelope.len() == padding::SEALED_ENVELOPE_SIZE {
+        tracing::info!("Recipient found: user_id={}", recipient.user_id);
+
+        // Check if this is a handshake message (don't pad handshake messages)
+        let is_handshake = message_type.as_ref().map_or(false, |t| {
+            t == "handshake_offer" || t == "handshake_accept"
+        });
+
+        tracing::info!("is_handshake={}", is_handshake);
+
+        // Pad envelope to 64KB (only for regular sealed messages, not handshakes)
+        let final_envelope = if is_handshake {
+            encrypted_envelope // Keep handshake messages as-is (small wire format)
+        } else if encrypted_envelope.len() == padding::SEALED_ENVELOPE_SIZE {
             encrypted_envelope
         } else {
             padding::pad_sealed_envelope(encrypted_envelope)?
@@ -54,7 +72,7 @@ impl SealedMessageService {
         // Create sealed message
         let message = self
             .sealed_message_repo
-            .create(recipient.user_id, padded_envelope)
+            .create(recipient.user_id, final_envelope, message_type, is_handshake)
             .await?;
 
         tracing::info!(

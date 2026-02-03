@@ -21,20 +21,36 @@ impl SealedMessageRepository {
     pub async fn create(
         &self,
         to_user_id: Uuid,
-        encrypted_envelope: Vec<u8>, // Must be exactly 64KB
+        encrypted_envelope: Vec<u8>, // Must be exactly 64KB for sealed messages, variable for handshakes
+        message_type: Option<String>,
+        is_handshake: bool,
     ) -> AppResult<SealedMessage> {
-        // Verify size (database constraint will also check this)
-        if encrypted_envelope.len() != 65536 {
+        // Verify size (only for non-handshake messages)
+        if !is_handshake && encrypted_envelope.len() != 65536 {
             return Err(AppError::ValidationError(format!(
-                "Encrypted envelope must be exactly 64KB, got {} bytes",
+                "Sealed message envelope must be exactly 64KB, got {} bytes",
                 encrypted_envelope.len()
             )));
         }
 
+        // Handshake messages can be any size (C6P wire format)
+        if is_handshake {
+            tracing::info!(
+                "Handshake message size: {} bytes (no padding)",
+                encrypted_envelope.len()
+            );
+        }
+
+        // Default message type to 'sealed_sender' if not provided
+        let msg_type = message_type.unwrap_or_else(|| "sealed_sender".to_string());
+
+        tracing::info!("Inserting into DB: to_user_id={}, envelope_len={}, msg_type={}",
+            to_user_id, encrypted_envelope.len(), msg_type);
+
         let message = sqlx::query_as::<_, SealedMessage>(
             r#"
-            INSERT INTO messages_sealed (to_user_id, encrypted_envelope)
-            VALUES ($1, $2)
+            INSERT INTO messages_sealed (to_user_id, encrypted_envelope, message_type)
+            VALUES ($1, $2, $3)
             RETURNING
                 message_id,
                 to_user_id,
@@ -49,10 +65,13 @@ impl SealedMessageRepository {
         )
         .bind(to_user_id)
         .bind(&encrypted_envelope)
+        .bind(&msg_type)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| {
+            tracing::error!("Database INSERT failed: {:?}", e);
             if let sqlx::Error::Database(db_err) = &e {
+                tracing::error!("DB error message: {}", db_err.message());
                 if db_err.message().contains("check constraint") {
                     return AppError::ValidationError(
                         "Encrypted envelope must be exactly 64KB".to_string(),

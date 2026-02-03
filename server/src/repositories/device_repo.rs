@@ -22,6 +22,7 @@ impl DeviceRepository {
         &self,
         user_id: Uuid,
         device_id: Vec<u8>,
+        identity_pub_ed25519: Option<Vec<u8>>,
         identity_key: Vec<u8>,
         device_name: Option<String>,
         device_platform: Option<String>,
@@ -33,6 +34,7 @@ impl DeviceRepository {
             INSERT INTO device_identities (
                 user_id,
                 device_id,
+                identity_pub_ed25519,
                 identity_key,
                 device_name,
                 device_platform,
@@ -40,11 +42,12 @@ impl DeviceRepository {
                 app_version,
                 is_active
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE)
             RETURNING
                 device_identity_id,
                 user_id,
                 device_id,
+                identity_pub_ed25519,
                 identity_key,
                 device_name,
                 device_platform,
@@ -52,12 +55,12 @@ impl DeviceRepository {
                 app_version,
                 registered_at,
                 last_seen,
-                is_active,
-                updated_at
+                is_active
             "#,
         )
         .bind(user_id)
         .bind(device_id)
+        .bind(identity_pub_ed25519)
         .bind(identity_key)
         .bind(device_name)
         .bind(device_platform)
@@ -91,6 +94,7 @@ impl DeviceRepository {
                 device_identity_id,
                 user_id,
                 device_id,
+                identity_pub_ed25519,
                 identity_key,
                 device_name,
                 device_platform,
@@ -98,8 +102,7 @@ impl DeviceRepository {
                 app_version,
                 registered_at,
                 last_seen,
-                is_active,
-                updated_at
+                is_active
             FROM device_identities
             WHERE user_id = $1
             ORDER BY registered_at DESC
@@ -120,6 +123,7 @@ impl DeviceRepository {
                 device_identity_id,
                 user_id,
                 device_id,
+                identity_pub_ed25519,
                 identity_key,
                 device_name,
                 device_platform,
@@ -127,8 +131,7 @@ impl DeviceRepository {
                 app_version,
                 registered_at,
                 last_seen,
-                is_active,
-                updated_at
+                is_active
             FROM device_identities
             WHERE device_identity_id = $1
             "#,
